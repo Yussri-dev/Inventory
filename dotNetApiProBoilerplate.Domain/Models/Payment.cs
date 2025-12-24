@@ -1,0 +1,40 @@
+﻿
+using Inventory.Domain.Abstraction;
+using Inventory.Domain.Enums;
+using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
+
+namespace Inventory.Domain.Entities
+{
+    public class Payment : TenantEntity
+    {
+        [Key]
+        public Guid Id { get; set; }
+
+        [Required]
+        public Guid SaleId { get; set; }
+
+        [ForeignKey(nameof(SaleId))]
+        public Sale Sale { get; set; } = null!;
+
+        [Required]
+        public PaymentMethod Method { get; set; }
+
+        [Column(TypeName = "decimal(18,2)")]
+        public decimal Amount { get; set; }
+
+        [MaxLength(200)]
+        public string? TransactionRef { get; set; }
+
+        [MaxLength(100)]
+        public string? CardLastFourDigits { get; set; }
+
+        public DateTime PaidAt { get; set; }
+
+        public bool IsRefunded { get; set; }
+        public DateTime? RefundedAt { get; set; }
+
+        [MaxLength(500)]
+        public string? Notes { get; set; }
+    }
+}
