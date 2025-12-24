@@ -17,8 +17,11 @@ namespace Inventory.Api.Installers
 
             builder.Services.AddMediatR(cfg =>
                cfg.RegisterServicesFromAssembly(typeof(CashCorrectionService).Assembly)
-           );
+            );
 
+            builder.Services.AddMediatR(cfg =>
+               cfg.RegisterServicesFromAssembly(typeof(CashMovementService).Assembly)
+            );
             return builder;
         }
     }

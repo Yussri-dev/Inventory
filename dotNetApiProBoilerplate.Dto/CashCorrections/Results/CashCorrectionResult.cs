@@ -1,25 +1,27 @@
-﻿namespace Inventory.Dto.CashCorrections.Results
+﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
+
+namespace Inventory.Dto.CashCorrections.Results
 {
     public class CashCorrectionResult
     {
         public Guid Id { get; set; }
 
-        public string Name { get; set; } = null!;
+        public Guid OriginalCashSessionId { get; set; }
 
-        public string? Email { get; set; }
 
-        public string? Phone { get; set; }
+        public decimal Amount { get; set; }
 
-        public string? Address { get; set; }
+        public string Reason { get; set; } = null!;
 
-        public string? TaxNumber { get; set; }
+        public DateTime CorrectedAt { get; set; }
 
-        public decimal CreditLimit { get; set; }
+        public Guid CorrectedByUserId { get; set; }
 
-        public decimal CurrentBalance { get; set; }
+        public Guid ApprovedByUserId { get; set; }
 
-        public bool IsActive { get; set; }
+        public DateTime ApprovedAt { get; set; }
 
-        public string? Notes { get; set; }
+        public string? ApprovalNotes { get; set; }
     }
 }

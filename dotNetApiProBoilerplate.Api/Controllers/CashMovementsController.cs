@@ -1,11 +1,11 @@
-﻿using Inventory.Dto.CashCorrections.Requests;
+﻿using Inventory.Dto.CashMovements.Requests;
 using Inventory.Dto.Queries;
-using Inventory.Services.Features.CashCorrection.Create;
-using Inventory.Services.Features.CashCorrection.Delete;
-using Inventory.Services.Features.CashCorrection.GetAll;
-using Inventory.Services.Features.CashCorrection.GetById;
-using Inventory.Services.Features.CashCorrection.Search;
-using Inventory.Services.Features.CashCorrection.Update;
+using Inventory.Services.Features.CashMovement.Create;
+using Inventory.Services.Features.CashMovement.Delete;
+using Inventory.Services.Features.CashMovement.GetAll;
+using Inventory.Services.Features.CashMovement.GetById;
+using Inventory.Services.Features.CashMovement.Search;
+using Inventory.Services.Features.CashMovement.Update;
 using MediatR;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -14,13 +14,13 @@ namespace Inventory.Api.Controllers
 {
     [ApiController]
     [ApiVersion("1.0")]
-    [Route("api/v{version:apiVersion}/cashcorrections")]
+    [Route("api/v{version:apiVersion}/cashmovements")]
 
     //[Authorize]
-    public class CashCorrectionsController : ControllerBase
+    public class CashMovementsController : ControllerBase
     {
         private readonly IMediator _mediator;
-        public CashCorrectionsController(IMediator mediator)
+        public CashMovementsController(IMediator mediator)
         {
             _mediator = mediator;
         }
@@ -30,7 +30,7 @@ namespace Inventory.Api.Controllers
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
         public async Task<IActionResult> Create(
-            [FromBody] CreateCashCorrectionRequest request,
+            [FromBody] CreateCashMovementRequest request,
 
             CancellationToken cancellationToken)
         {
@@ -38,7 +38,7 @@ namespace Inventory.Api.Controllers
                 return BadRequest(ModelState);
 
             var result = await _mediator.Send(
-                new CreateCashCorrectionCommand(request),
+                new CreateCashMovementCommand(request),
                 cancellationToken
             );
             return CreatedAtAction(
@@ -54,7 +54,7 @@ namespace Inventory.Api.Controllers
         public async Task<IActionResult> GetById(Guid id, CancellationToken cancellationToken)
         {
             var result = await _mediator.Send(
-                new GetCashCorrectionByIdQuery(id),
+                new GetCashMovementByIdQuery(id),
                 cancellationToken
             );
             return Ok(result);
@@ -65,7 +65,7 @@ namespace Inventory.Api.Controllers
         public async Task<IActionResult> GetAll(CancellationToken cancellationToken)
         {
             var results = await _mediator.Send(
-                new GetAllCashCorrectionsQuery(),
+                new GetAllCashMovementsQuery(),
                 cancellationToken
             );
             return Ok(results);
@@ -78,13 +78,13 @@ namespace Inventory.Api.Controllers
         [ProducesResponseType(StatusCodes.Status409Conflict)]            // Conflict
         public async Task<IActionResult> Update(
             Guid id,
-            [FromBody] UpdateCashCorrectionRequest request,
+            [FromBody] UpdateCashMovementRequest request,
             CancellationToken cancellationToken)
         {
             if (!ModelState.IsValid)
                 return BadRequest(ModelState);
             var result = await _mediator.Send(
-                new UpdateCashCorrectionCommand(id, request),
+                new UpdateCashMovementCommand(id, request),
                 cancellationToken
             );
             return Ok(result);
@@ -96,7 +96,7 @@ namespace Inventory.Api.Controllers
         public async Task<IActionResult> Delete(Guid id, CancellationToken cancellationToken)
         {
             await _mediator.Send(
-                new DeleteCashCorrectionCommand(id),
+                new DeleteCashMovementCommand(id),
                 cancellationToken
             );
             return NoContent();
@@ -106,12 +106,12 @@ namespace Inventory.Api.Controllers
         [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         public async Task<IActionResult> Search(
-            [FromQuery] CashCorrectionQuery query,
+            [FromQuery] CashMovementQuery query,
 
             CancellationToken cancellationToken)
         {
             var result = await _mediator.Send(
-                new SearchCashCorrectionsQuery(query),
+                new SearchCashMovementsQuery(query),
                 cancellationToken
             );
             return Ok(result);

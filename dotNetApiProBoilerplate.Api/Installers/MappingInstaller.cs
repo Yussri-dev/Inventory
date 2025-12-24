@@ -15,6 +15,7 @@ namespace Inventory.Api.Installers
             builder.Services.AddAutoMapper(typeof(ProductService).Assembly);
             builder.Services.AddAutoMapper(typeof(CustomerService).Assembly);
             builder.Services.AddAutoMapper(typeof(CashCorrectionService).Assembly);
+            builder.Services.AddAutoMapper(typeof(CashMovementService).Assembly);
 
             return builder;
         }

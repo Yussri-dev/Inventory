@@ -16,10 +16,8 @@ builder
     // Registers controllers and API explorer
     .InstallRestApi()
 
-    // Registers Swagger / OpenAPI configuration
     .InstallSwagger()
 
-    // Registers Entity Framework Core and database configuration
     .InstallDatabase()
 
     // Registers repositories, UnitOfWork, and business services
