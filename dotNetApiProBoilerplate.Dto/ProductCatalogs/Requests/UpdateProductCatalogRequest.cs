@@ -1,9 +1,8 @@
-﻿using Inventory.Domain.Abstraction;
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
 
-namespace Inventory.Domain.Entities
+namespace Inventory.Dto.ProductCatalogs.Requests
 {
-    public class ProductCatalog : TenantEntity
+    public class UpdateProductCatalogRequest
     {
         [Key]
         public Guid Id { get; set; }
@@ -25,8 +24,5 @@ namespace Inventory.Domain.Entities
 
         public DateTime CreatedAt { get; set; }
         public DateTime? ModifiedAt { get; set; }
-
-        // Navigation properties
-        public ICollection<Product> TenantProducts { get; set; } = new List<Product>();
     }
 }

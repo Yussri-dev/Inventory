@@ -29,11 +29,14 @@ namespace Inventory.Api.Installers
 
             builder.Services.AddMediatR(cfg =>
               cfg.RegisterServicesFromAssembly(typeof(CashSessionService).Assembly)
-           );
+            );
 
             builder.Services.AddMediatR(cfg =>
-             cfg.RegisterServicesFromAssembly(typeof(PaymentService).Assembly)
-          );
+                 cfg.RegisterServicesFromAssembly(typeof(PaymentService).Assembly)
+            );
+            builder.Services.AddMediatR(cfg =>
+                cfg.RegisterServicesFromAssembly(typeof(ProductCatalogService).Assembly)
+             );
             return builder;
         }
     }
