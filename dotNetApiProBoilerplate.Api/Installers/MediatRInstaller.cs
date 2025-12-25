@@ -37,6 +37,10 @@ namespace Inventory.Api.Installers
             builder.Services.AddMediatR(cfg =>
                 cfg.RegisterServicesFromAssembly(typeof(ProductCatalogService).Assembly)
              );
+
+            builder.Services.AddMediatR(cfg =>
+                cfg.RegisterServicesFromAssembly(typeof(PurchaseService).Assembly)
+             );
             return builder;
         }
     }
