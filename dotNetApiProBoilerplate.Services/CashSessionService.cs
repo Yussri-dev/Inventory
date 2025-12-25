@@ -28,38 +28,38 @@ namespace Inventory.Services
         // CREATE
         public async Task<CashSessionResult> CreateAsync(CreateCashSessionRequest request)
         {
-            var cashMovement = _mapper.Map<CashSession>(request);
+            var cashSession = _mapper.Map<CashSession>(request);
 
-            cashMovement.Id = Guid.NewGuid();
-            cashMovement.CreatedAt = DateTime.UtcNow;
-            cashMovement.ModifiedAt = DateTime.UtcNow;
+            cashSession.Id = Guid.NewGuid();
+            cashSession.CreatedAt = DateTime.UtcNow;
+            cashSession.ModifiedAt = DateTime.UtcNow;
 
-            await _repository.AddAsync(cashMovement);
+            await _repository.AddAsync(cashSession);
             await _unitOfWork.SaveChangesAsync();
 
-            return _mapper.Map<CashSessionResult>(cashMovement);
+            return _mapper.Map<CashSessionResult>(cashSession);
         }
 
         // GET BY ID
         public async Task<CashSessionResult> GetByIdAsync(Guid id)
         {
-            var cashMovement = await _repository.GetByIdAsync(id);
+            var cashSession = await _repository.GetByIdAsync(id);
 
-            if (cashMovement is null || cashMovement.IsDeleted)
+            if (cashSession is null || cashSession.IsDeleted)
             {
                 throw new NotFoundException("CashSession", id);
             }
 
-            return _mapper.Map<CashSessionResult>(cashMovement);
+            return _mapper.Map<CashSessionResult>(cashSession);
         }
 
         // GET ALL
         public async Task<List<CashSessionResult>> GetAllAsync()
         {
-            var cashMovements = await _repository.GetAllAsync();
+            var cashSessions = await _repository.GetAllAsync();
 
-            // Filter out soft-deleted cashMovements
-            var activeCashSessions = cashMovements.Where(p => !p.IsDeleted).ToList();
+            // Filter out soft-deleted cashSessions
+            var activeCashSessions = cashSessions.Where(p => !p.IsDeleted).ToList();
 
             return _mapper.Map<List<CashSessionResult>>(activeCashSessions);
         }
@@ -67,39 +67,39 @@ namespace Inventory.Services
         // UPDATE
         public async Task<CashSessionResult> UpdateAsync(Guid id, UpdateCashSessionRequest request)
         {
-            var cashMovement = await _repository.GetByIdAsync(id);
+            var cashSession = await _repository.GetByIdAsync(id);
 
-            if (cashMovement is null || cashMovement.IsDeleted)
+            if (cashSession is null || cashSession.IsDeleted)
             {
                 throw new NotFoundException("CashSession", id);
             }
 
-            // Map the request to the cashMovement
-            _mapper.Map(request, cashMovement);
+            // Map the request to the cashSession
+            _mapper.Map(request, cashSession);
 
             // Always update the ModifiedAt timestamp
-            cashMovement.ModifiedAt = DateTime.UtcNow;
+            cashSession.ModifiedAt = DateTime.UtcNow;
 
-            _repository.Update(cashMovement);
+            _repository.Update(cashSession);
             await _unitOfWork.SaveChangesAsync();
 
-            return _mapper.Map<CashSessionResult>(cashMovement);
+            return _mapper.Map<CashSessionResult>(cashSession);
         }
 
         // SOFT DELETE
         public async Task<bool> DeleteAsync(Guid id)
         {
-            var cashMovement = await _repository.GetByIdAsync(id);
+            var cashSession = await _repository.GetByIdAsync(id);
 
-            if (cashMovement is null || cashMovement.IsDeleted)
+            if (cashSession is null || cashSession.IsDeleted)
             {
                 throw new NotFoundException("CashSession", id);
             }
 
-            cashMovement.IsDeleted = true;
-            cashMovement.ModifiedAt = DateTime.UtcNow;
+            cashSession.IsDeleted = true;
+            cashSession.ModifiedAt = DateTime.UtcNow;
 
-            _repository.Update(cashMovement);
+            _repository.Update(cashSession);
             await _unitOfWork.SaveChangesAsync();
 
             return true;
@@ -129,7 +129,7 @@ namespace Inventory.Services
 
             var all = await _repository.GetAllAsync();
 
-            // Filter out soft-deleted cashMovements
+            // Filter out soft-deleted cashSessions
             var filtered = all.Where(p => !p.IsDeleted).AsQueryable();
 
             // Sorting
