@@ -30,6 +30,10 @@ namespace Inventory.Api.Installers
             builder.Services.AddMediatR(cfg =>
               cfg.RegisterServicesFromAssembly(typeof(CashSessionService).Assembly)
            );
+
+            builder.Services.AddMediatR(cfg =>
+             cfg.RegisterServicesFromAssembly(typeof(PaymentService).Assembly)
+          );
             return builder;
         }
     }

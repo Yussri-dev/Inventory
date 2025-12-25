@@ -24,6 +24,7 @@ namespace Inventory.Api.Installers
             builder.Services.AddScoped<CashReportService>();
             builder.Services.AddScoped<CashSessionService>();
             builder.Services.AddScoped<CustomerTransactionService>();
+            builder.Services.AddScoped<PaymentService>();
 
 
             builder.Services.AddScoped<AuthService>();

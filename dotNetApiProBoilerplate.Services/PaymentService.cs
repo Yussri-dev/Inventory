@@ -1,7 +1,7 @@
 ﻿using AutoMapper;
 using Inventory.Domain.Entities;
-using Inventory.Dto.Customers.Requests;
-using Inventory.Dto.Customers.Results;
+using Inventory.Dto.Payments.Requests;
+using Inventory.Dto.Payments.Results;
 using Inventory.Dto.Pages.Results;
 using Inventory.Dto.Queries;
 using Inventory.Infrastructure.Repositories;
@@ -9,14 +9,14 @@ using Inventory.Services.Exceptions;
 
 namespace Inventory.Services
 {
-    public class CustomerService
+    public class PaymentService
     {
-        private readonly IRepository<Customer> _repository;
+        private readonly IRepository<Payment> _repository;
         private readonly IUnitOfWork _unitOfWork;
         private readonly IMapper _mapper;
 
-        public CustomerService(
-            IRepository<Customer> repository,
+        public PaymentService(
+            IRepository<Payment> repository,
             IUnitOfWork unitOfWork,
             IMapper mapper)
         {
@@ -26,81 +26,80 @@ namespace Inventory.Services
         }
 
         //CREATE
-        public async Task<CustomerResult> CreateAsync(CreateCustomerRequest request)
+        public async Task<PaymentResult> CreateAsync(CreatePaymentRequest request)
         {
-            var exists = await _repository.ExistsAsync(c => c.Name == request.Name && !c.IsDeleted);
+            var exists = await _repository.ExistsAsync(c => c.TransactionRef == request.TransactionRef && !c.IsDeleted);
             if (exists)
             {
-                throw new ConflictException($"Customer with name '{request.Name}' already exists.");
+                throw new ConflictException($"Payment with Transaction ref '{request.TransactionRef}' already exists.");
             }
 
-            if (request.Name.Length == 0)
+            if (request.TransactionRef.Length == 0)
             {
                 var errors = new Dictionary<string, string[]>
                 {
-                    { "Name", new[] { "Customer name must not be empty." } }
+                    { "Name", new[] { "Payment name must not be empty." } }
                 };
             }
 
-            var customer = _mapper.Map<Customer>(request);
+            var customer = _mapper.Map<Payment>(request);
 
             customer.Id = Guid.NewGuid();
-            customer.IsActive = true;
             customer.CreatedAt = DateTime.UtcNow;
             customer.ModifiedAt = DateTime.UtcNow;
 
             await _repository.AddAsync(customer);
             await _unitOfWork.SaveChangesAsync();
-            return _mapper.Map<CustomerResult>(customer);
+            return _mapper.Map<PaymentResult>(customer);
         }
 
 
         //GET BY ID
-        public async Task<CustomerResult> GetByIdAsync(Guid id)
+        public async Task<PaymentResult> GetByIdAsync(Guid id)
         {
             var customer = await _repository.GetByIdAsync(id);
 
             if (customer == null || customer.IsDeleted)
             {
-                throw new NotFoundException("Customer", id);
+                throw new NotFoundException("Payment", id);
             }
 
-            return _mapper.Map<CustomerResult>(customer);
+            return _mapper.Map<PaymentResult>(customer);
         }
 
         //GET ALL
-        public async Task<List<CustomerResult>> GetAllAsync()
+        public async Task<List<PaymentResult>> GetAllAsync()
         {
             var customers = await _repository.GetAllAsync();
 
-            var activeCustomers = customers.Where(c => !c.IsDeleted).ToList();
+            var activePayments = customers.Where(c => !c.IsDeleted).ToList();
 
-            return _mapper.Map<List<CustomerResult>>(activeCustomers);
+            return _mapper.Map<List<PaymentResult>>(activePayments);
         }
 
         //UPDATE
-        public async Task<CustomerResult> UpdateAsync(Guid id, UpdateCustomerRequest request)
+        public async Task<PaymentResult> UpdateAsync(Guid id, UpdatePaymentRequest request)
         {
             var customer = await _repository.GetByIdAsync(id);
             if (customer == null || customer.IsDeleted)
             {
-                throw new NotFoundException("Customer", id);
+                throw new NotFoundException("Payment", id);
             }
 
-            if (!string.IsNullOrWhiteSpace(request.Name) && request.Name != customer.Name)
+            if (!string.IsNullOrWhiteSpace(request.TransactionRef) && request.TransactionRef != customer.TransactionRef)
             {
                 var nameExists = await _repository.ExistsAsync(
-                    c => c.Name == request.Name && c.Id != id && !c.IsDeleted);
+                    c => c.TransactionRef == request.TransactionRef && c.Id != id && !c.IsDeleted);
                 if (nameExists)
                 {
-                    throw new ConflictException($"Customer with name '{request.Name}' already exists.");
+                    throw new ConflictException($"Payment with transaction ref '{request.TransactionRef}' already exists.");
                 }
 
-                if (request.Name.Length == 0)
+                if (request.TransactionRef.Length == 0)
                 {
                     var errors = new Dictionary<string, string[]>
                     {
-                        { "Name", new[] { "Customer name must not be empty." } }
+                        { "Name", new[] { "Payment name must not be empty." } }
                     };
                     throw new ValidationException(errors);
                 }
@@ -113,7 +112,7 @@ namespace Inventory.Services
             _repository.Update(customer);
             await _unitOfWork.SaveChangesAsync();
 
-            return _mapper.Map<CustomerResult>(customer);
+            return _mapper.Map<PaymentResult>(customer);
         }
 
         //DELETE
@@ -122,7 +121,7 @@ namespace Inventory.Services
             var customer = await _repository.GetByIdAsync(id);
             if (customer == null || customer.IsDeleted)
             {
-                throw new NotFoundException("Customer", id);
+                throw new NotFoundException("Payment", id);
             }
             customer.IsDeleted = true;
             customer.ModifiedAt = DateTime.UtcNow;
@@ -132,7 +131,7 @@ namespace Inventory.Services
         }
 
         // Pagination + filtering + sorting
-        public async Task<PagedResult<CustomerResult>> QueryAsync(CustomerQuery query)
+        public async Task<PagedResult<PaymentResult>> QueryAsync(PaymentQuery query)
         {
             if (query.Page < 1)
             {
@@ -161,19 +160,19 @@ namespace Inventory.Services
             if (!string.IsNullOrWhiteSpace(query.Search))
             {
                 filtered = filtered.Where(p =>
-                    p.Name.Contains(query.Search, StringComparison.OrdinalIgnoreCase));
+                    p.TransactionRef.Contains(query.Search, StringComparison.OrdinalIgnoreCase));
             }
 
             // Sorting
             filtered = query.SortBy?.ToLower() switch
             {
-                "name" => query.Desc
-                    ? filtered.OrderByDescending(p => p.Name)
-                    : filtered.OrderBy(p => p.Name),
+                "ref" => query.Desc
+                    ? filtered.OrderByDescending(p => p.TransactionRef)
+                    : filtered.OrderBy(p => p.TransactionRef),
 
-                "CurrentBalance" => query.Desc
-                    ? filtered.OrderByDescending(p => p.CurrentBalance)
-                    : filtered.OrderBy(p => p.CurrentBalance),
+                "amount" => query.Desc
+                    ? filtered.OrderByDescending(p => p.Amount)
+                    : filtered.OrderBy(p => p.Amount),
 
                 _ => query.Desc
                     ? filtered.OrderByDescending(p => p.CreatedAt)
@@ -187,9 +186,9 @@ namespace Inventory.Services
                 .Take(query.PageSize)
                 .ToList();
 
-            return new PagedResult<CustomerResult>
+            return new PagedResult<PaymentResult>
             {
-                Items = _mapper.Map<List<CustomerResult>>(items),
+                Items = _mapper.Map<List<PaymentResult>>(items),
                 TotalCount = total,
                 Page = query.Page,
                 PageSize = query.PageSize
