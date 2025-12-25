@@ -1,10 +1,4 @@
-﻿using Inventory.Services.Features.CashMovement.Delete;
-using MediatR;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿using MediatR;
 
 namespace Inventory.Services.Features.CashMovement.Delete
 {

@@ -1,21 +1,15 @@
-﻿
-using Inventory.Domain.Abstraction;
-using Inventory.Domain.Models;
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
-namespace Inventory.Domain.Entities
+namespace Inventory.Dto.CashReports.Requests
 {
-    public class CashReport : TenantEntity
+    public class UpdateCashReportRequest
     {
         [Key]
         public Guid Id { get; set; }
 
         [Required]
         public Guid CashSessionId { get; set; }
-
-        [ForeignKey(nameof(CashSessionId))]
-        public CashSession CashSession { get; set; } = null!;
 
         [Required, MaxLength(50)]
         public string Type { get; set; } = null!;
@@ -44,9 +38,6 @@ namespace Inventory.Domain.Entities
 
         [Required]
         public Guid GeneratedByUserId { get; set; }
-
-        [ForeignKey(nameof(GeneratedByUserId))]
-        public ApplicationUser GeneratedByUser { get; set; } = null!;
 
         [MaxLength(2000)]
         public string? Notes { get; set; }

@@ -50,4 +50,5 @@ namespace Inventory.Services.Mapper
             CreateMap<CashCorrection, CashCorrectionResult>();
         }
     }
+
 }
