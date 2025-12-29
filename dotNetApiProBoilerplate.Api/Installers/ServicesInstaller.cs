@@ -16,22 +16,37 @@ namespace Inventory.Api.Installers
 
             builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
 
+            builder.Services.AddScoped<AuthService>();
+            builder.Services.AddScoped<JwtTokenGenerator>();
 
-            builder.Services.AddScoped<ProductService>();
             builder.Services.AddScoped<CustomerService>();
+            builder.Services.AddScoped<CustomerTransactionService>();
+
             builder.Services.AddScoped<CashCorrectionService>();
             builder.Services.AddScoped<CashMovementService>();
             builder.Services.AddScoped<CashReportService>();
             builder.Services.AddScoped<CashSessionService>();
-            builder.Services.AddScoped<CustomerTransactionService>();
+
             builder.Services.AddScoped<PaymentService>();
+
+            builder.Services.AddScoped<ProductService>();
             builder.Services.AddScoped<ProductCatalogService>();
+
             builder.Services.AddScoped<PurchaseService>();
+            builder.Services.AddScoped<PurchaseLineService>();
+            builder.Services.AddScoped<PurchasePaymentService>();
+
+            builder.Services.AddScoped<ReturnService>();
+            builder.Services.AddScoped<ReturnLineService>();
 
 
-            builder.Services.AddScoped<AuthService>();
-            builder.Services.AddScoped<JwtTokenGenerator>();
+            builder.Services.AddScoped<SaleService>();
+            builder.Services.AddScoped<SaleLineService>();
 
+            builder.Services.AddScoped<StockService>();
+            builder.Services.AddScoped<StockMouvementService>();
+
+            builder.Services.AddScoped<SupplierService>();
             return builder;
         }
     }

@@ -6,41 +6,32 @@ namespace Inventory.Api.Installers
     {
         public static WebApplicationBuilder InstallMediatR(this WebApplicationBuilder builder)
         {
-            // Scan the Services assembly (where handlers will live)
-            builder.Services.AddMediatR(cfg =>
-                cfg.RegisterServicesFromAssembly(typeof(ProductService).Assembly)
-            );
+
+            //builder.Services.AddMediatR(cfg =>
+            //    cfg.RegisterServicesFromAssembly(typeof(PurchaseLineService).Assembly)
+            //);
 
             builder.Services.AddMediatR(cfg =>
-                cfg.RegisterServicesFromAssembly(typeof(CustomerService).Assembly)
+            cfg.RegisterServicesFromAssemblies(
+                typeof(ProductService).Assembly,
+                typeof(CustomerService).Assembly,
+                typeof(SupplierService).Assembly,
+                typeof(CashCorrectionService).Assembly,
+                typeof(CashMovementService).Assembly,
+                typeof(CashReportService).Assembly,
+                typeof(CashSessionService).Assembly,
+                typeof(PaymentService).Assembly,
+                typeof(ProductCatalogService).Assembly,
+                typeof(PurchaseService).Assembly,
+                typeof(PurchaseLineService).Assembly,
+                typeof(ReturnService).Assembly,
+                typeof(ReturnLineService).Assembly,
+                typeof(SaleService).Assembly,
+                typeof(SaleLineService).Assembly,
+                typeof(StockService).Assembly,
+                typeof(StockMouvementService).Assembly
+                )
             );
-
-            builder.Services.AddMediatR(cfg =>
-               cfg.RegisterServicesFromAssembly(typeof(CashCorrectionService).Assembly)
-            );
-
-            builder.Services.AddMediatR(cfg =>
-               cfg.RegisterServicesFromAssembly(typeof(CashMovementService).Assembly)
-            );
-
-            builder.Services.AddMediatR(cfg =>
-               cfg.RegisterServicesFromAssembly(typeof(CashReportService).Assembly)
-            );
-
-            builder.Services.AddMediatR(cfg =>
-              cfg.RegisterServicesFromAssembly(typeof(CashSessionService).Assembly)
-            );
-
-            builder.Services.AddMediatR(cfg =>
-                 cfg.RegisterServicesFromAssembly(typeof(PaymentService).Assembly)
-            );
-            builder.Services.AddMediatR(cfg =>
-                cfg.RegisterServicesFromAssembly(typeof(ProductCatalogService).Assembly)
-             );
-
-            builder.Services.AddMediatR(cfg =>
-                cfg.RegisterServicesFromAssembly(typeof(PurchaseService).Assembly)
-             );
             return builder;
         }
     }

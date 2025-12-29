@@ -1,0 +1,28 @@
+﻿using System;
+using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+
+namespace Inventory.Dto.Returns.Results
+{
+    public class ReturnResult
+    {
+        public Guid Id { get; set; }
+
+        public string ReturnNumber { get; set; } = null!;
+
+        public Guid SaleId { get; set; }
+
+        public decimal TotalAmount { get; set; }
+
+        public string? Reason { get; set; }
+
+        public DateTime ReturnDate { get; set; }
+
+        public bool IsProcessed { get; set; }
+        public DateTime? ProcessedAt { get; set; }
+    }
+}
