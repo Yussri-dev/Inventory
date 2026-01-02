@@ -29,7 +29,10 @@ namespace Inventory.Api.Installers
                 typeof(SaleService).Assembly,
                 typeof(SaleLineService).Assembly,
                 typeof(StockService).Assembly,
-                typeof(StockMouvementService).Assembly
+                typeof(StockMouvementService).Assembly,
+                typeof(SupplierReturnService).Assembly,
+                typeof(DamageService).Assembly,
+                typeof(PromotionService).Assembly
                 )
             );
             return builder;

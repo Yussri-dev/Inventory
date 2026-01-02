@@ -1,5 +1,6 @@
 ﻿using AutoMapper;
 using Inventory.Domain.Entities;
+using Inventory.Domain.Enums;
 using Inventory.Dto.CashMovements.Requests;
 using Inventory.Dto.CashMovements.Results;
 using Inventory.Dto.Pages.Results;
@@ -108,49 +109,65 @@ namespace Inventory.Services
         // PAGINATION + FILTERING + SORTING
         public async Task<PagedResult<CashMovementResult>> QueryAsync(CashMovementQuery query)
         {
-            // Validate query parameters
-            if (query.Page < 1)
+            if (query.Page < 1 || query.PageSize < 1 || query.PageSize > 100)
+                throw new ValidationException(new Dictionary<string, string[]>
+        {
+            { "Paging", new[] { "Invalid paging parameters." } }
+        });
+
+            var movements = (await _repository.GetAllAsync())
+                .Where(m => !m.IsDeleted)
+                .AsQueryable();
+
+            // =========================
+            // FILTERS
+            // =========================
+            if (query.CashSessionId.HasValue)
+                movements = movements.Where(m => m.CashSessionId == query.CashSessionId.Value);
+
+            if (query.SaleId.HasValue)
+                movements = movements.Where(m => m.SaleId == query.SaleId.Value);
+
+            if (query.Type.HasValue)
+                movements = movements.Where(m => m.Type == (CashMovementType)query.Type.Value);
+
+            if (query.FromDate.HasValue)
+                movements = movements.Where(m => m.MovementDate >= query.FromDate.Value);
+
+            if (query.ToDate.HasValue)
+                movements = movements.Where(m => m.MovementDate <= query.ToDate.Value);
+
+            if (!string.IsNullOrWhiteSpace(query.Search))
+                movements = movements.Where(m =>
+                    (m.Reason != null && m.Reason.Contains(query.Search)) ||
+                    m.Amount.ToString().Contains(query.Search)
+                );
+
+            // =========================
+            // SORTING
+            // =========================
+            movements = query.SortBy.ToLower() switch
             {
-                var errors = new Dictionary<string, string[]>
-                {
-                    { "Page", new[] { "Page must be greater than or equal to 1." } }
-                };
-                throw new ValidationException(errors);
-            }
+                "amount" => query.Desc
+                    ? movements.OrderByDescending(m => m.Amount)
+                    : movements.OrderBy(m => m.Amount),
 
-            if (query.PageSize < 1 || query.PageSize > 100)
-            {
-                var errors = new Dictionary<string, string[]>
-                {
-                    { "PageSize", new[] { "PageSize must be between 1 and 100." } }
-                };
-                throw new ValidationException(errors);
-            }
+                "type" => query.Desc
+                    ? movements.OrderByDescending(m => m.Type)
+                    : movements.OrderBy(m => m.Type),
 
-            var all = await _repository.GetAllAsync();
-
-            // Filter out soft-deleted cashMovements
-            var filtered = all.Where(p => !p.IsDeleted).AsQueryable();
-
-            // Sorting
-            filtered = query.SortBy?.ToLower() switch
-            {
-                "name" => query.Desc
-                    ? filtered.OrderByDescending(p => p.Amount)
-                    : filtered.OrderBy(p => p.Amount),
-
-                "salePrice" => query.Desc
-                    ? filtered.OrderByDescending(p => p.Reason)
-                    : filtered.OrderBy(p => p.Reason),
+                "movementdate" => query.Desc
+                    ? movements.OrderByDescending(m => m.MovementDate)
+                    : movements.OrderBy(m => m.MovementDate),
 
                 _ => query.Desc
-                    ? filtered.OrderByDescending(p => p.CreatedAt)
-                    : filtered.OrderBy(p => p.CreatedAt)
+                    ? movements.OrderByDescending(m => m.MovementDate)
+                    : movements.OrderBy(m => m.MovementDate)
             };
 
-            var total = filtered.Count();
+            var total = movements.Count();
 
-            var items = filtered
+            var items = movements
                 .Skip((query.Page - 1) * query.PageSize)
                 .Take(query.PageSize)
                 .ToList();
@@ -163,5 +180,6 @@ namespace Inventory.Services
                 PageSize = query.PageSize
             };
         }
+
     }
 }

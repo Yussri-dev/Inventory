@@ -6,6 +6,7 @@ using Inventory.Dto.Purchases.Requests;
 using Inventory.Dto.Purchases.Results;
 using Inventory.Dto.Queries;
 using Inventory.Infrastructure.Repositories;
+using Inventory.Services.Abstractions;
 using Inventory.Services.Exceptions;
 
 namespace Inventory.Services
@@ -15,38 +16,31 @@ namespace Inventory.Services
         private readonly IRepository<Purchase> _repository;
         private readonly IUnitOfWork _unitOfWork;
         private readonly IMapper _mapper;
+        private readonly IDocumentNumberService _documentNumberService;
 
         public PurchaseService(
             IRepository<Purchase> repository,
             IUnitOfWork unitOfWork,
-            IMapper mapper)
+            IMapper mapper,
+            IDocumentNumberService documentNumberService)
         {
             _repository = repository;
             _unitOfWork = unitOfWork;
             _mapper = mapper;
+            _documentNumberService = documentNumberService;
         }
 
+        // =========================
         // CREATE
-        // CREATE
+        // =========================
         public async Task<PurchaseResult> CreateAsync(CreatePurchaseRequest request)
         {
-            var exists = await _repository.ExistsAsync(
-                p => p.PurchaseNumber == request.PurchaseNumber && !p.IsDeleted);
-
-            if (exists)
-            {
-                throw new ConflictException(
-                    $"Purchase with purchase number '{request.PurchaseNumber}' already exists.");
-
-            }
-
             if (request.TotalAmountInclVat <= 0)
             {
                 throw new ValidationException(new Dictionary<string, string[]>
                 {
                     { "TotalAmountInclVat", new[] { "TotalAmountInclVat must be > 0." } }
                 });
-
             }
 
             if (request.TotalAmountExclVat <= 0)
@@ -57,81 +51,65 @@ namespace Inventory.Services
                 });
             }
 
-            var product = _mapper.Map<Purchase>(request);
+            var entity = _mapper.Map<Purchase>(request);
 
-            product.Id = Guid.NewGuid();
+            entity.Id = Guid.NewGuid();
+            entity.PurchaseNumber = await _documentNumberService.GenerateAsync("PURCHASE");
 
-            product.PurchaseDate = request.PurchaseDate == default
+            entity.PurchaseDate = request.PurchaseDate == default
                 ? DateTime.UtcNow
                 : request.PurchaseDate;
 
-            product.TotalAmountExclVat = request.TotalAmountExclVat;
-            product.TotalVatAmount = request.TotalVatAmount;
-            product.TotalAmountInclVat = request.TotalAmountInclVat;
+            entity.TotalAmountExclVat = request.TotalAmountExclVat;
+            entity.TotalVatAmount = request.TotalVatAmount;
+            entity.TotalAmountInclVat = request.TotalAmountInclVat;
 
-            product.Status = PurchaseStatus.Received;
+            entity.Status = PurchaseStatus.Received;
 
-            product.CreatedAt = DateTime.UtcNow;
-            product.ModifiedAt = DateTime.UtcNow;
-            // =========================
+            entity.CreatedAt = DateTime.UtcNow;
+            entity.ModifiedAt = DateTime.UtcNow;
 
-            await _repository.AddAsync(product);
+            await _repository.AddAsync(entity);
             await _unitOfWork.SaveChangesAsync();
 
-            return _mapper.Map<PurchaseResult>(product);
+            return _mapper.Map<PurchaseResult>(entity);
         }
 
+        // =========================
         // GET BY ID
+        // =========================
         public async Task<PurchaseResult> GetByIdAsync(Guid id)
         {
-            var product = await _repository.GetByIdAsync(id);
+            var entity = await _repository.GetByIdAsync(id);
 
-            if (product is null || product.IsDeleted)
-            {
+            if (entity is null || entity.IsDeleted)
                 throw new NotFoundException("Purchase", id);
-            }
 
-            return _mapper.Map<PurchaseResult>(product);
+            return _mapper.Map<PurchaseResult>(entity);
         }
 
+        // =========================
         // GET ALL
+        // =========================
         public async Task<List<PurchaseResult>> GetAllAsync()
         {
-            var products = await _repository.GetAllAsync();
+            var entities = await _repository.GetAllAsync();
 
-            // Filter out soft-deleted products
-            var activePurchases = products.Where(p => !p.IsDeleted).ToList();
-
-            return _mapper.Map<List<PurchaseResult>>(activePurchases);
+            return _mapper.Map<List<PurchaseResult>>(
+                entities.Where(x => !x.IsDeleted).ToList()
+            );
         }
 
+        // =========================
         // UPDATE
+        // =========================
         public async Task<PurchaseResult> UpdateAsync(Guid id, UpdatePurchaseRequest request)
         {
-            var product = await _repository.GetByIdAsync(id);
+            var entity = await _repository.GetByIdAsync(id);
 
-            if (product is null || product.IsDeleted)
-            {
+            if (entity is null || entity.IsDeleted)
                 throw new NotFoundException("Purchase", id);
-            }
 
-            // Uniqueness check
-            if (!string.IsNullOrWhiteSpace(request.PurchaseNumber) &&
-                request.PurchaseNumber != product.PurchaseNumber)
-            {
-                var nameExists = await _repository.ExistsAsync(p =>
-                    p.PurchaseNumber == request.PurchaseNumber &&
-                    p.Id != id &&
-                    !p.IsDeleted);
-
-                if (nameExists)
-                {
-                    throw new ConflictException(
-                        $"Purchase with number '{request.PurchaseNumber}' already exists.");
-                }
-            }
-
-            // Validation
             if (request.TotalAmountInclVat < 0)
             {
                 throw new ValidationException(new Dictionary<string, string[]>
@@ -148,107 +126,88 @@ namespace Inventory.Services
                 });
             }
 
-            // Base mapping (respects your AutoMapper profile)
-            _mapper.Map(request, product);
+            _mapper.Map(request, entity);
 
-            // Totals are ignored by AutoMapper → must be reassigned
-            product.TotalAmountExclVat = request.TotalAmountExclVat;
-            product.TotalVatAmount = request.TotalVatAmount;
-            product.TotalAmountInclVat = request.TotalAmountInclVat;
+            entity.TotalAmountExclVat = request.TotalAmountExclVat;
+            entity.TotalVatAmount = request.TotalVatAmount;
+            entity.TotalAmountInclVat = request.TotalAmountInclVat;
 
-            // Audit
-            product.ModifiedAt = DateTime.UtcNow;
+            entity.ModifiedAt = DateTime.UtcNow;
 
-            _repository.Update(product);
+            _repository.Update(entity);
             await _unitOfWork.SaveChangesAsync();
 
-            return _mapper.Map<PurchaseResult>(product);
+            return _mapper.Map<PurchaseResult>(entity);
         }
 
+        // =========================
         // SOFT DELETE
+        // =========================
         public async Task<bool> DeleteAsync(Guid id)
         {
-            var product = await _repository.GetByIdAsync(id);
+            var entity = await _repository.GetByIdAsync(id);
 
-            if (product is null || product.IsDeleted)
-            {
+            if (entity is null || entity.IsDeleted)
                 throw new NotFoundException("Purchase", id);
-            }
 
-            product.IsDeleted = true;
-            product.ModifiedAt = DateTime.UtcNow;
+            entity.IsDeleted = true;
+            entity.ModifiedAt = DateTime.UtcNow;
 
-            _repository.Update(product);
+            _repository.Update(entity);
             await _unitOfWork.SaveChangesAsync();
 
             return true;
         }
 
-        // PAGINATION + FILTERING + SORTING
+        // =========================
+        // QUERY (pagination / filter / sort)
+        // =========================
         public async Task<PagedResult<PurchaseResult>> QueryAsync(PurchaseQuery query)
         {
-            // Validate query parameters
-            if (query.Page < 1)
+            if (query.Page < 1 || query.PageSize < 1 || query.PageSize > 100)
             {
-                var errors = new Dictionary<string, string[]>
+                throw new ValidationException(new Dictionary<string, string[]>
                 {
-                    { "Page", new[] { "Page must be greater than or equal to 1." } }
-                };
-                throw new ValidationException(errors);
+                    { "Paging", new[] { "Invalid paging parameters." } }
+                });
             }
 
-            if (query.PageSize < 1 || query.PageSize > 100)
-            {
-                var errors = new Dictionary<string, string[]>
-                {
-                    { "PageSize", new[] { "PageSize must be between 1 and 100." } }
-                };
-                throw new ValidationException(errors);
-            }
+            var source = (await _repository.GetAllAsync())
+                .Where(x => !x.IsDeleted)
+                .AsQueryable();
 
-            var all = await _repository.GetAllAsync();
-
-            // Filter out soft-deleted products
-            var filtered = all.Where(p => !p.IsDeleted).AsQueryable();
-
-            // Search filter
             if (!string.IsNullOrWhiteSpace(query.Search))
             {
-                filtered = filtered.Where(p =>
-                    p.PurchaseNumber.Contains(query.Search, StringComparison.OrdinalIgnoreCase) ||
-                    (p.SupplierInvoiceNumber != null && p.SupplierInvoiceNumber.Contains(query.Search, StringComparison.OrdinalIgnoreCase)));
+                source = source.Where(x =>
+                    x.PurchaseNumber.Contains(query.Search, StringComparison.OrdinalIgnoreCase) ||
+                    (x.SupplierInvoiceNumber != null &&
+                     x.SupplierInvoiceNumber.Contains(query.Search, StringComparison.OrdinalIgnoreCase)));
             }
 
-            // Status filter
             if (query.Status.HasValue)
             {
                 var status = (PurchaseStatus)query.Status.Value;
-                filtered = filtered.Where(p => p.Status == status);
+                source = source.Where(x => x.Status == status);
             }
 
-            // Sorting
-            filtered = query.SortBy?.ToLower() switch
+            source = query.SortBy?.ToLower() switch
             {
-                "PurchaseNumber" => query.Desc
-                    ? filtered.OrderByDescending(p => p.PurchaseNumber)
-                    : filtered.OrderBy(p => p.PurchaseNumber),
+                "purchasenumber" => query.Desc
+                    ? source.OrderByDescending(x => x.PurchaseNumber)
+                    : source.OrderBy(x => x.PurchaseNumber),
 
-                "salePrice" => query.Desc
-                    ? filtered.OrderByDescending(p => p.PurchaseDate)
-                    : filtered.OrderBy(p => p.PurchaseDate),
-
-                "purchasePrice" => query.Desc
-                    ? filtered.OrderByDescending(p => p.Supplier.Name)
-                    : filtered.OrderBy(p => p.Supplier.Name),
+                "purchasedate" => query.Desc
+                    ? source.OrderByDescending(x => x.PurchaseDate)
+                    : source.OrderBy(x => x.PurchaseDate),
 
                 _ => query.Desc
-                    ? filtered.OrderByDescending(p => p.CreatedAt)
-                    : filtered.OrderBy(p => p.CreatedAt)
+                    ? source.OrderByDescending(x => x.CreatedAt)
+                    : source.OrderBy(x => x.CreatedAt)
             };
 
-            var total = filtered.Count();
+            var total = source.Count();
 
-            var items = filtered
+            var items = source
                 .Skip((query.Page - 1) * query.PageSize)
                 .Take(query.PageSize)
                 .ToList();

@@ -1,11 +1,8 @@
-﻿using Inventory.Dto.Sales.Requests;
+﻿using Inventory.Dto.Pages.Results;
 using Inventory.Dto.Queries;
-using Inventory.Services.Features.Sales.Create;
-using Inventory.Services.Features.Sales.Delete;
-using Inventory.Services.Features.Sales.GetAll;
-using Inventory.Services.Features.Sales.GetById;
-using Inventory.Services.Features.Sales.Search;
-using Inventory.Services.Features.Sales.Update;
+using Inventory.Dto.Sales.Requests;
+using Inventory.Dto.Sales.Results;
+using Inventory.Services;
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
 
@@ -14,32 +11,31 @@ namespace Inventory.Api.Controllers
     [ApiController]
     [ApiVersion("1.0")]
     [Route("api/v{version:apiVersion}/sales")]
-
-    //[Authorize]
     public class SalesController : ControllerBase
     {
-        private readonly IMediator _mediator;
-        public SalesController(IMediator mediator)
-        {
-            _mediator = mediator;
-        }
-        [HttpPost]
+        private readonly SaleService _saleService;
 
-        [ProducesResponseType(typeof(object), StatusCodes.Status201Created)]
+        public SalesController(SaleService saleService)
+        {
+            _saleService = saleService;
+        }
+
+        // =========================
+        // CREATE
+        // =========================
+        [HttpPost]
+        [ProducesResponseType(typeof(SaleResult), StatusCodes.Status201Created)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
         public async Task<IActionResult> Create(
             [FromBody] CreateSaleRequest request,
-
             CancellationToken cancellationToken)
         {
             if (!ModelState.IsValid)
                 return BadRequest(ModelState);
 
-            var result = await _mediator.Send(
-                new CreateSaleCommand(request),
-                cancellationToken
-            );
+            var result = await _saleService.CreateAsync(request);
+
             return CreatedAtAction(
                 nameof(GetById),
                 new { version = "1.0", id = result.Id },
@@ -47,72 +43,70 @@ namespace Inventory.Api.Controllers
             );
         }
 
+        // =========================
+        // GET BY ID
+        // =========================
         [HttpGet("{id:guid}")]
-        [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(SaleResult), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
-        public async Task<IActionResult> GetById(Guid id, CancellationToken cancellationToken)
+        public async Task<IActionResult> GetById(Guid id)
         {
-            var result = await _mediator.Send(
-                new GetSaleByIdQuery(id),
-                cancellationToken
-            );
+            var result = await _saleService.GetByIdAsync(id);
             return Ok(result);
         }
 
+        // =========================
+        // GET ALL
+        // =========================
         [HttpGet]
-        [ProducesResponseType(typeof(List<object>), StatusCodes.Status200OK)] // List of products
-        public async Task<IActionResult> GetAll(CancellationToken cancellationToken)
+        [ProducesResponseType(typeof(List<SaleResult>), StatusCodes.Status200OK)]
+        public async Task<IActionResult> GetAll()
         {
-            var results = await _mediator.Send(
-                new GetAllSalesQuery(),
-                cancellationToken
-            );
-            return Ok(results);
+            var result = await _saleService.GetAllAsync();
+            return Ok(result);
         }
 
+        // =========================
+        // UPDATE
+        // =========================
         [HttpPut("{id:guid}")]
-        [ProducesResponseType(typeof(object), StatusCodes.Status200OK)] // Updated
-        [ProducesResponseType(StatusCodes.Status400BadRequest)]          // Invalid payload
-        [ProducesResponseType(StatusCodes.Status404NotFound)]            // Not found
-        [ProducesResponseType(StatusCodes.Status409Conflict)]            // Conflict
+        [ProducesResponseType(typeof(SaleResult), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
         public async Task<IActionResult> Update(
             Guid id,
-            [FromBody] UpdateSaleRequest request,
-            CancellationToken cancellationToken)
+            [FromBody] UpdateSaleRequest request)
         {
             if (!ModelState.IsValid)
                 return BadRequest(ModelState);
-            var result = await _mediator.Send(
-                new UpdateSaleCommand(id, request),
-                cancellationToken
-            );
+
+            var result = await _saleService.UpdateAsync(id, request);
             return Ok(result);
         }
 
+        // =========================
+        // DELETE (SOFT)
+        // =========================
         [HttpDelete("{id:guid}")]
-        [ProducesResponseType(StatusCodes.Status204NoContent)] // Deleted
-        [ProducesResponseType(StatusCodes.Status404NotFound)]  // Not found
-        public async Task<IActionResult> Delete(Guid id, CancellationToken cancellationToken)
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> Delete(Guid id)
         {
-            await _mediator.Send(
-                new DeleteSaleCommand(id),
-                cancellationToken
-            );
+            await _saleService.DeleteAsync(id);
             return NoContent();
         }
 
+        // =========================
+        // QUERY (pagination / search / sorting)
+        // =========================
         [HttpGet("search")]
-        [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(PagedResult<SaleResult>), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        public async Task<IActionResult> Search(
-            [FromQuery] SaleQuery query,
-
-            CancellationToken cancellationToken)
+        public async Task<IActionResult> Query(
+            [FromQuery] SaleQuery query)
         {
-            var result = await _mediator.Send(
-                new SearchSalesQuery(query),
-                cancellationToken
-            );
+            var result = await _saleService.QueryAsync(query);
             return Ok(result);
         }
     }

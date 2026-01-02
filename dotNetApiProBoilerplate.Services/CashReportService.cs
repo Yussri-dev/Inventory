@@ -108,49 +108,65 @@ namespace Inventory.Services
         // PAGINATION + FILTERING + SORTING
         public async Task<PagedResult<CashReportResult>> QueryAsync(CashReportQuery query)
         {
-            // Validate query parameters
-            if (query.Page < 1)
+            if (query.Page < 1 || query.PageSize < 1 || query.PageSize > 100)
+                throw new ValidationException(new Dictionary<string, string[]>
+        {
+            { "Paging", new[] { "Invalid paging parameters." } }
+        });
+
+            var reports = (await _repository.GetAllAsync())
+                .Where(r => !r.IsDeleted)
+                .AsQueryable();
+
+            // =========================
+            // FILTERS
+            // =========================
+            if (query.CashSessionId.HasValue)
+                reports = reports.Where(r => r.CashSessionId == query.CashSessionId.Value);
+
+            if (!string.IsNullOrWhiteSpace(query.Type))
+                reports = reports.Where(r => r.Type == query.Type);
+
+            if (query.GeneratedByUserId.HasValue)
+                reports = reports.Where(r => r.GeneratedByUserId == query.GeneratedByUserId.Value);
+
+            if (query.FromDate.HasValue)
+                reports = reports.Where(r => r.GeneratedAt >= query.FromDate.Value);
+
+            if (query.ToDate.HasValue)
+                reports = reports.Where(r => r.GeneratedAt <= query.ToDate.Value);
+
+            if (!string.IsNullOrWhiteSpace(query.Search))
+                reports = reports.Where(r =>
+                    (r.Notes != null && r.Notes.Contains(query.Search)) ||
+                    r.Type.Contains(query.Search)
+                );
+
+            // =========================
+            // SORTING
+            // =========================
+            reports = query.SortBy.ToLower() switch
             {
-                var errors = new Dictionary<string, string[]>
-                {
-                    { "Page", new[] { "Page must be greater than or equal to 1." } }
-                };
-                throw new ValidationException(errors);
-            }
+                "generatedat" => query.Desc
+                    ? reports.OrderByDescending(r => r.GeneratedAt)
+                    : reports.OrderBy(r => r.GeneratedAt),
 
-            if (query.PageSize < 1 || query.PageSize > 100)
-            {
-                var errors = new Dictionary<string, string[]>
-                {
-                    { "PageSize", new[] { "PageSize must be between 1 and 100." } }
-                };
-                throw new ValidationException(errors);
-            }
+                "difference" => query.Desc
+                    ? reports.OrderByDescending(r => r.Difference)
+                    : reports.OrderBy(r => r.Difference),
 
-            var all = await _repository.GetAllAsync();
-
-            // Filter out soft-deleted cashMovements
-            var filtered = all.Where(p => !p.IsDeleted).AsQueryable();
-
-            // Sorting
-            filtered = query.SortBy?.ToLower() switch
-            {
-                "name" => query.Desc
-                    ? filtered.OrderByDescending(p => p.CashSales)
-                    : filtered.OrderBy(p => p.CashSales),
-
-                "salePrice" => query.Desc
-                    ? filtered.OrderByDescending(p => p.GeneratedAt)
-                    : filtered.OrderBy(p => p.GeneratedAt),
+                "expectedamount" => query.Desc
+                    ? reports.OrderByDescending(r => r.ExpectedAmount)
+                    : reports.OrderBy(r => r.ExpectedAmount),
 
                 _ => query.Desc
-                    ? filtered.OrderByDescending(p => p.CreatedAt)
-                    : filtered.OrderBy(p => p.CreatedAt)
+                    ? reports.OrderByDescending(r => r.GeneratedAt)
+                    : reports.OrderBy(r => r.GeneratedAt)
             };
 
-            var total = filtered.Count();
+            var total = reports.Count();
 
-            var items = filtered
+            var items = reports
                 .Skip((query.Page - 1) * query.PageSize)
                 .Take(query.PageSize)
                 .ToList();
@@ -163,5 +179,6 @@ namespace Inventory.Services
                 PageSize = query.PageSize
             };
         }
+
     }
 }

@@ -4,7 +4,7 @@ using MediatR;
 namespace Inventory.Services.Features.Payments.GetAll
 {
     public class GetAllPaymentsQueryHandler
-        : IRequestHandler<GetAllPaymentsQuery, List<PaymentResult>>
+    : IRequestHandler<GetAllPaymentsQuery, List<PaymentResult>>
     {
         private readonly PaymentService _customerService;
 

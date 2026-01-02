@@ -1,10 +1,11 @@
 ﻿using AutoMapper;
 using Inventory.Domain.Entities;
 using Inventory.Dto.Pages.Results;
+using Inventory.Dto.Queries;
 using Inventory.Dto.Returns.Requests;
 using Inventory.Dto.Returns.Results;
-using Inventory.Dto.Queries;
 using Inventory.Infrastructure.Repositories;
+using Inventory.Services.Abstractions;
 using Inventory.Services.Exceptions;
 
 namespace Inventory.Services
@@ -14,111 +15,86 @@ namespace Inventory.Services
         private readonly IRepository<Return> _repository;
         private readonly IUnitOfWork _unitOfWork;
         private readonly IMapper _mapper;
+        private readonly IDocumentNumberService _documentNumberService;
 
         public ReturnService(
             IRepository<Return> repository,
             IUnitOfWork unitOfWork,
-            IMapper mapper)
+            IMapper mapper,
+            IDocumentNumberService documentNumberService)
         {
             _repository = repository;
             _unitOfWork = unitOfWork;
             _mapper = mapper;
+            _documentNumberService = documentNumberService;
         }
 
+        // =========================
         // CREATE
-        // CREATE
+        // =========================
         public async Task<ReturnResult> CreateAsync(CreateReturnRequest request)
         {
-            var exists = await _repository.ExistsAsync(
-                p => p.ReturnNumber == request.ReturnNumber && !p.IsDeleted);
-
-            if (exists)
-            {
-                throw new ConflictException(
-                    $"Return with purchase number '{request.ReturnNumber}' already exists.");
-
-            }
-
             if (request.TotalAmount <= 0)
             {
                 throw new ValidationException(new Dictionary<string, string[]>
                 {
                     { "TotalAmount", new[] { "TotalAmount must be > 0." } }
                 });
-
             }
 
-            var product = _mapper.Map<Return>(request);
+            var entity = _mapper.Map<Return>(request);
 
-            product.Id = Guid.NewGuid();
-
-            product.ReturnDate = request.ReturnDate == default
+            entity.Id = Guid.NewGuid();
+            entity.ReturnNumber = await _documentNumberService.GenerateAsync("RETURN");
+            entity.ReturnDate = request.ReturnDate == default
                 ? DateTime.UtcNow
                 : request.ReturnDate;
 
-            product.TotalAmount = request.TotalAmount;
+            entity.TotalAmount = request.TotalAmount;
+            entity.CreatedAt = DateTime.UtcNow;
+            entity.ModifiedAt = DateTime.UtcNow;
 
-            product.CreatedAt = DateTime.UtcNow;
-            product.ModifiedAt = DateTime.UtcNow;
-            // =========================
-
-            await _repository.AddAsync(product);
+            await _repository.AddAsync(entity);
             await _unitOfWork.SaveChangesAsync();
 
-            return _mapper.Map<ReturnResult>(product);
+            return _mapper.Map<ReturnResult>(entity);
         }
 
+        // =========================
         // GET BY ID
+        // =========================
         public async Task<ReturnResult> GetByIdAsync(Guid id)
         {
-            var product = await _repository.GetByIdAsync(id);
+            var entity = await _repository.GetByIdAsync(id);
 
-            if (product is null || product.IsDeleted)
-            {
+            if (entity is null || entity.IsDeleted)
                 throw new NotFoundException("Return", id);
-            }
 
-            return _mapper.Map<ReturnResult>(product);
+            return _mapper.Map<ReturnResult>(entity);
         }
 
+        // =========================
         // GET ALL
+        // =========================
         public async Task<List<ReturnResult>> GetAllAsync()
         {
-            var products = await _repository.GetAllAsync();
+            var items = await _repository.GetAllAsync();
 
-            // Filter out soft-deleted products
-            var activeReturns = products.Where(p => !p.IsDeleted).ToList();
-
-            return _mapper.Map<List<ReturnResult>>(activeReturns);
+            return _mapper.Map<List<ReturnResult>>(
+                items.Where(x => !x.IsDeleted).ToList()
+            );
         }
 
+        // =========================
         // UPDATE
+        // =========================
         public async Task<ReturnResult> UpdateAsync(Guid id, UpdateReturnRequest request)
         {
-            var product = await _repository.GetByIdAsync(id);
+            var entity = await _repository.GetByIdAsync(id);
 
-            if (product is null || product.IsDeleted)
-            {
+            if (entity is null || entity.IsDeleted)
                 throw new NotFoundException("Return", id);
-            }
 
-            // Uniqueness check
-            if (!string.IsNullOrWhiteSpace(request.ReturnNumber) &&
-                request.ReturnNumber != product.ReturnNumber)
-            {
-                var nameExists = await _repository.ExistsAsync(p =>
-                    p.ReturnNumber == request.ReturnNumber &&
-                    p.Id != id &&
-                    !p.IsDeleted);
-
-                if (nameExists)
-                {
-                    throw new ConflictException(
-                        $"Return with number '{request.ReturnNumber}' already exists.");
-                }
-            }
-
-            // Validation
             if (request.TotalAmount < 0)
             {
                 throw new ValidationException(new Dictionary<string, string[]>
@@ -127,98 +103,77 @@ namespace Inventory.Services
                 });
             }
 
-            // Base mapping (respects your AutoMapper profile)
-            _mapper.Map(request, product);
+            _mapper.Map(request, entity);
 
-            // Totals are ignored by AutoMapper → must be reassigned
-            product.TotalAmount = request.TotalAmount;
+            entity.TotalAmount = request.TotalAmount;
+            entity.ModifiedAt = DateTime.UtcNow;
 
-            // Audit
-            product.ModifiedAt = DateTime.UtcNow;
-
-            _repository.Update(product);
+            _repository.Update(entity);
             await _unitOfWork.SaveChangesAsync();
 
-            return _mapper.Map<ReturnResult>(product);
+            return _mapper.Map<ReturnResult>(entity);
         }
 
+        // =========================
         // SOFT DELETE
+        // =========================
         public async Task<bool> DeleteAsync(Guid id)
         {
-            var product = await _repository.GetByIdAsync(id);
+            var entity = await _repository.GetByIdAsync(id);
 
-            if (product is null || product.IsDeleted)
-            {
+            if (entity is null || entity.IsDeleted)
                 throw new NotFoundException("Return", id);
-            }
 
-            product.IsDeleted = true;
-            product.ModifiedAt = DateTime.UtcNow;
+            entity.IsDeleted = true;
+            entity.ModifiedAt = DateTime.UtcNow;
 
-            _repository.Update(product);
+            _repository.Update(entity);
             await _unitOfWork.SaveChangesAsync();
 
             return true;
         }
 
-        // PAGINATION + FILTERING + SORTING
+        // =========================
+        // QUERY (pagination / filter / sort)
+        // =========================
         public async Task<PagedResult<ReturnResult>> QueryAsync(ReturnQuery query)
         {
-            // Validate query parameters
-            if (query.Page < 1)
+            if (query.Page < 1 || query.PageSize < 1 || query.PageSize > 100)
             {
-                var errors = new Dictionary<string, string[]>
+                throw new ValidationException(new Dictionary<string, string[]>
                 {
-                    { "Page", new[] { "Page must be greater than or equal to 1." } }
-                };
-                throw new ValidationException(errors);
+                    { "Paging", new[] { "Invalid paging parameters." } }
+                });
             }
 
-            if (query.PageSize < 1 || query.PageSize > 100)
-            {
-                var errors = new Dictionary<string, string[]>
-                {
-                    { "PageSize", new[] { "PageSize must be between 1 and 100." } }
-                };
-                throw new ValidationException(errors);
-            }
+            var source = (await _repository.GetAllAsync())
+                .Where(x => !x.IsDeleted)
+                .AsQueryable();
 
-            var all = await _repository.GetAllAsync();
-
-            // Filter out soft-deleted products
-            var filtered = all.Where(p => !p.IsDeleted).AsQueryable();
-
-            // Search filter
             if (!string.IsNullOrWhiteSpace(query.Search))
             {
-                filtered = filtered.Where(p =>
-                    p.ReturnNumber.Contains(query.Search, StringComparison.OrdinalIgnoreCase) ||
-                    (p.ReturnNumber != null && p.ReturnNumber.Contains(query.Search, StringComparison.OrdinalIgnoreCase)));
+                source = source.Where(x =>
+                    x.ReturnNumber.Contains(query.Search, StringComparison.OrdinalIgnoreCase));
             }
 
-            // Sorting
-            filtered = query.SortBy?.ToLower() switch
+            source = query.SortBy?.ToLower() switch
             {
-                "ReturnNumber" => query.Desc
-                    ? filtered.OrderByDescending(p => p.ReturnNumber)
-                    : filtered.OrderBy(p => p.ReturnNumber),
+                "returnnumber" => query.Desc
+                    ? source.OrderByDescending(x => x.ReturnNumber)
+                    : source.OrderBy(x => x.ReturnNumber),
 
-                "ReturnDate" => query.Desc
-                    ? filtered.OrderByDescending(p => p.ReturnDate)
-                    : filtered.OrderBy(p => p.ReturnDate),
-
-                "InvoiceNumber" => query.Desc
-                    ? filtered.OrderByDescending(p => p.Sale.InvoiceNumber)
-                    : filtered.OrderBy(p => p.Sale.InvoiceNumber),
+                "returndate" => query.Desc
+                    ? source.OrderByDescending(x => x.ReturnDate)
+                    : source.OrderBy(x => x.ReturnDate),
 
                 _ => query.Desc
-                    ? filtered.OrderByDescending(p => p.CreatedAt)
-                    : filtered.OrderBy(p => p.CreatedAt)
+                    ? source.OrderByDescending(x => x.CreatedAt)
+                    : source.OrderBy(x => x.CreatedAt)
             };
 
-            var total = filtered.Count();
+            var total = source.Count();
 
-            var items = filtered
+            var items = source
                 .Skip((query.Page - 1) * query.PageSize)
                 .Take(query.PageSize)
                 .ToList();

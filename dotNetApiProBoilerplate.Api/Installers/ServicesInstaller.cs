@@ -1,6 +1,7 @@
 ﻿using Inventory.Infrastructure.Identity;
 using Inventory.Infrastructure.Repositories;
 using Inventory.Services;
+using Inventory.Services.Abstractions;
 using Inventory.Services.Behaviors;
 using MediatR;
 
@@ -47,6 +48,17 @@ namespace Inventory.Api.Installers
             builder.Services.AddScoped<StockMouvementService>();
 
             builder.Services.AddScoped<SupplierService>();
+            builder.Services.AddScoped<SupplierReturnService>();
+
+            builder.Services.AddScoped<DamageService>();
+            builder.Services.AddScoped<PromotionService>();
+            builder.Services.AddScoped<LoyaltyCardService>();
+            builder.Services.AddScoped<LoyaltyTransactionService>();
+
+            builder.Services.AddScoped<InventoryLineService>();
+            builder.Services.AddScoped<InventorySessionService>();
+            builder.Services.AddScoped<IDocumentNumberService, DocumentNumberService>();
+
             return builder;
         }
     }

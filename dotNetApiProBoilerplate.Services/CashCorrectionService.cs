@@ -2,82 +2,104 @@
 using Inventory.Domain.Entities;
 using Inventory.Dto.CashCorrections.Requests;
 using Inventory.Dto.CashCorrections.Results;
+using Inventory.Dto.Enums;
 using Inventory.Dto.Pages.Results;
 using Inventory.Dto.Queries;
 using Inventory.Infrastructure.Repositories;
 using Inventory.Services.Exceptions;
+using Microsoft.VisualBasic;
 
 namespace Inventory.Services
 {
     public class CashCorrectionService
     {
         private readonly IRepository<CashCorrection> _repository;
+        private readonly IRepository<CashSession> _cashSessionRepository;
         private readonly IUnitOfWork _unitOfWork;
         private readonly IMapper _mapper;
 
         public CashCorrectionService(
             IRepository<CashCorrection> repository,
+            IRepository<CashSession> cashSessionRepository,
             IUnitOfWork unitOfWork,
             IMapper mapper)
         {
             _repository = repository;
+            _cashSessionRepository = cashSessionRepository;
             _unitOfWork = unitOfWork;
             _mapper = mapper;
         }
 
+
+        // =========================
         // CREATE
+        // =========================
         public async Task<CashCorrectionResult> CreateAsync(CreateCashCorrectionRequest request)
         {
-            var cashCorrection = _mapper.Map<CashCorrection>(request);
+            if (request.Amount == 0)
+                throw new ValidationException(new Dictionary<string, string[]>
+                {
+                    { "Amount", new[] { "Amount cannot be zero." } }
+                });
 
-            cashCorrection.Id = Guid.NewGuid();
-            cashCorrection.CreatedAt = DateTime.UtcNow;
-            cashCorrection.ModifiedAt = DateTime.UtcNow;
+            var session = await _cashSessionRepository.GetByIdAsync(request.OriginalCashSessionId);
 
-            await _repository.AddAsync(cashCorrection);
+            if (session == null || session.Status != (Domain.Enums.CashSessionStatus)CashSessionStatus.Closed)
+                throw new ConflictException("Cash session must be closed to apply a correction.");
+
+            var entity = _mapper.Map<CashCorrection>(request);
+
+            entity.Id = Guid.NewGuid();
+            entity.CorrectedAt = DateTime.UtcNow;
+            entity.CreatedAt = DateTime.UtcNow;
+            entity.ModifiedAt = DateTime.UtcNow;
+
+            await _repository.AddAsync(entity);
             await _unitOfWork.SaveChangesAsync();
 
-            return _mapper.Map<CashCorrectionResult>(cashCorrection);
+            return _mapper.Map<CashCorrectionResult>(entity);
         }
 
-        // GET BY ID
+
+        // =========================
+        // GET ALL
+        // =========================
+        public async Task<List<CashCorrectionResult>> GetAllAsync()
+        {
+            var cashCorrections = await _repository.GetAllAsync();
+            
+            var activecashCorrections = cashCorrections.Where(x => x!.IsDeleted).ToList();
+
+            return _mapper.Map<List<CashCorrectionResult>>(activecashCorrections);
+        }
+
+        // =========================
+        // GET ById
+        // =========================
         public async Task<CashCorrectionResult> GetByIdAsync(Guid id)
         {
             var cashCorrection = await _repository.GetByIdAsync(id);
 
-            if (cashCorrection is null || cashCorrection.IsDeleted)
+            if (cashCorrection == null || cashCorrection.IsDeleted)
             {
                 throw new NotFoundException("CashCorrection", id);
             }
-
             return _mapper.Map<CashCorrectionResult>(cashCorrection);
         }
 
-        // GET ALL
-        public async Task<List<CashCorrectionResult>> GetAllAsync()
-        {
-            var cashCorrections = await _repository.GetAllAsync();
-
-            // Filter out soft-deleted cashCorrections
-            var activeCashCorrections = cashCorrections.Where(p => !p.IsDeleted).ToList();
-
-            return _mapper.Map<List<CashCorrectionResult>>(activeCashCorrections);
-        }
-
+        // =========================
         // UPDATE
+        // =========================
         public async Task<CashCorrectionResult> UpdateAsync(Guid id, UpdateCashCorrectionRequest request)
         {
             var cashCorrection = await _repository.GetByIdAsync(id);
-
-            if (cashCorrection is null || cashCorrection.IsDeleted)
+            if (cashCorrection == null || cashCorrection.IsDeleted)
             {
-                throw new NotFoundException("CashCorrection", id);
+                throw new NotFoundException("cashCorrection", id);
             }
 
-            // Map the request to the cashCorrection
             _mapper.Map(request, cashCorrection);
 
-            // Always update the ModifiedAt timestamp
             cashCorrection.ModifiedAt = DateTime.UtcNow;
 
             _repository.Update(cashCorrection);
@@ -86,14 +108,16 @@ namespace Inventory.Services
             return _mapper.Map<CashCorrectionResult>(cashCorrection);
         }
 
-        // SOFT DELETE
+        // =========================
+        // DELETE
+        // =========================
+
         public async Task<bool> DeleteAsync(Guid id)
         {
             var cashCorrection = await _repository.GetByIdAsync(id);
-
-            if (cashCorrection is null || cashCorrection.IsDeleted)
+            if (cashCorrection == null || cashCorrection.IsDeleted)
             {
-                throw new NotFoundException("CashCorrection", id);
+                throw new NotFoundException("cashCorrection", id);
             }
 
             cashCorrection.IsDeleted = true;
@@ -101,56 +125,69 @@ namespace Inventory.Services
 
             _repository.Update(cashCorrection);
             await _unitOfWork.SaveChangesAsync();
-
             return true;
         }
 
-        // PAGINATION + FILTERING + SORTING
+        // =========================
+        // APPROVE
+        // =========================
+        public async Task<CashCorrectionResult> ApproveAsync(Guid id, Guid approvedByUserId, string? notes)
+        {
+            var entity = await _repository.GetByIdAsync(id);
+
+            if (entity == null || entity.IsDeleted)
+                throw new NotFoundException("CashCorrection", id);
+
+            if (entity.ApprovedAt != default)
+                throw new ConflictException("Cash correction already approved.");
+
+            entity.ApprovedByUserId = approvedByUserId;
+            entity.ApprovedAt = DateTime.UtcNow;
+            entity.ApprovalNotes = notes;
+            entity.ModifiedAt = DateTime.UtcNow;
+
+            _repository.Update(entity);
+            await _unitOfWork.SaveChangesAsync();
+
+            return _mapper.Map<CashCorrectionResult>(entity);
+        }
+
+        // =========================
+        // QUERY
+        // =========================
         public async Task<PagedResult<CashCorrectionResult>> QueryAsync(CashCorrectionQuery query)
         {
-            // Validate query parameters
-            if (query.Page < 1)
-            {
-                var errors = new Dictionary<string, string[]>
+            if (query.Page < 1 || query.PageSize < 1 || query.PageSize > 100)
+                throw new ValidationException(new Dictionary<string, string[]>
                 {
-                    { "Page", new[] { "Page must be greater than or equal to 1." } }
-                };
-                throw new ValidationException(errors);
-            }
+                    { "Paging", new[] { "Invalid paging parameters." } }
+                });
 
-            if (query.PageSize < 1 || query.PageSize > 100)
+            var source = (await _repository.GetAllAsync())
+                .Where(x => !x.IsDeleted)
+                .AsQueryable();
+
+            if (!string.IsNullOrWhiteSpace(query.Search))
+                source = source.Where(x => x.Reason.Contains(query.Search));
+
+            source = query.SortBy.ToLower() switch
             {
-                var errors = new Dictionary<string, string[]>
-                {
-                    { "PageSize", new[] { "PageSize must be between 1 and 100." } }
-                };
-                throw new ValidationException(errors);
-            }
+                "amount" => query.Desc
+                    ? source.OrderByDescending(x => x.Amount)
+                    : source.OrderBy(x => x.Amount),
 
-            var all = await _repository.GetAllAsync();
-
-            // Filter out soft-deleted cashCorrections
-            var filtered = all.Where(p => !p.IsDeleted).AsQueryable();
-
-            // Sorting
-            filtered = query.SortBy?.ToLower() switch
-            {
-                "name" => query.Desc
-                    ? filtered.OrderByDescending(p => p.Amount)
-                    : filtered.OrderBy(p => p.Amount),
-
-                "salePrice" => query.Desc
-                    ? filtered.OrderByDescending(p => p.Reason)
-                    : filtered.OrderBy(p => p.Reason),
+                "correctedat" => query.Desc
+                    ? source.OrderByDescending(x => x.CorrectedAt)
+                    : source.OrderBy(x => x.CorrectedAt),
 
                 _ => query.Desc
-                    ? filtered.OrderByDescending(p => p.CreatedAt)
-                    : filtered.OrderBy(p => p.CreatedAt)
+                    ? source.OrderByDescending(x => x.CreatedAt)
+                    : source.OrderBy(x => x.CreatedAt)
             };
 
-            var total = filtered.Count();
+            var total = source.Count();
 
-            var items = filtered
+            var items = source
                 .Skip((query.Page - 1) * query.PageSize)
                 .Take(query.PageSize)
                 .ToList();

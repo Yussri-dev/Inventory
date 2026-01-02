@@ -1,5 +1,6 @@
 ﻿using AutoMapper;
 using Inventory.Domain.Entities;
+using Inventory.Domain.Enums;
 using Inventory.Dto.CashSessions.Requests;
 using Inventory.Dto.CashSessions.Results;
 using Inventory.Dto.Pages.Results;
@@ -108,49 +109,66 @@ namespace Inventory.Services
         // PAGINATION + FILTERING + SORTING
         public async Task<PagedResult<CashSessionResult>> QueryAsync(CashSessionQuery query)
         {
-            // Validate query parameters
-            if (query.Page < 1)
+            if (query.Page < 1 || query.PageSize < 1 || query.PageSize > 100)
+                throw new ValidationException(new Dictionary<string, string[]>
+        {
+            { "Paging", new[] { "Invalid paging parameters." } }
+        });
+
+            var sessions = (await _repository.GetAllAsync())
+                .Where(s => !s.IsDeleted)
+                .AsQueryable();
+
+            // =========================
+            // FILTERS
+            // =========================
+
+            if (!string.IsNullOrWhiteSpace(query.Search))
             {
-                var errors = new Dictionary<string, string[]>
-                {
-                    { "Page", new[] { "Page must be greater than or equal to 1." } }
-                };
-                throw new ValidationException(errors);
+                sessions = sessions.Where(s =>
+                    s.SessionNumber.Contains(query.Search) ||
+                    (s.OpeningNotes != null && s.OpeningNotes.Contains(query.Search)) ||
+                    (s.ClosingNotes != null && s.ClosingNotes.Contains(query.Search))
+                );
             }
 
-            if (query.PageSize < 1 || query.PageSize > 100)
+            if (query.Status.HasValue)
+                sessions = sessions.Where(s => s.Status == (CashSessionStatus)query.Status.Value);
+
+            if (query.OpenedByUserId.HasValue)
+                sessions = sessions.Where(s => s.OpenedByUserId == query.OpenedByUserId.Value);
+
+            if (query.FromDate.HasValue)
+                sessions = sessions.Where(s => s.OpenedAt >= query.FromDate.Value);
+
+            if (query.ToDate.HasValue)
+                sessions = sessions.Where(s => s.OpenedAt <= query.ToDate.Value);
+
+            // =========================
+            // SORTING
+            // =========================
+            sessions = query.SortBy.ToLower() switch
             {
-                var errors = new Dictionary<string, string[]>
-                {
-                    { "PageSize", new[] { "PageSize must be between 1 and 100." } }
-                };
-                throw new ValidationException(errors);
-            }
+                "openedat" => query.Desc
+                    ? sessions.OrderByDescending(s => s.OpenedAt)
+                    : sessions.OrderBy(s => s.OpenedAt),
 
-            var all = await _repository.GetAllAsync();
+                "closedat" => query.Desc
+                    ? sessions.OrderByDescending(s => s.ClosedAt)
+                    : sessions.OrderBy(s => s.ClosedAt),
 
-            // Filter out soft-deleted cashSessions
-            var filtered = all.Where(p => !p.IsDeleted).AsQueryable();
-
-            // Sorting
-            filtered = query.SortBy?.ToLower() switch
-            {
-                "name" => query.Desc
-                    ? filtered.OrderByDescending(p => p.CashReports)
-                    : filtered.OrderBy(p => p.CashReports),
-
-                "salePrice" => query.Desc
-                    ? filtered.OrderByDescending(p => p.OpenedAt)
-                    : filtered.OrderBy(p => p.OpenedAt),
+                "difference" => query.Desc
+                    ? sessions.OrderByDescending(s => s.Difference)
+                    : sessions.OrderBy(s => s.Difference),
 
                 _ => query.Desc
-                    ? filtered.OrderByDescending(p => p.CreatedAt)
-                    : filtered.OrderBy(p => p.CreatedAt)
+                    ? sessions.OrderByDescending(s => s.OpenedAt)
+                    : sessions.OrderBy(s => s.OpenedAt)
             };
 
-            var total = filtered.Count();
+            var total = sessions.Count();
 
-            var items = filtered
+            var items = sessions
                 .Skip((query.Page - 1) * query.PageSize)
                 .Take(query.PageSize)
                 .ToList();
@@ -163,5 +181,6 @@ namespace Inventory.Services
                 PageSize = query.PageSize
             };
         }
+
     }
 }
