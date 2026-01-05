@@ -8,6 +8,7 @@ using Inventory.Services.Features.Suppliers.Search;
 using Inventory.Services.Features.Suppliers.Update;
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
 
 namespace Inventory.Api.Controllers
 {
@@ -15,7 +16,7 @@ namespace Inventory.Api.Controllers
     [ApiVersion("1.0")]
     [Route("api/v{version:apiVersion}/suppliers")]
 
-    //[Authorize]
+    [Authorize]
     public class SuppliersController : ControllerBase
     {
         private readonly IMediator _mediator;

@@ -7,6 +7,7 @@ using Inventory.Services.Features.CustomerTransactions.GetById;
 using Inventory.Services.Features.CustomerTransactions.Search;
 using Inventory.Services.Features.CustomerTransactions.Update;
 using MediatR;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Inventory.Api.Controllers
@@ -15,7 +16,7 @@ namespace Inventory.Api.Controllers
     [ApiVersion("1.0")]
     [Route("api/v{version:apiVersion}/customertransactions")]
 
-    //[Authorize]
+    [Authorize]
     public class CustomerTransactionsController : ControllerBase
     {
         private readonly IMediator _mediator;

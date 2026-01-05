@@ -10,7 +10,7 @@ namespace Inventory.Api.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
-    [Authorize] // All endpoints require authentication
+    [Authorize]
     public class TenantController : ControllerBase
     {
         private readonly InventoryDbContext _context;

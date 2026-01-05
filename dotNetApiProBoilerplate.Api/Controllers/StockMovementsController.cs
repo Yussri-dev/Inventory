@@ -1,13 +1,6 @@
-﻿using Inventory.Dto.Stock.Requests;
-using Inventory.Dto.Queries;
+﻿using Inventory.Dto.Queries;
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
-using Inventory.Services.Features.Stocks.Create;
-using Inventory.Services.Features.Stocks.GetById;
-using Inventory.Services.Features.Stocks.GetAll;
-using Inventory.Services.Features.Stocks.Update;
-using Inventory.Services.Features.Stocks.Delete;
-using Inventory.Services.Features.Stocks.Search;
 using Inventory.Dto.StockMouvements.Requests;
 using Inventory.Services.Features.StockMouvements.Create;
 using Inventory.Services.Features.StockMouvements.GetById;
@@ -15,6 +8,7 @@ using Inventory.Services.Features.StockMouvements.GetAll;
 using Inventory.Services.Features.StockMouvements.Update;
 using Inventory.Services.Features.StockMouvements.Delete;
 using Inventory.Services.Features.StockMouvements.Search;
+using Microsoft.AspNetCore.Authorization;
 
 namespace Inventory.Api.Controllers
 {
@@ -22,7 +16,7 @@ namespace Inventory.Api.Controllers
     [ApiVersion("1.0")]
     [Route("api/v{version:apiVersion}/stockMovements")]
 
-    //[Authorize]
+    [Authorize]
     public class StockMovementsController : ControllerBase
     {
         private readonly IMediator _mediator;

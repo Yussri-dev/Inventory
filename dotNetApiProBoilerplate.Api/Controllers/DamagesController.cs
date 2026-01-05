@@ -9,6 +9,7 @@ using Inventory.Services.Features.Damages.Update;
 using Inventory.Services.Features.Damages.CreateComplete;
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
 
 namespace Inventory.Api.Controllers
 {
@@ -16,7 +17,7 @@ namespace Inventory.Api.Controllers
     [ApiVersion("1.0")]
     [Route("api/v{version:apiVersion}/Damages")]
 
-    //[Authorize]
+    [Authorize]
     public class DamagesController : ControllerBase
     {
         private readonly IMediator _mediator;

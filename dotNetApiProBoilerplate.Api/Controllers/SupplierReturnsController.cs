@@ -10,6 +10,7 @@ using Inventory.Services.Features.SupplierReturns.Update;
 using Inventory.Services.Features.SupplierReturns.CreateComplete;
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
 
 namespace Inventory.Api.Controllers
 {
@@ -17,7 +18,7 @@ namespace Inventory.Api.Controllers
     [ApiVersion("1.0")]
     [Route("api/v{version:apiVersion}/supplierReturns")]
 
-    //[Authorize]
+    [Authorize]
     public class SupplierReturnsController : ControllerBase
     {
         private readonly IMediator _mediator;

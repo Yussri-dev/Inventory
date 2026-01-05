@@ -7,6 +7,7 @@ using Inventory.Services.Features.LoyaltyCards.GetById;
 using Inventory.Services.Features.LoyaltyCards.Search;
 using Inventory.Services.Features.LoyaltyCards.Update;
 using MediatR;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Inventory.Api.Controllers
@@ -15,7 +16,7 @@ namespace Inventory.Api.Controllers
     [ApiVersion("1.0")]
     [Route("api/v{version:apiVersion}/loyaltyCards")]
 
-    //[Authorize]
+    [Authorize]
     public class LoyaltyCardsController : ControllerBase
     {
         private readonly IMediator _mediator;

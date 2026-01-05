@@ -8,6 +8,7 @@ using Inventory.Services.Features.Stocks.GetAll;
 using Inventory.Services.Features.Stocks.Update;
 using Inventory.Services.Features.Stocks.Delete;
 using Inventory.Services.Features.Stocks.Search;
+using Microsoft.AspNetCore.Authorization;
 
 namespace Inventory.Api.Controllers
 {
@@ -15,7 +16,7 @@ namespace Inventory.Api.Controllers
     [ApiVersion("1.0")]
     [Route("api/v{version:apiVersion}/stocks")]
 
-    //[Authorize]
+    [Authorize]
     public class StocksController : ControllerBase
     {
         private readonly IMediator _mediator;

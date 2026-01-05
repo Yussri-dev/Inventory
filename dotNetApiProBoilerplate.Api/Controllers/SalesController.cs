@@ -4,6 +4,7 @@ using Inventory.Dto.Sales.Requests;
 using Inventory.Dto.Sales.Results;
 using Inventory.Services;
 using MediatR;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Inventory.Api.Controllers
@@ -11,6 +12,8 @@ namespace Inventory.Api.Controllers
     [ApiController]
     [ApiVersion("1.0")]
     [Route("api/v{version:apiVersion}/sales")]
+
+    [Authorize]
     public class SalesController : ControllerBase
     {
         private readonly SaleService _saleService;

@@ -7,6 +7,7 @@ using Inventory.Services.Features.InventoryLines.GetById;
 using Inventory.Services.Features.InventoryLines.Search;
 using Inventory.Services.Features.InventoryLines.Update;
 using MediatR;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Inventory.Api.Controllers
@@ -15,7 +16,7 @@ namespace Inventory.Api.Controllers
     [ApiVersion("1.0")]
     [Route("api/v{version:apiVersion}/inventoryLines")]
 
-    //[Authorize]
+    [Authorize]
     public class InventoryLinesController : ControllerBase
     {
         private readonly IMediator _mediator;

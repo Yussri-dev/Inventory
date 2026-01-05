@@ -7,6 +7,7 @@ using Inventory.Services.Features.CashMovement.GetById;
 using Inventory.Services.Features.CashMovement.Search;
 using Inventory.Services.Features.CashMovement.Update;
 using MediatR;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 
@@ -16,7 +17,7 @@ namespace Inventory.Api.Controllers
     [ApiVersion("1.0")]
     [Route("api/v{version:apiVersion}/cashmovements")]
 
-    //[Authorize]
+    [Authorize]
     public class CashMovementsController : ControllerBase
     {
         private readonly IMediator _mediator;

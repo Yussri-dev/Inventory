@@ -7,6 +7,7 @@ using Inventory.Services.Features.Promotions.GetById;
 using Inventory.Services.Features.Promotions.Search;
 using Inventory.Services.Features.Promotions.Update;
 using MediatR;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Inventory.Api.Controllers
@@ -15,7 +16,7 @@ namespace Inventory.Api.Controllers
     [ApiVersion("1.0")]
     [Route("api/v{version:apiVersion}/promotions")]
 
-    //[Authorize]
+    [Authorize]
     public class PromotionsController : ControllerBase
     {
         private readonly IMediator _mediator;

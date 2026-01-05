@@ -9,6 +9,7 @@ using Inventory.Services.Features.Purchases.Update;
 using Inventory.Services.Features.Purchases.CreateComplete;
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
 
 namespace Inventory.Api.Controllers
 {
@@ -16,7 +17,7 @@ namespace Inventory.Api.Controllers
     [ApiVersion("1.0")]
     [Route("api/v{version:apiVersion}/purchases")]
 
-    //[Authorize]
+    [Authorize]
     public class PurchasesController : ControllerBase
     {
         private readonly IMediator _mediator;

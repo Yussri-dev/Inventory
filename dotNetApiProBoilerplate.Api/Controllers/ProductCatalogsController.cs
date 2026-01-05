@@ -7,6 +7,7 @@ using Inventory.Services.Features.ProductCatalogs.GetById;
 using Inventory.Services.Features.ProductCatalogs.Search;
 using Inventory.Services.Features.ProductCatalogs.Update;
 using MediatR;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Inventory.Api.Controllers
@@ -15,7 +16,7 @@ namespace Inventory.Api.Controllers
     [ApiVersion("1.0")]
     [Route("api/v{version:apiVersion}/productcatalogs")]
 
-    //[Authorize]
+    [Authorize]
     public class ProductCatalogsController : ControllerBase
     {
         private readonly IMediator _mediator;
