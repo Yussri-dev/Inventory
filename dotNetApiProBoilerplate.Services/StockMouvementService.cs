@@ -6,6 +6,7 @@ using Inventory.Dto.Queries;
 using Inventory.Dto.StockMouvements.Requests;
 using Inventory.Dto.StockMouvements.Results;
 using Inventory.Infrastructure.Repositories;
+using Inventory.Services.Context;
 using Inventory.Services.Exceptions;
 
 namespace Inventory.Services
@@ -16,17 +17,20 @@ namespace Inventory.Services
         private readonly IRepository<Stock> _stockRepository;
         private readonly IUnitOfWork _unitOfWork;
         private readonly IMapper _mapper;
+        private readonly ITenantContext _tenantContext;
 
         public StockMouvementService(
             IRepository<StockMovement> movementRepository,
             IRepository<Stock> stockRepository,
             IUnitOfWork unitOfWork,
-            IMapper mapper)
+            IMapper mapper,
+            ITenantContext tenantContext)
         {
             _movementRepository = movementRepository;
             _stockRepository = stockRepository;
             _unitOfWork = unitOfWork;
             _mapper = mapper;
+            _tenantContext = tenantContext;
         }
 
         // =========================
@@ -34,8 +38,13 @@ namespace Inventory.Services
         // =========================
         public async Task<StockMouvementResult> CreateAsync(CreateStockMouvementRequest request)
         {
+            var tenantId = _tenantContext.GetTenantId();
+
             var stock = await _stockRepository
-                .GetSingleAsync(s => s.ProductId == request.ProductId && !s.IsDeleted);
+                .GetSingleAsync(s =>
+                    s.ProductId == request.ProductId &&
+                    !s.IsDeleted &&
+                    s.TenantId == tenantId);
 
             //if (stock == null)
             //{
@@ -64,6 +73,7 @@ namespace Inventory.Services
             var movement = _mapper.Map<StockMovement>(request);
 
             movement.Id = Guid.NewGuid();
+            movement.TenantId = tenantId;
             movement.QuantityBefore = quantityBefore;
             movement.QuantityAfter = quantityAfter;
             movement.MovementDate = DateTime.UtcNow;
@@ -88,9 +98,10 @@ namespace Inventory.Services
         // =========================
         public async Task<StockMouvementResult> GetByIdAsync(Guid id)
         {
+            var tenantId = _tenantContext.GetTenantId();
             var movement = await _movementRepository.GetByIdAsync(id);
 
-            if (movement == null || movement.IsDeleted)
+            if (movement == null || movement.IsDeleted || movement.TenantId != tenantId)
             {
                 throw new NotFoundException("StockMovement", id);
             }
@@ -103,10 +114,11 @@ namespace Inventory.Services
         // =========================
         public async Task<List<StockMouvementResult>> GetAllAsync()
         {
+            var tenantId = _tenantContext.GetTenantId();
             var movements = await _movementRepository.GetAllAsync();
 
             return _mapper.Map<List<StockMouvementResult>>(
-                movements.Where(m => !m.IsDeleted).ToList()
+                movements.Where(m => !m.IsDeleted && m.TenantId == tenantId).ToList()
             );
         }
 
@@ -115,9 +127,10 @@ namespace Inventory.Services
         // =========================
         public async Task<StockMouvementResult> UpdateAsync(Guid id, UpdateStockMouvementRequest request)
         {
+            var tenantId = _tenantContext.GetTenantId();
             var movement = await _movementRepository.GetByIdAsync(id);
 
-            if (movement == null || movement.IsDeleted)
+            if (movement == null || movement.IsDeleted || movement.TenantId != tenantId)
             {
                 throw new NotFoundException("StockMovement", id);
             }
@@ -137,9 +150,10 @@ namespace Inventory.Services
         // =========================
         public async Task<bool> DeleteAsync(Guid id)
         {
+            var tenantId = _tenantContext.GetTenantId();
             var movement = await _movementRepository.GetByIdAsync(id);
 
-            if (movement == null || movement.IsDeleted)
+            if (movement == null || movement.IsDeleted || movement.TenantId != tenantId)
             {
                 throw new NotFoundException("StockMovement", id);
             }
@@ -153,24 +167,28 @@ namespace Inventory.Services
             return true;
         }
 
+        // =========================
+        // QUERY
+        // =========================
         public async Task<PagedResult<StockMouvementResult>> QueryAsync(StockMouvementQuery query)
         {
+            var tenantId = _tenantContext.GetTenantId();
+
             if (query.Page < 1 || query.PageSize < 1 || query.PageSize > 100)
             {
                 throw new ValidationException(new Dictionary<string, string[]>
-        {
-            { "Paging", new[] { "Invalid paging parameters." } }
-        });
+                {
+                    { "Paging", new[] { "Invalid paging parameters." } }
+                });
             }
 
             var movements = (await _movementRepository.GetAllAsync())
-                .Where(m => !m.IsDeleted)
+                .Where(m => !m.IsDeleted && m.TenantId == tenantId)
                 .AsQueryable();
 
             // =========================
             // FILTERS
             // =========================
-
             if (query.ProductId.HasValue)
             {
                 movements = movements.Where(m => m.ProductId == query.ProductId.Value);
@@ -179,7 +197,6 @@ namespace Inventory.Services
             if (query.Type.HasValue)
             {
                 var domainType = (Domain.Enums.StockMovementType)query.Type.Value;
-
                 movements = movements.Where(m => m.Type == domainType);
             }
 

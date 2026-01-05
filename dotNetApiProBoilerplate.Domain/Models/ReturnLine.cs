@@ -1,9 +1,10 @@
-﻿using System.ComponentModel.DataAnnotations;
+﻿using Inventory.Domain.Abstraction;
+using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Inventory.Domain.Entities
 {
-    public class ReturnLine
+    public class ReturnLine : TenantEntity
     {
         [Key]
         public Guid Id { get; set; }

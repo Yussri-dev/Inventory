@@ -57,7 +57,7 @@ namespace Inventory.Infrastructure.Data
             // Product -> Stock (1:1)
             builder.Entity<Product>()
                 .HasOne(p => p.Stock)
-                .WithOne()
+                .WithOne(s => s.Product)  // FIXED: Added navigation property
                 .HasForeignKey<Stock>(s => s.ProductId)
                 .OnDelete(DeleteBehavior.Cascade);
 
@@ -89,21 +89,21 @@ namespace Inventory.Infrastructure.Data
             // Sale -> Lines (1:Many)
             builder.Entity<Sale>()
                 .HasMany(s => s.Lines)
-                .WithOne()
+                .WithOne(sl => sl.Sale)  // FIXED: Added navigation property
                 .HasForeignKey(sl => sl.SaleId)
                 .OnDelete(DeleteBehavior.Cascade);
 
             // Sale -> Payments (1:Many)
             builder.Entity<Sale>()
                 .HasMany(s => s.Payments)
-                .WithOne()
+                .WithOne(p => p.Sale)  // FIXED: Added navigation property
                 .HasForeignKey(p => p.SaleId)
                 .OnDelete(DeleteBehavior.Cascade);
 
             // Sale -> Returns (1:Many)
             builder.Entity<Sale>()
                 .HasMany(s => s.Returns)
-                .WithOne()
+                .WithOne(r => r.Sale)  // FIXED: Added navigation property
                 .HasForeignKey(r => r.SaleId)
                 .OnDelete(DeleteBehavior.Restrict);
 
@@ -128,14 +128,14 @@ namespace Inventory.Infrastructure.Data
             // Purchase -> Lines (1:Many)
             builder.Entity<Purchase>()
                 .HasMany(p => p.Lines)
-                .WithOne()
+                .WithOne(pl => pl.Purchase)  // FIXED: Added navigation property
                 .HasForeignKey(pl => pl.PurchaseId)
                 .OnDelete(DeleteBehavior.Cascade);
 
             // Purchase -> Payments (1:Many)
             builder.Entity<Purchase>()
                 .HasMany(p => p.Payments)
-                .WithOne()
+                .WithOne(pp => pp.Purchase)  // FIXED: Added navigation property
                 .HasForeignKey(pp => pp.PurchaseId)
                 .OnDelete(DeleteBehavior.Cascade);
 
@@ -160,7 +160,7 @@ namespace Inventory.Infrastructure.Data
             // SupplierReturn -> Lines (1:Many)
             builder.Entity<SupplierReturn>()
                 .HasMany(sr => sr.Lines)
-                .WithOne()
+                .WithOne(srl => srl.SupplierReturn)  // FIXED: Added navigation property
                 .HasForeignKey(srl => srl.SupplierReturnId)
                 .OnDelete(DeleteBehavior.Cascade);
 
@@ -171,7 +171,7 @@ namespace Inventory.Infrastructure.Data
             // Return -> Lines (1:Many)
             builder.Entity<Return>()
                 .HasMany(r => r.Lines)
-                .WithOne()
+                .WithOne(rl => rl.Return)  // FIXED: Added navigation property
                 .HasForeignKey(rl => rl.ReturnId)
                 .OnDelete(DeleteBehavior.Cascade);
 
@@ -182,14 +182,14 @@ namespace Inventory.Infrastructure.Data
             // Customer -> LoyaltyCards (1:Many)
             builder.Entity<Customer>()
                 .HasMany(c => c.LoyaltyCards)
-                .WithOne()
+                .WithOne(lc => lc.Customer)  // FIXED: Added navigation property
                 .HasForeignKey(lc => lc.CustomerId)
                 .OnDelete(DeleteBehavior.Cascade);
 
             // Customer -> Transactions (1:Many)
             builder.Entity<Customer>()
                 .HasMany(c => c.Transactions)
-                .WithOne()
+                .WithOne(ct => ct.Customer)  // FIXED: Added navigation property
                 .HasForeignKey(ct => ct.CustomerId)
                 .OnDelete(DeleteBehavior.Cascade);
 
@@ -200,7 +200,7 @@ namespace Inventory.Infrastructure.Data
             // LoyaltyCard -> Transactions (1:Many)
             builder.Entity<LoyaltyCard>()
                 .HasMany(lc => lc.Transactions)
-                .WithOne()
+                .WithOne(lt => lt.LoyaltyCard)  // FIXED: Added navigation property
                 .HasForeignKey(lt => lt.LoyaltyCardId)
                 .OnDelete(DeleteBehavior.Cascade);
 
@@ -222,7 +222,7 @@ namespace Inventory.Infrastructure.Data
             // InventorySession -> Lines (1:Many)
             builder.Entity<InventorySession>()
                 .HasMany(i => i.Lines)
-                .WithOne()
+                .WithOne(il => il.InventorySession)  // FIXED: Added navigation property
                 .HasForeignKey(il => il.InventorySessionId)
                 .OnDelete(DeleteBehavior.Cascade);
 
@@ -245,14 +245,14 @@ namespace Inventory.Infrastructure.Data
             // CashSession -> CashMovements (1:Many)
             builder.Entity<CashSession>()
                 .HasMany(cs => cs.CashMovements)
-                .WithOne()
+                .WithOne(cm => cm.CashSession)  // FIXED: Added navigation property
                 .HasForeignKey(cm => cm.CashSessionId)
                 .OnDelete(DeleteBehavior.Cascade);
 
             // CashSession -> CashReports (1:Many)
             builder.Entity<CashSession>()
                 .HasMany(cs => cs.CashReports)
-                .WithOne()
+                .WithOne(cr => cr.CashSession)  // FIXED: Added navigation property
                 .HasForeignKey(cr => cr.CashSessionId)
                 .OnDelete(DeleteBehavior.Cascade);
 
@@ -308,7 +308,6 @@ namespace Inventory.Infrastructure.Data
                 .HasForeignKey(x => x.UserId)
                 .OnDelete(DeleteBehavior.Restrict);
         }
-
         // ============================
         // DBSETS
         // ============================
@@ -336,6 +335,7 @@ namespace Inventory.Infrastructure.Data
         public DbSet<PurchaseLine> PurchaseLines => Set<PurchaseLine>();
         public DbSet<PurchasePayment> PurchasePayments => Set<PurchasePayment>();
         public DbSet<Supplier> Suppliers => Set<Supplier>();
+        public DbSet<SupplierTransaction> SupplierTransactions => Set<SupplierTransaction>();
         public DbSet<SupplierReturn> SupplierReturns => Set<SupplierReturn>();
         public DbSet<SupplierReturnLine> SupplierReturnLines => Set<SupplierReturnLine>();
 

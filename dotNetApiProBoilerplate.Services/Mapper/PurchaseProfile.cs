@@ -24,6 +24,9 @@ namespace Inventory.Services.Mapping
                 .ForMember(dest => dest.Lines, opt => opt.Ignore())
                 .ForMember(dest => dest.Payments, opt => opt.Ignore());
 
+            CreateMap<CreateCompletePurchaseRequest, Purchase>()
+                .IncludeBase<CreatePurchaseRequest, Purchase>();
+
             // =========================
             // UPDATE
             // =========================

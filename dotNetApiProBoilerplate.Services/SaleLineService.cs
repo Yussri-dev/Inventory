@@ -5,6 +5,7 @@ using Inventory.Dto.SaleLines.Requests;
 using Inventory.Dto.SaleLines.Results;
 using Inventory.Dto.Queries;
 using Inventory.Infrastructure.Repositories;
+using Inventory.Services.Context;
 using Inventory.Services.Exceptions;
 
 namespace Inventory.Services
@@ -12,30 +13,36 @@ namespace Inventory.Services
     public class SaleLineService
     {
         private readonly IRepository<SaleLine> _repository;
+        private readonly IRepository<Sale> _saleRepository;
         private readonly IUnitOfWork _unitOfWork;
         private readonly IMapper _mapper;
+        private readonly ITenantContext _tenantContext;
 
         public SaleLineService(
             IRepository<SaleLine> repository,
+            IRepository<Sale> saleRepository,
             IUnitOfWork unitOfWork,
-            IMapper mapper)
+            IMapper mapper,
+            ITenantContext tenantContext)
         {
             _repository = repository;
+            _saleRepository = saleRepository;
             _unitOfWork = unitOfWork;
             _mapper = mapper;
+            _tenantContext = tenantContext;
         }
 
         // CREATE
-        // CREATE
         public async Task<SaleLineResult> CreateAsync(CreateSaleLineRequest request)
         {
+            var tenantId = _tenantContext.GetTenantId();
+
             if (request.Quantity <= 0)
             {
                 throw new ValidationException(new Dictionary<string, string[]>
                 {
                     { "QuantityOrdered", new[] { "QuantityOrdered must be > 0." } }
                 });
-
             }
 
             if (request.LineAmountExclVat <= 0)
@@ -54,8 +61,14 @@ namespace Inventory.Services
                 });
             }
 
-            var purchaseLine = _mapper.Map<SaleLine>(request);
+            // Verify parent Sale belongs to tenant
+            var sale = await _saleRepository.GetByIdAsync(request.SaleId);
+            if (sale == null || sale.TenantId != tenantId)
+            {
+                throw new NotFoundException("Sale", request.SaleId);
+            }
 
+            var purchaseLine = _mapper.Map<SaleLine>(request);
             purchaseLine.Id = Guid.NewGuid();
             purchaseLine.VatRate = request.VatRate;
 
@@ -68,12 +81,20 @@ namespace Inventory.Services
         // GET BY ID
         public async Task<SaleLineResult> GetByIdAsync(Guid id)
         {
+            var tenantId = _tenantContext.GetTenantId();
             var purchaseLine = await _repository.GetByIdAsync(id);
 
-            //if (purchaseLine is null || purchaseLine.IsDeleted)
-            //{
-            //    throw new NotFoundException("SaleLine", id);
-            //}
+            if (purchaseLine == null)
+            {
+                throw new NotFoundException("SaleLine", id);
+            }
+
+            // Verify through parent Sale
+            var sale = await _saleRepository.GetByIdAsync(purchaseLine.SaleId);
+            if (sale == null || sale.TenantId != tenantId)
+            {
+                throw new NotFoundException("SaleLine", id);
+            }
 
             return _mapper.Map<SaleLineResult>(purchaseLine);
         }
@@ -81,18 +102,33 @@ namespace Inventory.Services
         // GET ALL
         public async Task<List<SaleLineResult>> GetAllAsync()
         {
-            var purchaseLines = await _repository.GetAllAsync();
+            var tenantId = _tenantContext.GetTenantId();
 
-            //// Filter out soft-deleted purchaseLines
-            //var activeSaleLines = purchaseLines.Where(p => !p.IsDeleted).ToList();
+            var saleLines = await _repository.GetAllAsync();
+            var sales = await _saleRepository.GetAllAsync();
 
-            return _mapper.Map<List<SaleLineResult>>(purchaseLines);
+            var tenantSaleIds = sales
+                .Where(s => s.TenantId == tenantId)
+                .Select(s => s.Id)
+                .ToHashSet();
+
+            var filtered = saleLines
+                .Where(sl => tenantSaleIds.Contains(sl.SaleId))
+                .ToList();
+
+            return _mapper.Map<List<SaleLineResult>>(filtered);
         }
 
         // UPDATE
         public async Task<SaleLineResult> UpdateAsync(Guid id, UpdateSaleLineRequest request)
         {
+            var tenantId = _tenantContext.GetTenantId();
             var purchaseLine = await _repository.GetByIdAsync(id);
+
+            if (purchaseLine == null)
+            {
+                throw new NotFoundException("SaleLine", id);
+            }
 
             if (request.Quantity <= 0)
             {
@@ -100,7 +136,6 @@ namespace Inventory.Services
                 {
                     { "QuantityOrdered", new[] { "QuantityOrdered must be > 0." } }
                 });
-
             }
 
             if (request.LineAmountInclVat <= 0)
@@ -117,6 +152,13 @@ namespace Inventory.Services
                 {
                     { "LineAmountExclVat", new[] { "LineAmountExclVat must be > 0." } }
                 });
+            }
+
+            // Verify through parent Sale
+            var sale = await _saleRepository.GetByIdAsync(purchaseLine.SaleId);
+            if (sale == null || sale.TenantId != tenantId)
+            {
+                throw new NotFoundException("SaleLine", id);
             }
 
             _mapper.Map(request, purchaseLine);
@@ -130,7 +172,20 @@ namespace Inventory.Services
         // SOFT DELETE
         public async Task<bool> DeleteAsync(Guid id)
         {
+            var tenantId = _tenantContext.GetTenantId();
             var purchaseLine = await _repository.GetByIdAsync(id);
+
+            if (purchaseLine == null)
+            {
+                throw new NotFoundException("SaleLine", id);
+            }
+
+            // Verify through parent Sale
+            var sale = await _saleRepository.GetByIdAsync(purchaseLine.SaleId);
+            if (sale == null || sale.TenantId != tenantId)
+            {
+                throw new NotFoundException("SaleLine", id);
+            }
 
             _repository.Update(purchaseLine);
             await _unitOfWork.SaveChangesAsync();
@@ -141,26 +196,35 @@ namespace Inventory.Services
         // PAGINATION + FILTERING + SORTING
         public async Task<PagedResult<SaleLineResult>> QueryAsync(SaleLineQuery query)
         {
-            // Validate query parameters
+            var tenantId = _tenantContext.GetTenantId();
+
             if (query.Page < 1)
             {
-                var errors = new Dictionary<string, string[]>
+                throw new ValidationException(new Dictionary<string, string[]>
                 {
                     { "Page", new[] { "Page must be greater than or equal to 1." } }
-                };
-                throw new ValidationException(errors);
+                });
             }
 
             if (query.PageSize < 1 || query.PageSize > 100)
             {
-                var errors = new Dictionary<string, string[]>
+                throw new ValidationException(new Dictionary<string, string[]>
                 {
                     { "PageSize", new[] { "PageSize must be between 1 and 100." } }
-                };
-                throw new ValidationException(errors);
+                });
             }
 
-            var filtered = await _repository.GetAllAsync();
+            var saleLines = await _repository.GetAllAsync();
+            var sales = await _saleRepository.GetAllAsync();
+
+            var tenantSaleIds = sales
+                .Where(s => s.TenantId == tenantId)
+                .Select(s => s.Id)
+                .ToHashSet();
+
+            var filtered = saleLines
+                .Where(sl => tenantSaleIds.Contains(sl.SaleId))
+                .AsQueryable();
 
             var total = filtered.Count();
 

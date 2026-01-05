@@ -13,24 +13,28 @@ namespace Inventory.Infrastructure.Identity
         public JwtTokenGenerator(IConfiguration config)
         {
             _config = config;
-
             var keyBytes = Convert.FromBase64String(_config["Jwt:Key"]!);
-
             if (keyBytes.Length < 32)
                 throw new InvalidOperationException(
                     "JWT key must be at least 256 bits (32 bytes)");
-
             _key = new SymmetricSecurityKey(keyBytes);
         }
 
-        public string Generate(Guid userId, string email)
+        public string Generate(Guid userId, string email, Guid tenantId, string role)
         {
             var claims = new[]
             {
-                // Guid → string (OBLIGATOIRE)
+                // User identity
                 new Claim(JwtRegisteredClaimNames.Sub, userId.ToString()),
                 new Claim(ClaimTypes.NameIdentifier, userId.ToString()),
-                new Claim(JwtRegisteredClaimNames.Email, email)
+                new Claim(JwtRegisteredClaimNames.Email, email),
+                new Claim(ClaimTypes.Email, email),
+                
+                // Multi-tenancy
+                new Claim("TenantId", tenantId.ToString()),
+                
+                // Authorization
+                new Claim(ClaimTypes.Role, role)
             };
 
             var token = new JwtSecurityToken(

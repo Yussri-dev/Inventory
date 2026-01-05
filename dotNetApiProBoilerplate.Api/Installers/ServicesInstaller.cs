@@ -3,6 +3,7 @@ using Inventory.Infrastructure.Repositories;
 using Inventory.Services;
 using Inventory.Services.Abstractions;
 using Inventory.Services.Behaviors;
+using Inventory.Services.Context;
 using MediatR;
 
 namespace Inventory.Api.Installers
@@ -58,6 +59,9 @@ namespace Inventory.Api.Installers
             builder.Services.AddScoped<InventoryLineService>();
             builder.Services.AddScoped<InventorySessionService>();
             builder.Services.AddScoped<IDocumentNumberService, DocumentNumberService>();
+
+            builder.Services.AddHttpContextAccessor();
+            builder.Services.AddScoped<ITenantContext, TenantContext>();
 
             return builder;
         }

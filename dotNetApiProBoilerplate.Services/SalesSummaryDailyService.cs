@@ -4,6 +4,7 @@ using Inventory.Dto.Pages.Results;
 using Inventory.Dto.Queries;
 using Inventory.Dto.SalesSummaryDaily.Results;
 using Inventory.Infrastructure.Repositories;
+using Inventory.Services.Context;
 using Inventory.Services.Exceptions;
 
 namespace Inventory.Services
@@ -13,15 +14,18 @@ namespace Inventory.Services
         private readonly IRepository<SalesSummaryDaily> _repository;
         private readonly IUnitOfWork _unitOfWork;
         private readonly IMapper _mapper;
+        private readonly ITenantContext _tenantContext;
 
         public SalesSummaryDailyService(
             IRepository<SalesSummaryDaily> repository,
             IUnitOfWork unitOfWork,
-            IMapper mapper)
+            IMapper mapper,
+            ITenantContext tenantContext)
         {
             _repository = repository;
             _unitOfWork = unitOfWork;
             _mapper = mapper;
+            _tenantContext = tenantContext;
         }
 
         // =========================
@@ -29,8 +33,13 @@ namespace Inventory.Services
         // =========================
         public async Task<SalesSummaryDailyResult> GetByDateAsync(DateTime date)
         {
+            var tenantId = _tenantContext.GetTenantId();
+
             var entity = (await _repository.GetAllAsync())
-                .FirstOrDefault(x => x.Date.Date == date.Date && !x.IsDeleted);
+                .FirstOrDefault(x =>
+                    x.Date.Date == date.Date &&
+                    x.TenantId == tenantId &&
+                    !x.IsDeleted);
 
             if (entity == null)
                 throw new NotFoundException("SalesSummaryDaily", date);
@@ -43,10 +52,12 @@ namespace Inventory.Services
         // =========================
         public async Task<List<SalesSummaryDailyResult>> GetAllAsync()
         {
+            var tenantId = _tenantContext.GetTenantId();
+
             var items = await _repository.GetAllAsync();
 
             return _mapper.Map<List<SalesSummaryDailyResult>>(
-                items.Where(x => !x.IsDeleted).ToList()
+                items.Where(x => !x.IsDeleted && x.TenantId == tenantId).ToList()
             );
         }
 
@@ -55,6 +66,8 @@ namespace Inventory.Services
         // =========================
         public async Task<PagedResult<SalesSummaryDailyResult>> QueryAsync(SalesSummaryDailyQuery query)
         {
+            var tenantId = _tenantContext.GetTenantId();
+
             if (query.Page < 1 || query.PageSize < 1 || query.PageSize > 100)
             {
                 throw new ValidationException(new Dictionary<string, string[]>
@@ -64,7 +77,7 @@ namespace Inventory.Services
             }
 
             var summaries = (await _repository.GetAllAsync())
-                .Where(x => !x.IsDeleted)
+                .Where(x => !x.IsDeleted && x.TenantId == tenantId)
                 .AsQueryable();
 
             if (query.FromDate.HasValue)

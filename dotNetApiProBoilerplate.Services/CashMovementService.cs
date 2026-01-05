@@ -6,6 +6,7 @@ using Inventory.Dto.CashMovements.Results;
 using Inventory.Dto.Pages.Results;
 using Inventory.Dto.Queries;
 using Inventory.Infrastructure.Repositories;
+using Inventory.Services.Context;
 using Inventory.Services.Exceptions;
 
 namespace Inventory.Services
@@ -15,25 +16,32 @@ namespace Inventory.Services
         private readonly IRepository<CashMovement> _repository;
         private readonly IUnitOfWork _unitOfWork;
         private readonly IMapper _mapper;
+        private readonly ITenantContext _tenantContext;
 
         public CashMovementService(
             IRepository<CashMovement> repository,
             IUnitOfWork unitOfWork,
-            IMapper mapper)
+            IMapper mapper,
+            ITenantContext tenantContext)
         {
             _repository = repository;
             _unitOfWork = unitOfWork;
             _mapper = mapper;
+            _tenantContext = tenantContext;
         }
 
         // CREATE
         public async Task<CashMovementResult> CreateAsync(CreateCashMovementRequest request)
         {
+            var tenantId = _tenantContext.GetTenantId();
+            var userId = _tenantContext.GetUserId();
+
             var cashMovement = _mapper.Map<CashMovement>(request);
 
             cashMovement.Id = Guid.NewGuid();
+            cashMovement.TenantId = tenantId;
+            cashMovement.CreatedByUserId = userId;
             cashMovement.CreatedAt = DateTime.UtcNow;
-            cashMovement.ModifiedAt = DateTime.UtcNow;
 
             await _repository.AddAsync(cashMovement);
             await _unitOfWork.SaveChangesAsync();
@@ -44,9 +52,10 @@ namespace Inventory.Services
         // GET BY ID
         public async Task<CashMovementResult> GetByIdAsync(Guid id)
         {
+            var tenantId = _tenantContext.GetTenantId();
             var cashMovement = await _repository.GetByIdAsync(id);
 
-            if (cashMovement is null || cashMovement.IsDeleted)
+            if (cashMovement is null || cashMovement.IsDeleted || cashMovement.TenantId != tenantId)
             {
                 throw new NotFoundException("CashMovement", id);
             }
@@ -57,10 +66,12 @@ namespace Inventory.Services
         // GET ALL
         public async Task<List<CashMovementResult>> GetAllAsync()
         {
+            var tenantId = _tenantContext.GetTenantId();
             var cashMovements = await _repository.GetAllAsync();
 
-            // Filter out soft-deleted cashMovements
-            var activeCashMovements = cashMovements.Where(p => !p.IsDeleted).ToList();
+            var activeCashMovements = cashMovements
+                .Where(p => !p.IsDeleted && p.TenantId == tenantId)
+                .ToList();
 
             return _mapper.Map<List<CashMovementResult>>(activeCashMovements);
         }
@@ -68,18 +79,19 @@ namespace Inventory.Services
         // UPDATE
         public async Task<CashMovementResult> UpdateAsync(Guid id, UpdateCashMovementRequest request)
         {
+            var tenantId = _tenantContext.GetTenantId();
+            var userId = _tenantContext.GetUserId();
+
             var cashMovement = await _repository.GetByIdAsync(id);
 
-            if (cashMovement is null || cashMovement.IsDeleted)
+            if (cashMovement is null || cashMovement.IsDeleted || cashMovement.TenantId != tenantId)
             {
                 throw new NotFoundException("CashMovement", id);
             }
 
-            // Map the request to the cashMovement
             _mapper.Map(request, cashMovement);
-
-            // Always update the ModifiedAt timestamp
             cashMovement.ModifiedAt = DateTime.UtcNow;
+            cashMovement.ModifiedByUserId = userId;
 
             _repository.Update(cashMovement);
             await _unitOfWork.SaveChangesAsync();
@@ -90,14 +102,19 @@ namespace Inventory.Services
         // SOFT DELETE
         public async Task<bool> DeleteAsync(Guid id)
         {
+            var tenantId = _tenantContext.GetTenantId();
+            var userId = _tenantContext.GetUserId();
+
             var cashMovement = await _repository.GetByIdAsync(id);
 
-            if (cashMovement is null || cashMovement.IsDeleted)
+            if (cashMovement is null || cashMovement.IsDeleted || cashMovement.TenantId != tenantId)
             {
                 throw new NotFoundException("CashMovement", id);
             }
 
             cashMovement.IsDeleted = true;
+            cashMovement.DeletedAt = DateTime.UtcNow;
+            cashMovement.DeletedByUserId = userId;
             cashMovement.ModifiedAt = DateTime.UtcNow;
 
             _repository.Update(cashMovement);
@@ -109,19 +126,19 @@ namespace Inventory.Services
         // PAGINATION + FILTERING + SORTING
         public async Task<PagedResult<CashMovementResult>> QueryAsync(CashMovementQuery query)
         {
+            var tenantId = _tenantContext.GetTenantId();
+
             if (query.Page < 1 || query.PageSize < 1 || query.PageSize > 100)
                 throw new ValidationException(new Dictionary<string, string[]>
-        {
-            { "Paging", new[] { "Invalid paging parameters." } }
-        });
+                {
+                    { "Paging", new[] { "Invalid paging parameters." } }
+                });
 
             var movements = (await _repository.GetAllAsync())
-                .Where(m => !m.IsDeleted)
+                .Where(m => !m.IsDeleted && m.TenantId == tenantId)
                 .AsQueryable();
 
-            // =========================
             // FILTERS
-            // =========================
             if (query.CashSessionId.HasValue)
                 movements = movements.Where(m => m.CashSessionId == query.CashSessionId.Value);
 
@@ -143,30 +160,16 @@ namespace Inventory.Services
                     m.Amount.ToString().Contains(query.Search)
                 );
 
-            // =========================
             // SORTING
-            // =========================
             movements = query.SortBy.ToLower() switch
             {
-                "amount" => query.Desc
-                    ? movements.OrderByDescending(m => m.Amount)
-                    : movements.OrderBy(m => m.Amount),
-
-                "type" => query.Desc
-                    ? movements.OrderByDescending(m => m.Type)
-                    : movements.OrderBy(m => m.Type),
-
-                "movementdate" => query.Desc
-                    ? movements.OrderByDescending(m => m.MovementDate)
-                    : movements.OrderBy(m => m.MovementDate),
-
-                _ => query.Desc
-                    ? movements.OrderByDescending(m => m.MovementDate)
-                    : movements.OrderBy(m => m.MovementDate)
+                "amount" => query.Desc ? movements.OrderByDescending(m => m.Amount) : movements.OrderBy(m => m.Amount),
+                "type" => query.Desc ? movements.OrderByDescending(m => m.Type) : movements.OrderBy(m => m.Type),
+                "movementdate" => query.Desc ? movements.OrderByDescending(m => m.MovementDate) : movements.OrderBy(m => m.MovementDate),
+                _ => query.Desc ? movements.OrderByDescending(m => m.MovementDate) : movements.OrderBy(m => m.MovementDate)
             };
 
             var total = movements.Count();
-
             var items = movements
                 .Skip((query.Page - 1) * query.PageSize)
                 .Take(query.PageSize)
@@ -180,6 +183,5 @@ namespace Inventory.Services
                 PageSize = query.PageSize
             };
         }
-
     }
 }

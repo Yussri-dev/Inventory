@@ -44,6 +44,28 @@ namespace Inventory.Api.Controllers
         }
 
         // =========================
+        // CREATE COMPLETE
+        // =========================
+        [HttpPost("complete")]
+        [ProducesResponseType(typeof(SaleResult), StatusCodes.Status201Created)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
+        public async Task<IActionResult> CreateComplete(
+            [FromBody] CreateCompleteSaleRequest request)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
+            var result = await _saleService.CreateCompleteAsync(request);
+
+            return CreatedAtAction(
+                nameof(GetById),
+                new { version = "1.0", id = result.Id },
+                result
+            );
+        }
+
+        // =========================
         // GET BY ID
         // =========================
         [HttpGet("{id:guid}")]

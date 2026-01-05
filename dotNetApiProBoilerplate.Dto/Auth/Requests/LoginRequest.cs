@@ -1,17 +1,16 @@
-﻿namespace Inventory.Dto.Auth.Requests
+﻿using System.ComponentModel.DataAnnotations;
+
+namespace Inventory.Dto.Auth.Requests
 {
-    // DTO used for user authentication (login)
-    // Represents the minimal credentials required to obtain a JWT token
     public class LoginRequest
     {
-        // User email address
-        // Marked as required at compile time (C# 11 required members)
-        // Enforced during object initialization
-        public required string Email { get; init; }
+        [Required(ErrorMessage = "Email is required")]
+        [EmailAddress(ErrorMessage = "Invalid email format")]
+        public string Email { get; set; } = null!;
 
-        // User password
-        // Also marked as required to prevent incomplete request objects
-        // Validation of correctness happens in the service layer
-        public required string Password { get; init; }
+        [Required(ErrorMessage = "Password is required")]
+        public string Password { get; set; } = null!;
+
+        public string? IpAddress { get; set; }
     }
 }

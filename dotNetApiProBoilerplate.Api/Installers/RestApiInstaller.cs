@@ -4,7 +4,11 @@
     {
         public static WebApplicationBuilder InstallRestApi(this WebApplicationBuilder builder)
         {
-            builder.Services.AddControllers();
+            builder.Services.AddControllers()
+                .AddJsonOptions(options =>
+                {
+                    options.JsonSerializerOptions.Converters.Add(new Inventory.Api.Converters.NullableGuidJsonConverter());
+                });
 
             builder.Services.AddEndpointsApiExplorer();
 

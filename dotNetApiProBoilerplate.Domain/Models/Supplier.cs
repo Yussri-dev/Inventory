@@ -2,6 +2,7 @@
 using Inventory.Domain.Abstraction;
 using Inventory.Domain.Models;
 using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Inventory.Domain.Entities
 {
@@ -41,6 +42,9 @@ namespace Inventory.Domain.Entities
 
         [MaxLength(50)]
         public string? BankAccount { get; set; }
+
+        [Column(TypeName = "decimal(18,2)")]
+        public decimal CurrentBalance { get; set; }
 
         public bool IsActive { get; set; }
 

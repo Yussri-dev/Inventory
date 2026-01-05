@@ -6,6 +6,7 @@ using Inventory.Services.Features.Returns.GetAll;
 using Inventory.Services.Features.Returns.GetById;
 using Inventory.Services.Features.Returns.Search;
 using Inventory.Services.Features.Returns.Update;
+using Inventory.Services.Features.Returns.CreateComplete;
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
 
@@ -38,6 +39,28 @@ namespace Inventory.Api.Controllers
 
             var result = await _mediator.Send(
                 new CreateReturnCommand(request),
+                cancellationToken
+            );
+            return CreatedAtAction(
+                nameof(GetById),
+                new { version = "1.0", id = result.Id },
+                result
+            );
+        }
+
+        [HttpPost("complete")]
+        [ProducesResponseType(typeof(object), StatusCodes.Status201Created)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
+        public async Task<IActionResult> CreateComplete(
+            [FromBody] CreateCompleteReturnRequest request,
+            CancellationToken cancellationToken)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
+            var result = await _mediator.Send(
+                new CreateCompleteReturnCommand(request),
                 cancellationToken
             );
             return CreatedAtAction(

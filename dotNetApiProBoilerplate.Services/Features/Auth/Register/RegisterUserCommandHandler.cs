@@ -14,7 +14,7 @@ namespace Inventory.Services.Features.Auth.Register
 
         public Task<AuthResult> Handle(RegisterUserCommand command, CancellationToken cancellationToken)
         {
-            return _authService.RegisterAsync(command.Request);
+            return _authService.RegisterUserAsync(command.Request);
         }
     }
 }

@@ -6,6 +6,7 @@ using Inventory.Dto.Products.Requests;
 using Inventory.Dto.Products.Results;
 using Inventory.Dto.Queries;
 using Inventory.Infrastructure.Repositories;
+using Inventory.Services.Context;
 using Inventory.Services.Exceptions;
 
 namespace Inventory.Services
@@ -15,22 +16,32 @@ namespace Inventory.Services
         private readonly IRepository<Product> _repository;
         private readonly IUnitOfWork _unitOfWork;
         private readonly IMapper _mapper;
+        private readonly ITenantContext _tenantContext;
 
         public ProductService(
             IRepository<Product> repository,
             IUnitOfWork unitOfWork,
-            IMapper mapper)
+            IMapper mapper,
+            ITenantContext tenantContext
+            )
         {
             _repository = repository;
             _unitOfWork = unitOfWork;
             _mapper = mapper;
+            _tenantContext = tenantContext;
         }
 
         // CREATE
         public async Task<ProductResult> CreateAsync(CreateProductRequest request)
         {
+            var tenantId = _tenantContext.GetTenantId();
+            var userId = _tenantContext.GetUserId();
+
             // Validation: Check if product with same name already exists
-            var exists = await _repository.ExistsAsync(p => p.Name == request.Name && !p.IsDeleted);
+            var exists = await _repository.ExistsAsync(p => 
+            p.Name == request.Name &&
+            p.TenantId == tenantId &&
+            !p.IsDeleted);
             if (exists)
             {
                 throw new ConflictException($"Product with name '{request.Name}' already exists.");
@@ -55,7 +66,7 @@ namespace Inventory.Services
                 throw new ValidationException(errors);
             }
 
-            if (request.PurchasePrice < request.SalePrice)
+            if (request.PurchasePrice > request.SalePrice)
             {
                 var errors = new Dictionary<string, string[]>
                 {
@@ -70,6 +81,8 @@ namespace Inventory.Services
             product.IsActive = ProductStatus.Active;
             product.CreatedAt = DateTime.UtcNow;
             product.ModifiedAt = DateTime.UtcNow;
+            product.TenantId = tenantId;
+            product.CreatedByUserId = userId;
 
             await _repository.AddAsync(product);
             await _unitOfWork.SaveChangesAsync();
@@ -80,9 +93,11 @@ namespace Inventory.Services
         // GET BY ID
         public async Task<ProductResult> GetByIdAsync(Guid id)
         {
+            var tenantId = _tenantContext.GetTenantId();
+
             var product = await _repository.GetByIdAsync(id);
 
-            if (product is null || product.IsDeleted)
+            if (product is null || product.IsDeleted || product.TenantId != tenantId)
             {
                 throw new NotFoundException("Product", id);
             }
@@ -93,10 +108,14 @@ namespace Inventory.Services
         // GET ALL
         public async Task<List<ProductResult>> GetAllAsync()
         {
+            var tenantId = _tenantContext.GetTenantId();
+
             var products = await _repository.GetAllAsync();
 
             // Filter out soft-deleted products
-            var activeProducts = products.Where(p => !p.IsDeleted).ToList();
+            var activeProducts = products.Where(p => 
+            !p.IsDeleted &&
+            p.TenantId == tenantId).ToList();
 
             return _mapper.Map<List<ProductResult>>(activeProducts);
         }
@@ -104,9 +123,12 @@ namespace Inventory.Services
         // UPDATE
         public async Task<ProductResult> UpdateAsync(Guid id, UpdateProductRequest request)
         {
+            var tenantId = _tenantContext.GetTenantId();
+            var userId = _tenantContext.GetUserId();
+
             var product = await _repository.GetByIdAsync(id);
 
-            if (product is null || product.IsDeleted)
+            if (product is null || product.IsDeleted || product.TenantId == tenantId)
             {
                 throw new NotFoundException("Product", id);
             }
@@ -156,6 +178,7 @@ namespace Inventory.Services
 
             // Always update the ModifiedAt timestamp
             product.ModifiedAt = DateTime.UtcNow;
+            product.ModifiedByUserId = userId;
 
             _repository.Update(product);
             await _unitOfWork.SaveChangesAsync();
@@ -166,15 +189,19 @@ namespace Inventory.Services
         // SOFT DELETE
         public async Task<bool> DeleteAsync(Guid id)
         {
+            var tenantId = _tenantContext.GetTenantId();
+            var userId = _tenantContext.GetUserId();
+
             var product = await _repository.GetByIdAsync(id);
 
-            if (product is null || product.IsDeleted)
+            if (product is null || product.IsDeleted || product.TenantId != tenantId)
             {
                 throw new NotFoundException("Product", id);
             }
 
             product.IsDeleted = true;
-            product.ModifiedAt = DateTime.UtcNow;
+            product.DeletedAt = DateTime.UtcNow;
+            product.DeletedByUserId = userId;
 
             _repository.Update(product);
             await _unitOfWork.SaveChangesAsync();

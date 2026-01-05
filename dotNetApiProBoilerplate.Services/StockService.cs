@@ -5,6 +5,7 @@ using Inventory.Dto.Stock.Requests;
 using Inventory.Dto.Stock.Results;
 using Inventory.Dto.Queries;
 using Inventory.Infrastructure.Repositories;
+using Inventory.Services.Context;
 using Inventory.Services.Exceptions;
 
 namespace Inventory.Services
@@ -14,15 +15,18 @@ namespace Inventory.Services
         private readonly IRepository<Stock> _repository;
         private readonly IUnitOfWork _unitOfWork;
         private readonly IMapper _mapper;
+        private readonly ITenantContext _tenantContext;
 
         public StockService(
             IRepository<Stock> repository,
             IUnitOfWork unitOfWork,
-            IMapper mapper)
+            IMapper mapper,
+            ITenantContext tenantContext)
         {
             _repository = repository;
             _unitOfWork = unitOfWork;
             _mapper = mapper;
+            _tenantContext = tenantContext;
         }
 
         // =========================
@@ -30,9 +34,13 @@ namespace Inventory.Services
         // =========================
         public async Task<StockResult> CreateAsync(CreateStockRequest request)
         {
+            var tenantId = _tenantContext.GetTenantId();
+
             // One stock per product
             var exists = await _repository.ExistsAsync(
-                s => s.ProductId == request.ProductId && !s.IsDeleted);
+                s => s.ProductId == request.ProductId &&
+                     s.TenantId == tenantId &&
+                     !s.IsDeleted);
 
             if (exists)
             {
@@ -59,6 +67,7 @@ namespace Inventory.Services
             var stock = _mapper.Map<Stock>(request);
 
             stock.Id = Guid.NewGuid();
+            stock.TenantId = tenantId;
             stock.LastUpdated = DateTime.UtcNow;
             stock.CreatedAt = DateTime.UtcNow;
             stock.ModifiedAt = DateTime.UtcNow;
@@ -74,9 +83,10 @@ namespace Inventory.Services
         // =========================
         public async Task<StockResult> GetByIdAsync(Guid id)
         {
+            var tenantId = _tenantContext.GetTenantId();
             var stock = await _repository.GetByIdAsync(id);
 
-            if (stock is null || stock.IsDeleted)
+            if (stock is null || stock.IsDeleted || stock.TenantId != tenantId)
             {
                 throw new NotFoundException("Stock", id);
             }
@@ -89,10 +99,12 @@ namespace Inventory.Services
         // =========================
         public async Task<List<StockResult>> GetAllAsync()
         {
+            var tenantId = _tenantContext.GetTenantId();
             var stocks = await _repository.GetAllAsync();
 
             return _mapper.Map<List<StockResult>>(
-                stocks.Where(s => !s.IsDeleted).ToList());
+                stocks.Where(s => !s.IsDeleted && s.TenantId == tenantId).ToList()
+            );
         }
 
         // =========================
@@ -100,9 +112,10 @@ namespace Inventory.Services
         // =========================
         public async Task<StockResult> UpdateAsync(Guid id, UpdateStockRequest request)
         {
+            var tenantId = _tenantContext.GetTenantId();
             var stock = await _repository.GetByIdAsync(id);
 
-            if (stock is null || stock.IsDeleted)
+            if (stock is null || stock.IsDeleted || stock.TenantId != tenantId)
             {
                 throw new NotFoundException("Stock", id);
             }
@@ -139,9 +152,10 @@ namespace Inventory.Services
         // =========================
         public async Task<bool> DeleteAsync(Guid id)
         {
+            var tenantId = _tenantContext.GetTenantId();
             var stock = await _repository.GetByIdAsync(id);
 
-            if (stock is null || stock.IsDeleted)
+            if (stock is null || stock.IsDeleted || stock.TenantId != tenantId)
             {
                 throw new NotFoundException("Stock", id);
             }
@@ -160,6 +174,8 @@ namespace Inventory.Services
         // =========================
         public async Task<PagedResult<StockResult>> QueryAsync(StockQuery query)
         {
+            var tenantId = _tenantContext.GetTenantId();
+
             if (query.Page < 1 || query.PageSize < 1 || query.PageSize > 100)
             {
                 throw new ValidationException(new Dictionary<string, string[]>
@@ -169,7 +185,7 @@ namespace Inventory.Services
             }
 
             var all = (await _repository.GetAllAsync())
-                .Where(s => !s.IsDeleted)
+                .Where(s => !s.IsDeleted && s.TenantId == tenantId)
                 .AsQueryable();
 
             if (query.ProductId.HasValue)

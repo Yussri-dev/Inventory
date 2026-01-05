@@ -23,8 +23,8 @@ namespace Inventory.Domain.Entities
         [MaxLength(1000)]
         public string? Description { get; set; }
 
-        public DateTime CreatedAt { get; set; }
-        public DateTime? ModifiedAt { get; set; }
+        public new DateTime CreatedAt { get; set; }
+        public new DateTime? ModifiedAt { get; set; }
 
         // Navigation properties
         public ICollection<Product> TenantProducts { get; set; } = new List<Product>();

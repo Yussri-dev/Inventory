@@ -5,6 +5,7 @@ using Inventory.Dto.LoyaltyTransactions.Results;
 using Inventory.Dto.Pages.Results;
 using Inventory.Dto.Queries;
 using Inventory.Infrastructure.Repositories;
+using Inventory.Services.Context;
 using Inventory.Services.Exceptions;
 
 namespace Inventory.Services
@@ -15,17 +16,20 @@ namespace Inventory.Services
         private readonly IRepository<LoyaltyCard> _cardRepository;
         private readonly IUnitOfWork _unitOfWork;
         private readonly IMapper _mapper;
-
+        private readonly ITenantContext _tenantContext;
         public LoyaltyTransactionService(
             IRepository<LoyaltyTransaction> transactionRepository,
             IRepository<LoyaltyCard> cardRepository,
             IUnitOfWork unitOfWork,
-            IMapper mapper)
+            IMapper mapper,
+            ITenantContext tenantContext
+            )
         {
             _transactionRepository = transactionRepository;
             _cardRepository = cardRepository;
             _unitOfWork = unitOfWork;
             _mapper = mapper;
+            _tenantContext = tenantContext;
         }
 
         // =========================
@@ -33,6 +37,9 @@ namespace Inventory.Services
         // =========================
         public async Task<LoyaltyTransactionResult> CreateAsync(CreateLoyaltyTransactionRequest request)
         {
+            var tenantId = _tenantContext.GetTenantId();
+            var userId = _tenantContext.GetUserId();
+
             if (request.PointsChange == 0)
             {
                 throw new ValidationException(new Dictionary<string, string[]>
@@ -43,7 +50,7 @@ namespace Inventory.Services
 
             var card = await _cardRepository.GetByIdAsync(request.LoyaltyCardId);
 
-            if (card == null || card.IsDeleted || !card.IsActive)
+            if (card == null || card.IsDeleted || !card.IsActive || card.TenantId != tenantId)
                 throw new NotFoundException("LoyaltyCard", request.LoyaltyCardId);
 
             var pointsBefore = card.CurrentPoints;
@@ -65,7 +72,8 @@ namespace Inventory.Services
             entity.TransactionDate = DateTime.UtcNow;
             entity.CreatedAt = DateTime.UtcNow;
             entity.ModifiedAt = DateTime.UtcNow;
-
+            entity.TenantId = tenantId;
+            entity.CreatedByUserId = userId;
             // Apply loyalty card update
             card.CurrentPoints = pointsAfter;
 
@@ -87,9 +95,11 @@ namespace Inventory.Services
         // =========================
         public async Task<LoyaltyTransactionResult> GetByIdAsync(Guid id)
         {
+            var tenantId = _tenantContext.GetTenantId();
+
             var entity = await _transactionRepository.GetByIdAsync(id);
 
-            if (entity == null || entity.IsDeleted)
+            if (entity == null || entity.IsDeleted || entity.TenantId != tenantId)
                 throw new NotFoundException("LoyaltyTransaction", id);
 
             return _mapper.Map<LoyaltyTransactionResult>(entity);
@@ -112,13 +122,17 @@ namespace Inventory.Services
         // =========================
         public async Task<bool> DeleteAsync(Guid id)
         {
+            var tenantId = _tenantContext.GetTenantId();
+            var userId = _tenantContext.GetUserId();
+
             var entity = await _transactionRepository.GetByIdAsync(id);
 
-            if (entity == null || entity.IsDeleted)
+            if (entity == null || entity.IsDeleted || entity.TenantId != tenantId)
                 throw new NotFoundException("LoyaltyTransaction", id);
 
             entity.IsDeleted = true;
             entity.ModifiedAt = DateTime.UtcNow;
+            entity.DeletedByUserId = userId;
 
             _transactionRepository.Update(entity);
             await _unitOfWork.SaveChangesAsync();

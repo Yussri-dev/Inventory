@@ -23,6 +23,14 @@ namespace Inventory.Services.Mapping
                 .ForMember(dest => dest.Supplier, opt => opt.Ignore())
                 .ForMember(dest => dest.Lines, opt => opt.Ignore());
 
+            CreateMap<CreateCompleteSupplierReturnRequest, SupplierReturn>()
+                .ForMember(dest => dest.Id, opt => opt.Ignore())
+                .ForMember(dest => dest.Status, opt => opt.Ignore())
+                .ForMember(dest => dest.ApprovedDate, opt => opt.Ignore())
+                .ForMember(dest => dest.CompletedDate, opt => opt.Ignore())
+                .ForMember(dest => dest.Supplier, opt => opt.Ignore())
+                .ForMember(dest => dest.Lines, opt => opt.Ignore());
+
             // =========================
             // UPDATE
             // =========================

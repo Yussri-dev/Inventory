@@ -6,6 +6,7 @@ using Inventory.Dto.Pages.Results;
 using Inventory.Dto.Queries;
 using Inventory.Infrastructure.Repositories;
 using Inventory.Services.Exceptions;
+using Inventory.Services.Context;
 
 namespace Inventory.Services
 {
@@ -14,52 +15,70 @@ namespace Inventory.Services
         private readonly IRepository<ProductCatalog> _repository;
         private readonly IUnitOfWork _unitOfWork;
         private readonly IMapper _mapper;
+        private readonly ITenantContext _tenantContext;
 
         public ProductCatalogService(
             IRepository<ProductCatalog> repository,
             IUnitOfWork unitOfWork,
-            IMapper mapper)
+            IMapper mapper,
+            ITenantContext tenantContext)
         {
             _repository = repository;
             _unitOfWork = unitOfWork;
             _mapper = mapper;
+            _tenantContext = tenantContext;
         }
 
-        //CREATE
+        // =========================
+        // CREATE
+        // =========================
         public async Task<ProductCatalogResult> CreateAsync(CreateProductCatalogRequest request)
         {
-            var exists = await _repository.ExistsAsync(c => c.Name == request.Name && !c.IsDeleted);
-            if (exists)
-            {
-                throw new ConflictException($"ProductCatalog with name '{request.Name}' already exists.");
-            }
+            var tenantId = _tenantContext.GetTenantId();
+            var userId = _tenantContext.GetUserId();
 
-            if (request.Name.Length == 0)
+            if (string.IsNullOrWhiteSpace(request.Name))
             {
-                var errors = new Dictionary<string, string[]>
+                throw new ValidationException(new Dictionary<string, string[]>
                 {
                     { "Name", new[] { "ProductCatalog name must not be empty." } }
-                };
+                });
+            }
+
+            var exists = await _repository.ExistsAsync(c =>
+                c.Name == request.Name &&
+                c.TenantId == tenantId &&
+                !c.IsDeleted);
+
+            if (exists)
+            {
+                throw new ConflictException(
+                    $"ProductCatalog with name '{request.Name}' already exists.");
             }
 
             var customer = _mapper.Map<ProductCatalog>(request);
 
             customer.Id = Guid.NewGuid();
+            customer.TenantId = tenantId;               // ✅ CRITICAL
             customer.CreatedAt = DateTime.UtcNow;
             customer.ModifiedAt = DateTime.UtcNow;
+            customer.CreatedByUserId = userId;
 
             await _repository.AddAsync(customer);
             await _unitOfWork.SaveChangesAsync();
+
             return _mapper.Map<ProductCatalogResult>(customer);
         }
 
-
-        //GET BY ID
+        // =========================
+        // GET BY ID
+        // =========================
         public async Task<ProductCatalogResult> GetByIdAsync(Guid id)
         {
+            var tenantId = _tenantContext.GetTenantId();
             var customer = await _repository.GetByIdAsync(id);
 
-            if (customer == null || customer.IsDeleted)
+            if (customer == null || customer.IsDeleted || customer.TenantId != tenantId)
             {
                 throw new NotFoundException("ProductCatalog", id);
             }
@@ -67,47 +86,55 @@ namespace Inventory.Services
             return _mapper.Map<ProductCatalogResult>(customer);
         }
 
-        //GET ALL
+        // =========================
+        // GET ALL
+        // =========================
         public async Task<List<ProductCatalogResult>> GetAllAsync()
         {
+            var tenantId = _tenantContext.GetTenantId();
             var customers = await _repository.GetAllAsync();
 
-            var activeProductCatalogs = customers.Where(c => !c.IsDeleted).ToList();
+            var activeProductCatalogs = customers
+                .Where(c => !c.IsDeleted && c.TenantId == tenantId)
+                .ToList();
 
             return _mapper.Map<List<ProductCatalogResult>>(activeProductCatalogs);
         }
 
-        //UPDATE
+        // =========================
+        // UPDATE
+        // =========================
         public async Task<ProductCatalogResult> UpdateAsync(Guid id, UpdateProductCatalogRequest request)
         {
+            var tenantId = _tenantContext.GetTenantId();
+            var userId = _tenantContext.GetUserId();
+
             var customer = await _repository.GetByIdAsync(id);
-            if (customer == null || customer.IsDeleted)
+
+            if (customer == null || customer.IsDeleted || customer.TenantId != tenantId)
             {
                 throw new NotFoundException("ProductCatalog", id);
             }
 
             if (!string.IsNullOrWhiteSpace(request.Name) && request.Name != customer.Name)
             {
-                var nameExists = await _repository.ExistsAsync(
-                    c => c.Name == request.Name && c.Id != id && !c.IsDeleted);
+                var nameExists = await _repository.ExistsAsync(c =>
+                    c.Name == request.Name &&
+                    c.Id != id &&
+                    c.TenantId == tenantId &&
+                    !c.IsDeleted);
+
                 if (nameExists)
                 {
-                    throw new ConflictException($"ProductCatalog with name '{request.Name}' already exists.");
-                }
-
-                if (request.Name.Length == 0)
-                {
-                    var errors = new Dictionary<string, string[]>
-                    {
-                        { "Name", new[] { "ProductCatalog name must not be empty." } }
-                    };
-                    throw new ValidationException(errors);
+                    throw new ConflictException(
+                        $"ProductCatalog with name '{request.Name}' already exists.");
                 }
             }
 
             _mapper.Map(request, customer);
 
             customer.ModifiedAt = DateTime.UtcNow;
+            customer.ModifiedByUserId = userId;
 
             _repository.Update(customer);
             await _unitOfWork.SaveChangesAsync();
@@ -115,62 +142,63 @@ namespace Inventory.Services
             return _mapper.Map<ProductCatalogResult>(customer);
         }
 
-        //DELETE
+        // =========================
+        // DELETE (SOFT)
+        // =========================
         public async Task<bool> DeleteAsync(Guid id)
         {
+            var tenantId = _tenantContext.GetTenantId();
+            var userId = _tenantContext.GetUserId();
+
             var customer = await _repository.GetByIdAsync(id);
-            if (customer == null || customer.IsDeleted)
+
+            if (customer == null || customer.IsDeleted || customer.TenantId != tenantId)
             {
                 throw new NotFoundException("ProductCatalog", id);
             }
+
             customer.IsDeleted = true;
-            customer.ModifiedAt = DateTime.UtcNow;
+            customer.DeletedAt = DateTime.UtcNow;
+            customer.DeletedByUserId = userId;
+
             _repository.Update(customer);
             await _unitOfWork.SaveChangesAsync();
+
             return true;
         }
 
-        // Pagination + filtering + sorting
+        // =========================
+        // QUERY
+        // =========================
         public async Task<PagedResult<ProductCatalogResult>> QueryAsync(ProductCatalogQuery query)
         {
-            if (query.Page < 1)
+            var tenantId = _tenantContext.GetTenantId();
+
+            if (query.Page < 1 || query.PageSize < 1 || query.PageSize > 100)
             {
-                var errors = new Dictionary<string, string[]>
+                throw new ValidationException(new Dictionary<string, string[]>
                 {
-                    { "Page", new[] { "Page must be greater than or equal to 1." } }
-                };
-                throw new ValidationException(errors);
+                    { "Paging", new[] { "Invalid paging parameters." } }
+                });
             }
 
-            if (query.PageSize < 1 || query.PageSize > 100)
-            {
-                var errors = new Dictionary<string, string[]>
-                {
-                    { "PageSize", new[] { "PageSize must be between 1 and 100." } }
-                };
-                throw new ValidationException(errors);
-            }
+            var filtered = (await _repository.GetAllAsync())
+                .Where(p => !p.IsDeleted && p.TenantId == tenantId)
+                .AsQueryable();
 
-            var all = await _repository.GetAllAsync();
-
-            // Filter out soft-deleted products
-            var filtered = all.Where(p => !p.IsDeleted).AsQueryable();
-
-            // Search filter
             if (!string.IsNullOrWhiteSpace(query.Search))
             {
                 filtered = filtered.Where(p =>
                     p.Name.Contains(query.Search, StringComparison.OrdinalIgnoreCase));
             }
 
-            // Sorting
             filtered = query.SortBy?.ToLower() switch
             {
-                "ref" => query.Desc
+                "name" => query.Desc
                     ? filtered.OrderByDescending(p => p.Name)
                     : filtered.OrderBy(p => p.Name),
 
-                "amount" => query.Desc
+                "manufacturer" => query.Desc
                     ? filtered.OrderByDescending(p => p.Manufacturer)
                     : filtered.OrderBy(p => p.Manufacturer),
 

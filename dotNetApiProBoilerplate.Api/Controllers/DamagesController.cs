@@ -6,6 +6,7 @@ using Inventory.Services.Features.Damages.GetAll;
 using Inventory.Services.Features.Damages.GetById;
 using Inventory.Services.Features.Damages.Search;
 using Inventory.Services.Features.Damages.Update;
+using Inventory.Services.Features.Damages.CreateComplete;
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
 
@@ -38,6 +39,28 @@ namespace Inventory.Api.Controllers
 
             var result = await _mediator.Send(
                 new CreateDamageCommand(request),
+                cancellationToken
+            );
+            return CreatedAtAction(
+                nameof(GetById),
+                new { version = "1.0", id = result.Id },
+                result
+            );
+        }
+
+        [HttpPost("complete")]
+        [ProducesResponseType(typeof(object), StatusCodes.Status201Created)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
+        public async Task<IActionResult> CreateComplete(
+            [FromBody] CreateCompleteDamageRequest request,
+            CancellationToken cancellationToken)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
+            var result = await _mediator.Send(
+                new CreateCompleteDamageCommand(request),
                 cancellationToken
             );
             return CreatedAtAction(

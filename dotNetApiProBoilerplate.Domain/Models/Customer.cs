@@ -37,6 +37,8 @@ namespace Inventory.Domain.Entities
         [MaxLength(1000)]
         public string? Notes { get; set; }
 
+
+
         // Navigation properties
         public ICollection<Sale> Sales { get; set; } = new List<Sale>();
         public ICollection<LoyaltyCard> LoyaltyCards { get; set; } = new List<LoyaltyCard>();

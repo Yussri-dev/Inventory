@@ -6,11 +6,11 @@ namespace Inventory.Services.Features.Auth.Register
 {
     public class RegisterUserCommand : IRequest<AuthResult>
     {
-        public RegisterRequest Request { get; }
-
-        public RegisterUserCommand(RegisterRequest request)
+        public RegisterUserRequest Request { get; } 
+        public RegisterUserCommand(RegisterUserRequest request)
         {
             Request = request;
         }
     }
+
 }

@@ -14,4 +14,6 @@
         // Password strength rules are enforced in the Identity configuration
         public required string Password { get; init; }
     }
+
+
 }

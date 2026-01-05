@@ -22,6 +22,9 @@ namespace Inventory.Services.Mapping
                 // Navigation
                 .ForMember(dest => dest.Product, opt => opt.Ignore());
 
+            CreateMap<CreateCompleteDamageRequest, Damage>()
+                .IncludeBase<CreateDamageRequest, Damage>();
+
             // =========================
             // UPDATE
             // =========================

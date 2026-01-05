@@ -1,11 +1,7 @@
 ﻿using Inventory.Domain.Models;
 using Inventory.Infrastructure.Repositories;
 using Inventory.Services.Abstractions;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+using Inventory.Services.Context;
 
 namespace Inventory.Services
 {
@@ -13,23 +9,29 @@ namespace Inventory.Services
     {
         private readonly IRepository<DocumentNumber> _repository;
         private readonly IUnitOfWork _unitOfWork;
+        private readonly ITenantContext _tenantContext;
 
         public DocumentNumberService(
             IRepository<DocumentNumber> repository,
-            IUnitOfWork unitOfWork)
+            IUnitOfWork unitOfWork,
+            ITenantContext tenantContext)
         {
             _repository = repository;
             _unitOfWork = unitOfWork;
+            _tenantContext = tenantContext;
         }
 
         public async Task<string> GenerateAsync(string documentType)
         {
+            var tenantId = _tenantContext.GetTenantId();
+            var userId = _tenantContext.GetUserId();
             var now = DateTime.UtcNow;
 
-            // Load configuration for this document type
+            // Load configuration for this document type and tenant
             var config = await _repository
                 .GetSingleAsync(d =>
                     d.DocumentType == documentType &&
+                    d.TenantId == tenantId &&
                     d.Year == now.Year &&
                     (!d.ResetMonthly || d.Month == now.Month) &&
                     !d.IsDeleted);
@@ -40,6 +42,8 @@ namespace Inventory.Services
                 {
                     Id = Guid.NewGuid(),
                     DocumentType = documentType,
+                    TenantId = tenantId,
+                    CreatedByUserId = userId,
                     Prefix = documentType.ToUpper(),
                     LastNumber = 0,
                     PaddingLength = 6,
@@ -47,10 +51,8 @@ namespace Inventory.Services
                     Month = now.Month,
                     ResetYearly = true,
                     ResetMonthly = false,
-                    CreatedAt = DateTime.UtcNow,
-                    ModifiedAt = DateTime.UtcNow
+                    CreatedAt = DateTime.UtcNow
                 };
-
                 await _repository.AddAsync(config);
             }
             else
@@ -61,14 +63,13 @@ namespace Inventory.Services
                     config.Year = now.Year;
                     config.LastNumber = 0;
                 }
-
                 if (config.ResetMonthly && config.Month != now.Month)
                 {
                     config.Month = now.Month;
                     config.LastNumber = 0;
                 }
-
                 config.ModifiedAt = DateTime.UtcNow;
+                config.ModifiedByUserId = userId;
             }
 
             config.LastNumber++;
@@ -78,23 +79,17 @@ namespace Inventory.Services
                 .PadLeft(config.PaddingLength, '0');
 
             var parts = new List<string>();
-
             if (!string.IsNullOrWhiteSpace(config.Prefix))
                 parts.Add(config.Prefix);
-
             if (config.ResetYearly)
                 parts.Add(now.Year.ToString());
-
             if (config.ResetMonthly)
                 parts.Add(now.Month.ToString("00"));
-
             parts.Add(numberPart);
-
             if (!string.IsNullOrWhiteSpace(config.Suffix))
                 parts.Add(config.Suffix);
 
             await _unitOfWork.SaveChangesAsync();
-
             return string.Join("-", parts);
         }
     }

@@ -5,6 +5,7 @@ using Inventory.Dto.Suppliers.Results;
 using Inventory.Dto.Pages.Results;
 using Inventory.Dto.Queries;
 using Inventory.Infrastructure.Repositories;
+using Inventory.Services.Context;
 using Inventory.Services.Exceptions;
 
 namespace Inventory.Services
@@ -14,15 +15,18 @@ namespace Inventory.Services
         private readonly IRepository<Supplier> _repository;
         private readonly IUnitOfWork _unitOfWork;
         private readonly IMapper _mapper;
+        private readonly ITenantContext _tenantContext;
 
         public SupplierService(
             IRepository<Supplier> repository,
             IUnitOfWork unitOfWork,
-            IMapper mapper)
+            IMapper mapper,
+            ITenantContext tenantContext)
         {
             _repository = repository;
             _unitOfWork = unitOfWork;
             _mapper = mapper;
+            _tenantContext = tenantContext;
         }
 
         // =========================
@@ -30,6 +34,8 @@ namespace Inventory.Services
         // =========================
         public async Task<SupplierResult> CreateAsync(CreateSupplierRequest request)
         {
+            var tenantId = _tenantContext.GetTenantId();
+
             if (string.IsNullOrWhiteSpace(request.Name))
             {
                 throw new ValidationException(new Dictionary<string, string[]>
@@ -39,7 +45,9 @@ namespace Inventory.Services
             }
 
             var exists = await _repository.ExistsAsync(
-                s => s.Name == request.Name && !s.IsDeleted);
+                s => s.Name == request.Name &&
+                     s.TenantId == tenantId &&
+                     !s.IsDeleted);
 
             if (exists)
             {
@@ -50,6 +58,7 @@ namespace Inventory.Services
             var supplier = _mapper.Map<Supplier>(request);
 
             supplier.Id = Guid.NewGuid();
+            supplier.TenantId = tenantId;
             supplier.IsActive = true;
             supplier.CreatedAt = DateTime.UtcNow;
             supplier.ModifiedAt = DateTime.UtcNow;
@@ -65,9 +74,10 @@ namespace Inventory.Services
         // =========================
         public async Task<SupplierResult> GetByIdAsync(Guid id)
         {
+            var tenantId = _tenantContext.GetTenantId();
             var supplier = await _repository.GetByIdAsync(id);
 
-            if (supplier == null || supplier.IsDeleted)
+            if (supplier == null || supplier.IsDeleted || supplier.TenantId != tenantId)
             {
                 throw new NotFoundException("Supplier", id);
             }
@@ -80,10 +90,12 @@ namespace Inventory.Services
         // =========================
         public async Task<List<SupplierResult>> GetAllAsync()
         {
+            var tenantId = _tenantContext.GetTenantId();
             var suppliers = await _repository.GetAllAsync();
 
             return _mapper.Map<List<SupplierResult>>(
-                suppliers.Where(s => !s.IsDeleted).ToList());
+                suppliers.Where(s => !s.IsDeleted && s.TenantId == tenantId).ToList()
+            );
         }
 
         // =========================
@@ -91,9 +103,10 @@ namespace Inventory.Services
         // =========================
         public async Task<SupplierResult> UpdateAsync(Guid id, UpdateSupplierRequest request)
         {
+            var tenantId = _tenantContext.GetTenantId();
             var supplier = await _repository.GetByIdAsync(id);
 
-            if (supplier == null || supplier.IsDeleted)
+            if (supplier == null || supplier.IsDeleted || supplier.TenantId != tenantId)
             {
                 throw new NotFoundException("Supplier", id);
             }
@@ -102,7 +115,10 @@ namespace Inventory.Services
                 request.Name != supplier.Name)
             {
                 var nameExists = await _repository.ExistsAsync(
-                    s => s.Name == request.Name && s.Id != id && !s.IsDeleted);
+                    s => s.Name == request.Name &&
+                         s.Id != id &&
+                         s.TenantId == tenantId &&
+                         !s.IsDeleted);
 
                 if (nameExists)
                 {
@@ -126,9 +142,10 @@ namespace Inventory.Services
         // =========================
         public async Task<bool> DeleteAsync(Guid id)
         {
+            var tenantId = _tenantContext.GetTenantId();
             var supplier = await _repository.GetByIdAsync(id);
 
-            if (supplier == null || supplier.IsDeleted)
+            if (supplier == null || supplier.IsDeleted || supplier.TenantId != tenantId)
             {
                 throw new NotFoundException("Supplier", id);
             }
@@ -147,6 +164,8 @@ namespace Inventory.Services
         // =========================
         public async Task<PagedResult<SupplierResult>> QueryAsync(SupplierQuery query)
         {
+            var tenantId = _tenantContext.GetTenantId();
+
             if (query.Page < 1 || query.PageSize < 1 || query.PageSize > 100)
             {
                 throw new ValidationException(new Dictionary<string, string[]>
@@ -156,10 +175,9 @@ namespace Inventory.Services
             }
 
             var suppliers = (await _repository.GetAllAsync())
-                .Where(s => !s.IsDeleted)
+                .Where(s => !s.IsDeleted && s.TenantId == tenantId)
                 .AsQueryable();
 
-            // Filters
             if (!string.IsNullOrWhiteSpace(query.Search))
             {
                 suppliers = suppliers.Where(s =>
@@ -184,7 +202,6 @@ namespace Inventory.Services
                 suppliers = suppliers.Where(s => s.City == query.City);
             }
 
-            // Sorting
             suppliers = query.SortBy.ToLower() switch
             {
                 "name" => query.Desc

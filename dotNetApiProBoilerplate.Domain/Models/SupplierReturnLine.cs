@@ -1,10 +1,11 @@
-﻿using Inventory.Domain.Entities;
+﻿using Inventory.Domain.Abstraction;
+using Inventory.Domain.Entities;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Inventory.Domain.Models
 {
-    public class SupplierReturnLine
+    public class SupplierReturnLine : TenantEntity
     {
         [Key]
         public Guid Id { get; set; }

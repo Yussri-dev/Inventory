@@ -12,6 +12,11 @@ namespace Inventory.Dto.Sales.Requests
         /// Optional customer ID for the sale
         /// </summary>
         public Guid? CustomerId { get; set; }
+        
+        /// <summary>
+        /// Optional Loyalty Card ID to accumulate points
+        /// </summary>
+        public Guid? LoyaltyCardId { get; set; }
 
         /// <summary>
         /// Cash session ID where this sale is recorded

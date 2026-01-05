@@ -6,6 +6,7 @@ using Inventory.Dto.Pages.Results;
 using Inventory.Dto.Queries;
 using Inventory.Infrastructure.Repositories;
 using Inventory.Services.Exceptions;
+using Inventory.Services.Context;
 
 namespace Inventory.Services
 {
@@ -14,21 +15,29 @@ namespace Inventory.Services
         private readonly IRepository<Payment> _repository;
         private readonly IUnitOfWork _unitOfWork;
         private readonly IMapper _mapper;
-
+        private readonly ITenantContext _tenantContext;
         public PaymentService(
             IRepository<Payment> repository,
             IUnitOfWork unitOfWork,
-            IMapper mapper)
+            IMapper mapper,
+            ITenantContext tenantContext)
         {
             _repository = repository;
             _unitOfWork = unitOfWork;
             _mapper = mapper;
+            _tenantContext = tenantContext;
         }
 
         //CREATE
         public async Task<PaymentResult> CreateAsync(CreatePaymentRequest request)
         {
-            var exists = await _repository.ExistsAsync(c => c.TransactionRef == request.TransactionRef && !c.IsDeleted);
+            var tenantId = _tenantContext.GetTenantId();
+            var userId = _tenantContext.GetUserId();
+
+
+            var exists = await _repository.ExistsAsync(c =>
+            c.TransactionRef == request.TransactionRef && !c.IsDeleted && c.TenantId != tenantId);
+           
             if (exists)
             {
                 throw new ConflictException($"Payment with Transaction ref '{request.TransactionRef}' already exists.");
@@ -47,7 +56,8 @@ namespace Inventory.Services
             customer.Id = Guid.NewGuid();
             customer.CreatedAt = DateTime.UtcNow;
             customer.ModifiedAt = DateTime.UtcNow;
-
+            customer.TenantId = tenantId;
+            customer.CreatedByUserId = userId;
             await _repository.AddAsync(customer);
             await _unitOfWork.SaveChangesAsync();
             return _mapper.Map<PaymentResult>(customer);
@@ -57,9 +67,11 @@ namespace Inventory.Services
         //GET BY ID
         public async Task<PaymentResult> GetByIdAsync(Guid id)
         {
+            var tenantId = _tenantContext.GetTenantId();
+
             var customer = await _repository.GetByIdAsync(id);
 
-            if (customer == null || customer.IsDeleted)
+            if (customer == null || customer.IsDeleted || customer.TenantId != tenantId)
             {
                 throw new NotFoundException("Payment", id);
             }
@@ -80,8 +92,12 @@ namespace Inventory.Services
         //UPDATE
         public async Task<PaymentResult> UpdateAsync(Guid id, UpdatePaymentRequest request)
         {
+            var tenantId = _tenantContext.GetTenantId();
+            var userId = _tenantContext.GetUserId();
+
             var customer = await _repository.GetByIdAsync(id);
-            if (customer == null || customer.IsDeleted)
+            
+            if (customer == null || customer.IsDeleted || customer.TenantId != tenantId)
             {
                 throw new NotFoundException("Payment", id);
             }
@@ -108,6 +124,7 @@ namespace Inventory.Services
             _mapper.Map(request, customer);
 
             customer.ModifiedAt = DateTime.UtcNow;
+            customer.ModifiedByUserId = userId;
 
             _repository.Update(customer);
             await _unitOfWork.SaveChangesAsync();
@@ -118,13 +135,18 @@ namespace Inventory.Services
         //DELETE
         public async Task<bool> DeleteAsync(Guid id)
         {
+            var tenantId = _tenantContext.GetTenantId();
+            var userId = _tenantContext.GetUserId();
+
             var customer = await _repository.GetByIdAsync(id);
-            if (customer == null || customer.IsDeleted)
+            if (customer == null || customer.IsDeleted || customer.TenantId != tenantId)
             {
                 throw new NotFoundException("Payment", id);
             }
             customer.IsDeleted = true;
             customer.ModifiedAt = DateTime.UtcNow;
+            customer.ModifiedByUserId= userId;
+
             _repository.Update(customer);
             await _unitOfWork.SaveChangesAsync();
             return true;

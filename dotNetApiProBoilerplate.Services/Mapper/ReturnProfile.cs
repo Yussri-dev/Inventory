@@ -21,6 +21,9 @@ namespace Inventory.Services.Mapping
                 .ForMember(dest => dest.Sale, opt => opt.Ignore())
                 .ForMember(dest => dest.Lines, opt => opt.Ignore());
 
+            CreateMap<CreateCompleteReturnRequest, Return>()
+                .IncludeBase<CreateReturnRequest, Return>();
+
             // =========================
             // UPDATE
             // =========================

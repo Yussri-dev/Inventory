@@ -12,12 +12,12 @@ namespace Inventory.Dto.Auth.Results
     // Used for login, registration, and token refresh responses
     public class AuthResult
     {
-        // JWT access token issued by the authentication system
-        // This token must be sent in the Authorization header for protected endpoints
-        public string Token { get; init; } = null!;
-
-        // Expiration date and time of the JWT token
-        // Clients should refresh or re-authenticate before this moment
-        public DateTime ExpiresAt { get; init; }
+        public string Token { get; set; } = null!;
+        public DateTime ExpiresAt { get; set; }
+        public Guid UserId { get; set; }
+        public string Email { get; set; } = null!;
+        public Guid TenantId { get; set; }
+        public string? FullName { get; set; }
+        public string Role { get; set; } = null!;
     }
 }

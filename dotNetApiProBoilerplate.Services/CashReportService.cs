@@ -5,6 +5,7 @@ using Inventory.Dto.CashReports.Results;
 using Inventory.Dto.Pages.Results;
 using Inventory.Dto.Queries;
 using Inventory.Infrastructure.Repositories;
+using Inventory.Services.Context;
 using Inventory.Services.Exceptions;
 
 namespace Inventory.Services
@@ -14,52 +15,64 @@ namespace Inventory.Services
         private readonly IRepository<CashReport> _repository;
         private readonly IUnitOfWork _unitOfWork;
         private readonly IMapper _mapper;
+        private readonly ITenantContext _tenantContext;
 
         public CashReportService(
             IRepository<CashReport> repository,
             IUnitOfWork unitOfWork,
-            IMapper mapper)
+            IMapper mapper,
+            ITenantContext tenantContext)
         {
             _repository = repository;
             _unitOfWork = unitOfWork;
             _mapper = mapper;
+            _tenantContext = tenantContext;
         }
 
         // CREATE
         public async Task<CashReportResult> CreateAsync(CreateCashReportRequest request)
         {
-            var cashMovement = _mapper.Map<CashReport>(request);
+            var tenantId = _tenantContext.GetTenantId();
+            var userId = _tenantContext.GetUserId();
 
-            cashMovement.Id = Guid.NewGuid();
-            cashMovement.CreatedAt = DateTime.UtcNow;
-            cashMovement.ModifiedAt = DateTime.UtcNow;
+            var cashReport = _mapper.Map<CashReport>(request);
 
-            await _repository.AddAsync(cashMovement);
+            cashReport.Id = Guid.NewGuid();
+            cashReport.TenantId = tenantId;
+            cashReport.CreatedByUserId = userId;
+            cashReport.GeneratedByUserId = userId;
+            cashReport.GeneratedAt = DateTime.UtcNow;
+            cashReport.CreatedAt = DateTime.UtcNow;
+
+            await _repository.AddAsync(cashReport);
             await _unitOfWork.SaveChangesAsync();
 
-            return _mapper.Map<CashReportResult>(cashMovement);
+            return _mapper.Map<CashReportResult>(cashReport);
         }
 
         // GET BY ID
         public async Task<CashReportResult> GetByIdAsync(Guid id)
         {
-            var cashMovement = await _repository.GetByIdAsync(id);
+            var tenantId = _tenantContext.GetTenantId();
+            var cashReport = await _repository.GetByIdAsync(id);
 
-            if (cashMovement is null || cashMovement.IsDeleted)
+            if (cashReport is null || cashReport.IsDeleted || cashReport.TenantId != tenantId)
             {
                 throw new NotFoundException("CashReport", id);
             }
 
-            return _mapper.Map<CashReportResult>(cashMovement);
+            return _mapper.Map<CashReportResult>(cashReport);
         }
 
         // GET ALL
         public async Task<List<CashReportResult>> GetAllAsync()
         {
-            var cashMovements = await _repository.GetAllAsync();
+            var tenantId = _tenantContext.GetTenantId();
+            var cashReports = await _repository.GetAllAsync();
 
-            // Filter out soft-deleted cashMovements
-            var activeCashReports = cashMovements.Where(p => !p.IsDeleted).ToList();
+            var activeCashReports = cashReports
+                .Where(p => !p.IsDeleted && p.TenantId == tenantId)
+                .ToList();
 
             return _mapper.Map<List<CashReportResult>>(activeCashReports);
         }
@@ -67,39 +80,45 @@ namespace Inventory.Services
         // UPDATE
         public async Task<CashReportResult> UpdateAsync(Guid id, UpdateCashReportRequest request)
         {
-            var cashMovement = await _repository.GetByIdAsync(id);
+            var tenantId = _tenantContext.GetTenantId();
+            var userId = _tenantContext.GetUserId();
 
-            if (cashMovement is null || cashMovement.IsDeleted)
+            var cashReport = await _repository.GetByIdAsync(id);
+
+            if (cashReport is null || cashReport.IsDeleted || cashReport.TenantId != tenantId)
             {
                 throw new NotFoundException("CashReport", id);
             }
 
-            // Map the request to the cashMovement
-            _mapper.Map(request, cashMovement);
+            _mapper.Map(request, cashReport);
+            cashReport.ModifiedAt = DateTime.UtcNow;
+            cashReport.ModifiedByUserId = userId;
 
-            // Always update the ModifiedAt timestamp
-            cashMovement.ModifiedAt = DateTime.UtcNow;
-
-            _repository.Update(cashMovement);
+            _repository.Update(cashReport);
             await _unitOfWork.SaveChangesAsync();
 
-            return _mapper.Map<CashReportResult>(cashMovement);
+            return _mapper.Map<CashReportResult>(cashReport);
         }
 
         // SOFT DELETE
         public async Task<bool> DeleteAsync(Guid id)
         {
-            var cashMovement = await _repository.GetByIdAsync(id);
+            var tenantId = _tenantContext.GetTenantId();
+            var userId = _tenantContext.GetUserId();
 
-            if (cashMovement is null || cashMovement.IsDeleted)
+            var cashReport = await _repository.GetByIdAsync(id);
+
+            if (cashReport is null || cashReport.IsDeleted || cashReport.TenantId != tenantId)
             {
                 throw new NotFoundException("CashReport", id);
             }
 
-            cashMovement.IsDeleted = true;
-            cashMovement.ModifiedAt = DateTime.UtcNow;
+            cashReport.IsDeleted = true;
+            cashReport.DeletedAt = DateTime.UtcNow;
+            cashReport.DeletedByUserId = userId;
+            cashReport.ModifiedAt = DateTime.UtcNow;
 
-            _repository.Update(cashMovement);
+            _repository.Update(cashReport);
             await _unitOfWork.SaveChangesAsync();
 
             return true;
@@ -108,19 +127,19 @@ namespace Inventory.Services
         // PAGINATION + FILTERING + SORTING
         public async Task<PagedResult<CashReportResult>> QueryAsync(CashReportQuery query)
         {
+            var tenantId = _tenantContext.GetTenantId();
+
             if (query.Page < 1 || query.PageSize < 1 || query.PageSize > 100)
                 throw new ValidationException(new Dictionary<string, string[]>
-        {
-            { "Paging", new[] { "Invalid paging parameters." } }
-        });
+                {
+                    { "Paging", new[] { "Invalid paging parameters." } }
+                });
 
             var reports = (await _repository.GetAllAsync())
-                .Where(r => !r.IsDeleted)
+                .Where(r => !r.IsDeleted && r.TenantId == tenantId)
                 .AsQueryable();
 
-            // =========================
             // FILTERS
-            // =========================
             if (query.CashSessionId.HasValue)
                 reports = reports.Where(r => r.CashSessionId == query.CashSessionId.Value);
 
@@ -142,30 +161,16 @@ namespace Inventory.Services
                     r.Type.Contains(query.Search)
                 );
 
-            // =========================
             // SORTING
-            // =========================
             reports = query.SortBy.ToLower() switch
             {
-                "generatedat" => query.Desc
-                    ? reports.OrderByDescending(r => r.GeneratedAt)
-                    : reports.OrderBy(r => r.GeneratedAt),
-
-                "difference" => query.Desc
-                    ? reports.OrderByDescending(r => r.Difference)
-                    : reports.OrderBy(r => r.Difference),
-
-                "expectedamount" => query.Desc
-                    ? reports.OrderByDescending(r => r.ExpectedAmount)
-                    : reports.OrderBy(r => r.ExpectedAmount),
-
-                _ => query.Desc
-                    ? reports.OrderByDescending(r => r.GeneratedAt)
-                    : reports.OrderBy(r => r.GeneratedAt)
+                "generatedat" => query.Desc ? reports.OrderByDescending(r => r.GeneratedAt) : reports.OrderBy(r => r.GeneratedAt),
+                "difference" => query.Desc ? reports.OrderByDescending(r => r.Difference) : reports.OrderBy(r => r.Difference),
+                "expectedamount" => query.Desc ? reports.OrderByDescending(r => r.ExpectedAmount) : reports.OrderBy(r => r.ExpectedAmount),
+                _ => query.Desc ? reports.OrderByDescending(r => r.GeneratedAt) : reports.OrderBy(r => r.GeneratedAt)
             };
 
             var total = reports.Count();
-
             var items = reports
                 .Skip((query.Page - 1) * query.PageSize)
                 .Take(query.PageSize)
@@ -179,6 +184,5 @@ namespace Inventory.Services
                 PageSize = query.PageSize
             };
         }
-
     }
 }
