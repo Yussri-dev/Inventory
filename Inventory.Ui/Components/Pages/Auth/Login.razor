@@ -1,0 +1,88 @@
+﻿@page "/login"
+@layout AuthLayout
+
+@inject IAuthApi AuthApi
+@inject IAuthApiOpen AuthApi
+
+@inject ISecureStorageService SecureStorage
+@inject NavigationManager Nav
+
+<h3>Login</h3>
+
+@if (!string.IsNullOrEmpty(Error))
+{
+    <div class="alert alert-danger">@Error</div>
+}
+
+<div class="mb-3">
+    <label>Email</label>
+    <input class="form-control"
+           type="email"
+           @bind="Model.Email"
+           @bind:event="oninput"
+           autocomplete="username" />
+</div>
+
+<div class="mb-3">
+    <label>Password</label>
+    <input class="form-control"
+           type="password"
+           @bind="Model.Password"
+           @bind:event="oninput"
+           autocomplete="current-password" />
+</div>
+
+<button class="btn btn-primary w-100"
+        @onclick="LoginAsync"
+        disabled="@IsLoading">
+    @(IsLoading ? "Logging in…" : "Login")
+</button>
+
+@code {
+    private LoginRequest Model = new();
+    private bool IsLoading;
+    private string Error = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var token = await SecureStorage.GetTokenAsync();
+        if (!string.IsNullOrWhiteSpace(token))
+            Nav.NavigateTo("/", true);
+    }
+
+    private async Task LoginAsync()
+    {
+        Error = string.Empty;
+        IsLoading = true;
+
+        try
+        {
+            var result = await AuthApi.Login(Model);
+
+            if (string.IsNullOrWhiteSpace(result.Token))
+            {
+                Error = "Invalid login response.";
+                return;
+            }
+
+            var token = result.Token.StartsWith("Bearer ")
+                ? result.Token["Bearer ".Length..]
+                : result.Token;
+
+            await SecureStorage.SaveTokenAsync(token);
+            Nav.NavigateTo("/", true);
+        }
+        catch (ApiException ex)
+        {
+            Error = ex.Content ?? ex.Message;
+        }
+        catch (Exception ex)
+        {
+            Error = ex.Message;
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+}

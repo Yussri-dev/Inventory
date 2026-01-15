@@ -1,17 +1,90 @@
-﻿@inherits LayoutComponentBase
+﻿@using System.Security.Claims
+@using Inventory.Ui.Services
+@inherits LayoutComponentBase
 
-<div class="page">
-    <div class="sidebar">
-        <NavMenu />
-    </div>
+@inject ISecureStorageService StorageService
+@inject NavigationManager NavigationManager
+@inject IJSRuntime JS
 
-    <main>
-        <div class="top-row px-4">
-            <a href="https://learn.microsoft.com/aspnet/core/" target="_blank">About</a>
+@if (!IsInitialized)
+{
+    <div class="loader">
+        <div style="text-align:center;padding:40px">
+            <div style="font-size:22px">⏳</div>
+            <div>Loading…</div>
         </div>
+    </div>
+}
+else
+{
+    <div class="inv-layout">
+        <NavMenu UserName="@UserName"
+                 IsAuthenticated="@IsLoggedIn"
+                 OnLogout="@ConfirmLogout" />
 
-        <article class="content px-4">
+        <main class="inv-content">
             @Body
-        </article>
-    </main>
-</div>
+        </main>
+    </div>
+}
+
+@code {
+    private bool IsInitialized;
+    private bool IsLoggedIn;
+    private string? UserName;
+
+    protected override async Task OnInitializedAsync()
+        => await InitializeAuthAsync();
+
+    private async Task InitializeAuthAsync()
+    {
+        try
+        {
+            var token = await StorageService.GetTokenAsync();
+            if (string.IsNullOrWhiteSpace(token))
+            {
+                RedirectToLogin();
+                return;
+            }
+
+            var claims = ParseJwtClaims(token);
+
+            UserName =
+                claims.FirstOrDefault(c => c.Type.Equals("email", StringComparison.OrdinalIgnoreCase))?.Value
+                ?? claims.FirstOrDefault(c => c.Type.Equals("name", StringComparison.OrdinalIgnoreCase))?.Value
+                ?? "User";
+
+            IsLoggedIn = true;
+        }
+        catch
+        {
+            await StorageService.RemoveTokenAsync();
+            RedirectToLogin();
+        }
+        finally
+        {
+            IsInitialized = true;
+        }
+    }
+
+    private static IEnumerable<Claim> ParseJwtClaims(string jwt)
+    {
+        var payload = jwt.Split('.')[1];
+        var json = System.Text.Encoding.UTF8.GetString(
+            Convert.FromBase64String(payload.PadRight(payload.Length + (4 - payload.Length % 4) % 4, '=')));
+        var dict = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, object>>(json) ?? new();
+        return dict.Select(k => new Claim(k.Key, k.Value?.ToString() ?? ""));
+    }
+
+    private void RedirectToLogin()
+        => NavigationManager.NavigateTo("/login", true);
+
+    private async Task ConfirmLogout()
+    {
+        if (await JS.InvokeAsync<bool>("confirm", "Log out?"))
+        {
+            await StorageService.RemoveTokenAsync();
+            NavigationManager.NavigateTo("/login", true);
+        }
+    }
+}

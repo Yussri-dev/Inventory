@@ -1,0 +1,489 @@
+﻿@page "/productCatalogs"
+@using Inventory.Dto.ProductCatalogs.Results
+@using Inventory.Dto.ProductCatalogs.Requests
+@using Inventory.Dto.Queries
+@using System.ComponentModel.DataAnnotations
+@inject IProductCatalogApi Api
+
+<h3>Product Catalogs</h3>
+
+@if (!string.IsNullOrEmpty(errorMessage))
+{
+    <div class="alert error">
+        <span>@errorMessage</span>
+        <button @onclick="ClearError">×</button>
+    </div>
+}
+
+@if (!string.IsNullOrEmpty(successMessage))
+{
+    <div class="alert success">
+        <span>@successMessage</span>
+        <button @onclick="ClearSuccess">×</button>
+    </div>
+}
+
+<div class="card">
+    <h4>@(editingId == null ? "Create product" : "Edit product")</h4>
+    <EditForm Model="form" OnValidSubmit="HandleSubmit">
+        <DataAnnotationsValidator />
+        <div class="form-grid">
+            <div class="form-row">
+                <div class="form-field">
+                    <label>Name *</label>
+                    <InputText placeholder="Product name"
+                               @bind-Value="form.Name"
+                               disabled="@isLoading" />
+                    <ValidationMessage For="@(() => form.Name)" />
+                </div>
+                <div class="form-field">
+                    <label>Barcode *</label>
+                    <InputText placeholder="Barcode"
+                               @bind-Value="form.Barcode"
+                               disabled="@isLoading" />
+                    <ValidationMessage For="@(() => form.Barcode)" />
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-field">
+                    <label>Brand</label>
+                    <InputText placeholder="Brand (optional)"
+                               @bind-Value="form.Brand"
+                               disabled="@isLoading" />
+                    <ValidationMessage For="@(() => form.Brand)" />
+                </div>
+                <div class="form-field">
+                    <label>Manufacturer</label>
+                    <InputText placeholder="Manufacturer (optional)"
+                               @bind-Value="form.Manufacturer"
+                               disabled="@isLoading" />
+                    <ValidationMessage For="@(() => form.Manufacturer)" />
+                </div>
+            </div>
+            <div class="form-field">
+                <label>Description</label>
+                <InputTextArea placeholder="Product description (optional)"
+                               rows="3"
+                               @bind-Value="form.Description"
+                               disabled="@isLoading" />
+                <ValidationMessage For="@(() => form.Description)" />
+            </div>
+            <div class="actions-end">
+                @if (editingId == null)
+                {
+                    <button type="submit" class="btn primary" disabled="@isLoading">
+                        @(isLoading ? "Creating..." : "Create")
+                    </button>
+                }
+                else
+                {
+                    <button type="submit" class="btn primary" disabled="@isLoading">
+                        @(isLoading ? "Updating..." : "Update")
+                    </button>
+                    <button type="button" class="btn ghost" @onclick="CancelEdit" disabled="@isLoading">
+                        Cancel
+                    </button>
+                }
+            </div>
+        </div>
+    </EditForm>
+</div>
+
+<div class="card">
+    <h4>Search Products</h4>
+    <div class="search-grid">
+        <input type="text"
+               placeholder="Search by name or barcode..."
+               @bind="searchTerm"
+               @bind:event="oninput"
+               @onkeyup="OnSearchKeyUp"
+               disabled="@isLoading" />
+        <div class="search-actions">
+            <button class="btn primary" @onclick="Search" disabled="@isLoading">
+                Search
+            </button>
+            <button class="btn ghost" @onclick="ClearSearch" disabled="@isLoading">
+                Clear
+            </button>
+        </div>
+    </div>
+</div>
+
+@if (isLoadingData)
+{
+    <div class="loading-container">
+        <p>Loading products...</p>
+    </div>
+}
+else if (items == null || items.Count == 0)
+{
+    <p>@(isSearching ? "No products found matching your search." : "No products.")</p>
+}
+else
+{
+    <div class="results-header">
+        <span>@items.Count product(s) found</span>
+        @if (isSearching)
+        {
+            <button class="btn small ghost" @onclick="ClearSearch">Show All</button>
+        }
+    </div>
+
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Barcode</th>
+                <th>Brand</th>
+                <th>Manufacturer</th>
+                <th style="width:160px"></th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var p in items)
+            {
+                <tr>
+                    <td>
+                        <div class="product-name">@p.Name</div>
+                        @if (!string.IsNullOrEmpty(p.Description))
+                        {
+                            <div class="product-desc">@p.Description</div>
+                        }
+                    </td>
+                    <td><code>@p.Barcode</code></td>
+                    <td>@(p.Brand ?? "-")</td>
+                    <td>@(p.Manufacturer ?? "-")</td>
+                    <td class="actions-end">
+                        <button class="btn small ghost"
+                                @onclick="() => StartEdit(p)"
+                                disabled="@isLoading">
+                            Edit
+                        </button>
+                        <button class="btn small danger"
+                                @onclick="() => ConfirmDelete(p)"
+                                disabled="@isLoading">
+                            Delete
+                        </button>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@if (showDeleteConfirm && productToDelete != null)
+{
+    <div class="modal-overlay" @onclick="CancelDelete">
+        <div class="modal-content" @onclick:stopPropagation="true">
+            <h4>Confirm Delete</h4>
+            <p>Are you sure you want to delete <strong>@productToDelete.Name</strong>?</p>
+            <p class="text-muted">This action cannot be undone.</p>
+            <div class="modal-actions">
+                <button class="btn ghost" @onclick="CancelDelete">Cancel</button>
+                <button class="btn danger" @onclick="ConfirmDeleteAction">Delete</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code
+{
+    private List<ProductCatalogResult>? items;
+    private Guid? editingId;
+    private ProductCatalogForm form = new();
+    private bool isLoading;
+    private bool isLoadingData;
+    private string? errorMessage;
+    private string? successMessage;
+    private bool showDeleteConfirm;
+    private ProductCatalogResult? productToDelete;
+    private string searchTerm = string.Empty;
+    private bool isSearching;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        try
+        {
+            isLoadingData = true;
+            errorMessage = null;
+            items = await Api.GetAll();
+            isSearching = false;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to load products: {ex.Message}";
+            items = new List<ProductCatalogResult>();
+        }
+        finally
+        {
+            isLoadingData = false;
+        }
+    }
+
+    private async Task Search()
+    {
+        if (string.IsNullOrWhiteSpace(searchTerm))
+        {
+            await LoadData();
+            return;
+        }
+
+        try
+        {
+            isLoadingData = true;
+            errorMessage = null;
+
+            var query = new ProductCatalogQuery
+            {
+                Search = searchTerm
+            };
+
+            var response = await Api.Search(query);
+
+            if (!response.IsSuccessStatusCode || response.Content is null)
+            {
+                items = new List<ProductCatalogResult>();
+                errorMessage = $"Search failed ({response.StatusCode})";
+                return;
+            }
+
+            items = response.Content.Items?.ToList()
+                    ?? new List<ProductCatalogResult>();
+
+            isSearching = true;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Search failed: {ex.Message}";
+            items = new List<ProductCatalogResult>();
+        }
+        finally
+        {
+            isLoadingData = false;
+        }
+    }
+
+
+    private async Task OnSearchKeyUp(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await Search();
+        }
+    }
+
+    private async Task ClearSearch()
+    {
+        searchTerm = string.Empty;
+        await LoadData();
+    }
+
+    private async Task HandleSubmit()
+    {
+        if (editingId == null)
+        {
+            await Create();
+        }
+        else
+        {
+            await Update();
+        }
+    }
+
+    private async Task Create()
+    {
+        try
+        {
+            isLoading = true;
+            ClearMessages();
+
+            var request = new CreateProductCatalogRequest
+            {
+                Name = form.Name,
+                Barcode = form.Barcode,
+                Brand = form.Brand,
+                Manufacturer = form.Manufacturer,
+                Description = form.Description,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            await Api.Create(request);
+            successMessage = $"Product '{form.Name}' created successfully.";
+            ResetForm();
+
+            // Refresh the current view (search or all)
+            if (isSearching)
+            {
+                await Search();
+            }
+            else
+            {
+                await LoadData();
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to create product: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task Update()
+    {
+        if (editingId == null)
+            return;
+
+        try
+        {
+            isLoading = true;
+            ClearMessages();
+
+            var request = new UpdateProductCatalogRequest
+            {
+                Name = form.Name,
+                Barcode = form.Barcode,
+                Brand = form.Brand,
+                Manufacturer = form.Manufacturer,
+                Description = form.Description,
+                ModifiedAt = DateTime.UtcNow
+            };
+
+            await Api.Update(editingId.Value, request);
+            successMessage = $"Product '{form.Name}' updated successfully.";
+            ResetForm();
+
+            // Refresh the current view (search or all)
+            if (isSearching)
+            {
+                await Search();
+            }
+            else
+            {
+                await LoadData();
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to update product: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void ConfirmDelete(ProductCatalogResult product)
+    {
+        productToDelete = product;
+        showDeleteConfirm = true;
+    }
+
+    private void CancelDelete()
+    {
+        productToDelete = null;
+        showDeleteConfirm = false;
+    }
+
+    private async Task ConfirmDeleteAction()
+    {
+        if (productToDelete == null)
+            return;
+
+        try
+        {
+            isLoading = true;
+            showDeleteConfirm = false;
+            ClearMessages();
+
+            var productName = productToDelete.Name;
+            await Api.Delete(productToDelete.Id);
+
+            successMessage = $"Product '{productName}' deleted successfully.";
+            productToDelete = null;
+
+            // Refresh the current view (search or all)
+            if (isSearching)
+            {
+                await Search();
+            }
+            else
+            {
+                await LoadData();
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to delete product: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void StartEdit(ProductCatalogResult p)
+    {
+        editingId = p.Id;
+        form.Name = p.Name;
+        form.Barcode = p.Barcode;
+        form.Brand = p.Brand;
+        form.Manufacturer = p.Manufacturer;
+        form.Description = p.Description;
+        ClearMessages();
+    }
+
+    private void CancelEdit()
+    {
+        ResetForm();
+    }
+
+    private void ResetForm()
+    {
+        editingId = null;
+        form = new ProductCatalogForm();
+    }
+
+    private void ClearError()
+    {
+        errorMessage = null;
+    }
+
+    private void ClearSuccess()
+    {
+        successMessage = null;
+    }
+
+    private void ClearMessages()
+    {
+        errorMessage = null;
+        successMessage = null;
+    }
+
+    private sealed class ProductCatalogForm
+    {
+        [Required(ErrorMessage = "Name is required")]
+        [StringLength(200, ErrorMessage = "Name cannot exceed 200 characters")]
+        public string Name { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "Barcode is required")]
+        [StringLength(100, ErrorMessage = "Barcode cannot exceed 100 characters")]
+        public string Barcode { get; set; } = string.Empty;
+
+        [StringLength(100, ErrorMessage = "Brand cannot exceed 100 characters")]
+        public string? Brand { get; set; }
+
+        [StringLength(100, ErrorMessage = "Manufacturer cannot exceed 100 characters")]
+        public string? Manufacturer { get; set; }
+
+        [StringLength(1000, ErrorMessage = "Description cannot exceed 1000 characters")]
+        public string? Description { get; set; }
+    }
+}

@@ -1,0 +1,15 @@
+﻿@inherits LayoutComponentBase
+
+<div class="auth-shell">
+    <header class="auth-header">
+        <div class="logo">SF</div>
+        <strong>Inventory</strong>
+    </header>
+
+    <main class="auth-main">
+        <DeepLinkListener />
+        @Body
+    </main>
+
+    <footer class="auth-footer">© @DateTime.Now.Year Inventory</footer>
+</div>

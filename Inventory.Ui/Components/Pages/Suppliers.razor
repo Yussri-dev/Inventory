@@ -1,0 +1,543 @@
+﻿@page "/suppliers"
+@using Inventory.Dto.Suppliers.Results
+@using Inventory.Dto.Suppliers.Requests
+@using Inventory.Dto.Queries
+@using System.ComponentModel.DataAnnotations
+@inject ISupplierApi Api
+
+<h3>Suppliers</h3>
+
+@if (!string.IsNullOrEmpty(errorMessage))
+{
+    <div class="alert error">
+        <span>@errorMessage</span>
+        <button @onclick="ClearError">×</button>
+    </div>
+}
+
+@if (!string.IsNullOrEmpty(successMessage))
+{
+    <div class="alert success">
+        <span>@successMessage</span>
+        <button @onclick="ClearSuccess">×</button>
+    </div>
+}
+
+<!-- CREATE / EDIT -->
+<div class="card">
+    <h4>@(editingId == null ? "Create supplier" : "Edit supplier")</h4>
+
+    <EditForm Model="form" OnValidSubmit="HandleSubmit">
+        <DataAnnotationsValidator />
+
+        <div class="form-grid">
+            <div class="form-row">
+                <div class="form-field">
+                    <label>Name *</label>
+                    <InputText placeholder="Supplier name"
+                               @bind-Value="form.Name" 
+                               disabled="@isLoading" />
+                    <ValidationMessage For="@(() => form.Name)" />
+                </div>
+
+                <div class="form-field">
+                    <label>Email</label>
+                    <InputText placeholder="email@example.com"
+                               type="email"
+                               @bind-Value="form.Email" 
+                               disabled="@isLoading" />
+                    <ValidationMessage For="@(() => form.Email)" />
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-field">
+                    <label>Phone</label>
+                    <InputText placeholder="+1 234 567 8900"
+                               @bind-Value="form.Phone" 
+                               disabled="@isLoading" />
+                    <ValidationMessage For="@(() => form.Phone)" />
+                </div>
+
+                <div class="form-field">
+                    <label>Tax Number</label>
+                    <InputText placeholder="Tax identification number"
+                               @bind-Value="form.TaxNumber" 
+                               disabled="@isLoading" />
+                    <ValidationMessage For="@(() => form.TaxNumber)" />
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-field">
+                    <label>Country</label>
+                    <InputText placeholder="Country"
+                               @bind-Value="form.Country" 
+                               disabled="@isLoading" />
+                    <ValidationMessage For="@(() => form.Country)" />
+                </div>
+
+                <div class="form-field">
+                    <label>City</label>
+                    <InputText placeholder="City"
+                               @bind-Value="form.City" 
+                               disabled="@isLoading" />
+                    <ValidationMessage For="@(() => form.City)" />
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-field">
+                    <label>Bank Account</label>
+                    <InputText placeholder="Bank account number"
+                               @bind-Value="form.BankAccount" 
+                               disabled="@isLoading" />
+                    <ValidationMessage For="@(() => form.BankAccount)" />
+                </div>
+
+                <div class="form-field">
+                    <label class="checkbox-label">
+                        <InputCheckbox @bind-Value="form.IsActive" disabled="@isLoading" />
+                        <span>Active</span>
+                    </label>
+                </div>
+            </div>
+
+            <div class="actions-end">
+                @if (editingId == null)
+                {
+                    <button type="submit" class="btn primary" disabled="@isLoading">
+                        @(isLoading ? "Creating..." : "Create")
+                    </button>
+                }
+                else
+                {
+                    <button type="submit" class="btn primary" disabled="@isLoading">
+                        @(isLoading ? "Updating..." : "Update")
+                    </button>
+                    <button type="button" class="btn ghost" @onclick="CancelEdit" disabled="@isLoading">
+                        Cancel
+                    </button>
+                }
+            </div>
+        </div>
+    </EditForm>
+</div>
+
+<!-- SEARCH -->
+<div class="card">
+    <h4>Search Suppliers</h4>
+
+    <div class="search-grid">
+        <input type="text"
+               placeholder="Search name, email, phone, tax number…"
+               @bind="searchTerm"
+               @bind:event="oninput"
+               @onkeyup="OnSearchKeyUp"
+               disabled="@isLoading" />
+
+        <div class="search-actions">
+            <button class="btn primary" @onclick="Search" disabled="@isLoading">
+                Search
+            </button>
+            <button class="btn ghost" @onclick="ClearSearch" disabled="@isLoading">
+                Clear
+            </button>
+        </div>
+    </div>
+</div>
+
+@if (isLoadingData)
+{
+    <div class="loading-container">
+        <p>Loading suppliers...</p>
+    </div>
+}
+else if (items is null || items.Count == 0)
+{
+    <p>@(isSearching ? "No suppliers found matching your search." : "No suppliers.")</p>
+}
+else
+{
+    <div class="results-header">
+        <span>@items.Count supplier(s) found</span>
+        @if (isSearching)
+        {
+            <button class="btn small ghost" @onclick="ClearSearch">Show All</button>
+        }
+    </div>
+
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Phone</th>
+                <th>Tax Number</th>
+                <th>Country</th>
+                <th>City</th>
+                <th>Status</th>
+                <th style="width:160px"></th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var s in items)
+            {
+                <tr>
+                    <td>
+                        <div class="product-name">@s.Name</div>
+                        @if (!string.IsNullOrEmpty(s.BankAccount))
+                        {
+                            <div class="product-desc">Account: @s.BankAccount</div>
+                        }
+                    </td>
+                    <td>@(s.Email ?? "-")</td>
+                    <td>@(s.Phone ?? "-")</td>
+                    <td>@(s.TaxNumber ?? "-")</td>
+                    <td>@(s.Country ?? "-")</td>
+                    <td>@(s.City ?? "-")</td>
+                    <td>
+                        <span class="badge @(s.IsActive ? "badge-success" : "badge-inactive")">
+                            @(s.IsActive ? "Active" : "Inactive")
+                        </span>
+                    </td>
+                    <td class="actions-end">
+                        <button class="btn small ghost" 
+                                @onclick="() => StartEdit(s)"
+                                disabled="@isLoading">
+                            Edit
+                        </button>
+                        <button class="btn small danger" 
+                                @onclick="() => AskDelete(s)"
+                                disabled="@isLoading">
+                            Delete
+                        </button>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@if (showDelete && supplierToDelete != null)
+{
+    <div class="modal-overlay" @onclick="CancelDelete">
+        <div class="modal-content" @onclick:stopPropagation="true">
+            <h4>Confirm Delete</h4>
+            <p>Are you sure you want to delete <strong>@supplierToDelete.Name</strong>?</p>
+            <p class="text-muted">This action cannot be undone.</p>
+            <div class="modal-actions">
+                <button class="btn ghost" @onclick="CancelDelete">Cancel</button>
+                <button class="btn danger" @onclick="ConfirmDelete">Delete</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<SupplierResult>? items;
+    private SupplierForm form = new();
+    private Guid? editingId;
+
+    private bool isLoading;
+    private bool isLoadingData;
+    private bool isSearching;
+
+    private string? errorMessage;
+    private string? successMessage;
+
+    private string searchTerm = string.Empty;
+
+    private bool showDelete;
+    private SupplierResult? supplierToDelete;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAll();
+    }
+
+    private async Task LoadAll()
+    {
+        try
+        {
+            isLoadingData = true;
+            errorMessage = null;
+            items = await Api.GetAll();
+            isSearching = false;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to load suppliers: {ex.Message}";
+            items = new List<SupplierResult>();
+        }
+        finally
+        {
+            isLoadingData = false;
+        }
+    }
+
+    private async Task Search()
+    {
+        if (string.IsNullOrWhiteSpace(searchTerm))
+        {
+            await LoadAll();
+            return;
+        }
+
+        try
+        {
+            isLoadingData = true;
+            errorMessage = null;
+
+            var result = await Api.Search(new SupplierQuery
+            {
+                Search = searchTerm
+            });
+
+            items = result.Items.ToList();
+            isSearching = true;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Search failed: {ex.Message}";
+            items = new List<SupplierResult>();
+        }
+        finally
+        {
+            isLoadingData = false;
+        }
+    }
+
+    private async Task OnSearchKeyUp(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await Search();
+        }
+    }
+
+    private async Task ClearSearch()
+    {
+        searchTerm = string.Empty;
+        await LoadAll();
+    }
+
+    private async Task HandleSubmit()
+    {
+        if (editingId == null)
+        {
+            await Create();
+        }
+        else
+        {
+            await Update();
+        }
+    }
+
+    private async Task Create()
+    {
+        try
+        {
+            isLoading = true;
+            ClearMessages();
+
+            await Api.Create(new CreateSupplierRequest
+            {
+                Name = form.Name,
+                Email = form.Email,
+                Phone = form.Phone,
+                TaxNumber = form.TaxNumber,
+                Country = form.Country,
+                City = form.City,
+                BankAccount = form.BankAccount
+            });
+
+            successMessage = $"Supplier '{form.Name}' created successfully.";
+            Reset();
+
+            // Refresh current view
+            if (isSearching)
+            {
+                await Search();
+            }
+            else
+            {
+                await LoadAll();
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to create supplier: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task Update()
+    {
+        if (editingId == null)
+            return;
+
+        try
+        {
+            isLoading = true;
+            ClearMessages();
+
+            await Api.Update(editingId.Value, new UpdateSupplierRequest
+            {
+                Name = form.Name,
+                Email = form.Email,
+                Phone = form.Phone,
+                TaxNumber = form.TaxNumber,
+                Country = form.Country,
+                City = form.City,
+                BankAccount = form.BankAccount,
+                IsActive = form.IsActive
+            });
+
+            successMessage = $"Supplier '{form.Name}' updated successfully.";
+            Reset();
+
+            // Refresh current view
+            if (isSearching)
+            {
+                await Search();
+            }
+            else
+            {
+                await LoadAll();
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to update supplier: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void StartEdit(SupplierResult s)
+    {
+        editingId = s.Id;
+        form = new SupplierForm
+        {
+            Name = s.Name,
+            Email = s.Email,
+            Phone = s.Phone,
+            TaxNumber = s.TaxNumber,
+            Country = s.Country,
+            City = s.City,
+            BankAccount = s.BankAccount,
+            IsActive = s.IsActive
+        };
+        ClearMessages();
+    }
+
+    private void AskDelete(SupplierResult s)
+    {
+        supplierToDelete = s;
+        showDelete = true;
+    }
+
+    private async Task ConfirmDelete()
+    {
+        if (supplierToDelete == null)
+            return;
+
+        try
+        {
+            isLoading = true;
+            showDelete = false;
+            ClearMessages();
+
+            var supplierName = supplierToDelete.Name;
+            await Api.Delete(supplierToDelete.Id);
+
+            successMessage = $"Supplier '{supplierName}' deleted successfully.";
+            supplierToDelete = null;
+
+            // Refresh current view
+            if (isSearching)
+            {
+                await Search();
+            }
+            else
+            {
+                await LoadAll();
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to delete supplier: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void CancelDelete()
+    {
+        showDelete = false;
+        supplierToDelete = null;
+    }
+
+    private void CancelEdit()
+    {
+        Reset();
+    }
+
+    private void Reset()
+    {
+        editingId = null;
+        form = new SupplierForm();
+    }
+
+    private void ClearError()
+    {
+        errorMessage = null;
+    }
+
+    private void ClearSuccess()
+    {
+        successMessage = null;
+    }
+
+    private void ClearMessages()
+    {
+        errorMessage = null;
+        successMessage = null;
+    }
+
+    private sealed class SupplierForm
+    {
+        [Required(ErrorMessage = "Name is required")]
+        [StringLength(200, ErrorMessage = "Name cannot exceed 200 characters")]
+        public string Name { get; set; } = string.Empty;
+
+        [EmailAddress(ErrorMessage = "Invalid email address")]
+        [StringLength(100, ErrorMessage = "Email cannot exceed 100 characters")]
+        public string? Email { get; set; }
+
+        [StringLength(50, ErrorMessage = "Phone cannot exceed 50 characters")]
+        public string? Phone { get; set; }
+
+        [StringLength(50, ErrorMessage = "Tax number cannot exceed 50 characters")]
+        public string? TaxNumber { get; set; }
+
+        [StringLength(100, ErrorMessage = "Country cannot exceed 100 characters")]
+        public string? Country { get; set; }
+
+        [StringLength(100, ErrorMessage = "City cannot exceed 100 characters")]
+        public string? City { get; set; }
+
+        [StringLength(100, ErrorMessage = "Bank account cannot exceed 100 characters")]
+        public string? BankAccount { get; set; }
+
+        public bool IsActive { get; set; } = true;
+    }
+}
