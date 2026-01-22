@@ -59,6 +59,8 @@ namespace Inventory.Api.Installers
             builder.Services.AddScoped<InventoryLineService>();
             builder.Services.AddScoped<InventorySessionService>();
             builder.Services.AddScoped<IDocumentNumberService, DocumentNumberService>();
+            builder.Services.AddScoped<ICashSessionService, CashSessionService>();
+
 
             builder.Services.AddHttpContextAccessor();
             builder.Services.AddScoped<ITenantContext, TenantContext>();

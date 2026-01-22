@@ -52,5 +52,16 @@ namespace Inventory.Infrastructure.Repositories
         // Counts entities matching the predicate
         // If predicate is null, counts all entities
         Task<int> CountAsync(Expression<Func<T, bool>>? predicate = null);
+
+        Task<T?> GetLastAsync(
+            Expression<Func<T, bool>> predicate,
+            Expression<Func<T, object>> orderByDesc
+        );
+
+        Task<List<T>> GetAsync(
+            Expression<Func<T, bool>> predicate,
+            params Expression<Func<T, object>>[] includes
+);
+
     }
 }

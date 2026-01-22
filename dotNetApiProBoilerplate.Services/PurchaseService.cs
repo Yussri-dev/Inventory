@@ -25,6 +25,9 @@ namespace Inventory.Services
         private readonly IMapper _mapper;
         private readonly IDocumentNumberService _documentNumberService;
         private readonly ITenantContext _tenantContext;
+        private readonly IRepository<CashMovement> _cashMovementRepository;
+        private readonly ICashSessionService _cashSessionService;
+
 
         public PurchaseService(
             IRepository<Purchase> repository,
@@ -37,6 +40,8 @@ namespace Inventory.Services
             IUnitOfWork unitOfWork,
             IMapper mapper,
             IDocumentNumberService documentNumberService,
+            IRepository<CashMovement> cashMovementRepository,
+            ICashSessionService cashSessionService,
             ITenantContext tenantContext)
         {
             _repository = repository;
@@ -50,6 +55,8 @@ namespace Inventory.Services
             _mapper = mapper;
             _documentNumberService = documentNumberService;
             _tenantContext = tenantContext;
+            _cashMovementRepository = cashMovementRepository;
+            _cashSessionService = cashSessionService;
         }
 
         // =========================
@@ -87,133 +94,169 @@ namespace Inventory.Services
         public async Task<PurchaseResult> CreateCompleteAsync(CreateCompletePurchaseRequest request)
         {
             var tenantId = _tenantContext.GetTenantId();
+            var activeCashSessionId = await _cashSessionService.EnsureActiveSessionAsync();
 
-            if (request.Lines == null || !request.Lines.Any())
-                throw new ValidationException(new Dictionary<string, string[]>
-                {
-                    { "Lines", new[] { "At least one purchase line is required." } }
-                });
+            // =========================
+            // CALCULATE TOTALS (BACKEND AUTHORITATIVE)
+            // =========================
+            decimal totalExclVat = 0m;
+            decimal totalVat = 0m;
 
+            foreach (var l in request.Lines)
+            {
+                var lineExcl = l.Quantity * l.UnitPrice * (1 - l.DiscountPercent / 100);
+                var lineVat = lineExcl * (l.VatRate / 100);
+
+                totalExclVat += lineExcl;
+                totalVat += lineVat;
+            }
+
+            var totalInclVat = totalExclVat + totalVat;
+
+            // =========================
+            // CREATE PURCHASE
+            // =========================
             var purchase = new Purchase
             {
                 Id = Guid.NewGuid(),
                 TenantId = tenantId,
                 SupplierId = request.SupplierId,
                 PurchaseNumber = await _documentNumberService.GenerateAsync("PURCHASE"),
-                PurchaseDate = request.PurchaseDate == default ? DateTime.UtcNow : request.PurchaseDate,
+                PurchaseDate = request.PurchaseDate,
+                TotalAmountExclVat = totalExclVat,
+                TotalVatAmount = totalVat,
+                TotalAmountInclVat = totalInclVat,
                 Status = PurchaseStatus.Received,
+                PaymentDate = request.Payment != null ? DateTime.UtcNow : null,
                 CreatedAt = DateTime.UtcNow,
                 ModifiedAt = DateTime.UtcNow
             };
 
-            purchase.TotalAmountExclVat = request.Lines.Sum(l => l.LineAmountExclVat);
-            purchase.TotalVatAmount = request.Lines.Sum(l => l.LineVatAmount);
-            purchase.TotalAmountInclVat = request.Lines.Sum(l => l.LineAmountInclVat);
-
             await _repository.AddAsync(purchase);
 
-            foreach (var lineItem in request.Lines)
+            // =========================
+            // LINES + STOCK
+            // =========================
+            foreach (var line in request.Lines)
             {
-                var line = new PurchaseLine
+                var purchaseLine = new PurchaseLine
                 {
                     Id = Guid.NewGuid(),
                     TenantId = tenantId,
                     PurchaseId = purchase.Id,
-                    ProductId = lineItem.ProductId,
-                    QuantityReceived = lineItem.Quantity,
-                    UnitPurchasePrice = lineItem.UnitPrice,
-                    VatRate = lineItem.VatRate
+                    ProductId = line.ProductId,
+                    QuantityOrdered = line.Quantity,
+                    QuantityReceived = line.Quantity,
+                    UnitPurchasePrice = line.UnitPrice,
+                    VatRate = line.VatRate
                 };
-                await _purchaseLineRepository.AddAsync(line);
+
+                await _purchaseLineRepository.AddAsync(purchaseLine);
 
                 var stock = await _stockRepository.GetSingleAsync(
-                    s => s.ProductId == lineItem.ProductId &&
-                         s.TenantId == tenantId &&
-                         !s.IsDeleted);
+                    s => s.ProductId == line.ProductId &&
+                         !s.IsDeleted &&
+                         s.TenantId == tenantId);
 
-                var before = stock?.Quantity ?? 0;
-
-                if (stock == null)
-                {
-                    stock = new Stock
-                    {
-                        Id = Guid.NewGuid(),
-                        TenantId = tenantId,
-                        ProductId = lineItem.ProductId,
-                        Quantity = lineItem.Quantity,
-                        CreatedAt = DateTime.UtcNow,
-                        ModifiedAt = DateTime.UtcNow,
-                        LastUpdated = DateTime.UtcNow
-                    };
-                    await _stockRepository.AddAsync(stock);
-                }
-                else
-                {
-                    stock.Quantity += lineItem.Quantity;
-                    stock.LastUpdated = DateTime.UtcNow;
-                    stock.ModifiedAt = DateTime.UtcNow;
-                    _stockRepository.Update(stock);
-                }
+                var quantityBefore = stock?.Quantity ?? 0;
+                var quantityAfter = quantityBefore + line.Quantity;
 
                 await _stockMovementRepository.AddAsync(new StockMovement
                 {
                     Id = Guid.NewGuid(),
                     TenantId = tenantId,
-                    ProductId = lineItem.ProductId,
+                    ProductId = line.ProductId,
                     Type = StockMovementType.Purchase,
-                    QuantityChange = lineItem.Quantity,
-                    QuantityBefore = before,
-                    QuantityAfter = stock.Quantity,
+                    QuantityChange = line.Quantity,
+                    QuantityBefore = quantityBefore,
+                    QuantityAfter = quantityAfter,
                     ReferenceId = purchase.Id,
                     ReferenceNumber = purchase.PurchaseNumber,
                     MovementDate = DateTime.UtcNow,
-                    CreatedAt = DateTime.UtcNow,
-                    ModifiedAt = DateTime.UtcNow
+                    CreatedAt = DateTime.UtcNow
                 });
+
+                if (stock == null)
+                {
+                    await _stockRepository.AddAsync(new Stock
+                    {
+                        Id = Guid.NewGuid(),
+                        TenantId = tenantId,
+                        ProductId = line.ProductId,
+                        Quantity = quantityAfter,
+                        LastUpdated = DateTime.UtcNow,
+                        CreatedAt = DateTime.UtcNow
+                    });
+                }
+                else
+                {
+                    stock.Quantity = quantityAfter;
+                    stock.LastUpdated = DateTime.UtcNow;
+                    stock.ModifiedAt = DateTime.UtcNow;
+                    _stockRepository.Update(stock);
+                }
             }
+
+            // =========================
+            // PAYMENT
+            // =========================
+            decimal cashAmount = 0m;
 
             if (request.Payment != null)
             {
-                Enum.TryParse<PaymentMethod>(
-                    request.Payment.PaymentMethod,
-                    true,
-                    out var method);
+                Enum.TryParse<PaymentMethod>(request.Payment.PaymentMethod, true, out var method);
 
                 await _paymentRepository.AddAsync(new PurchasePayment
                 {
                     Id = Guid.NewGuid(),
                     TenantId = tenantId,
                     PurchaseId = purchase.Id,
+                    Method = method,
                     Amount = request.Payment.Amount,
-                    Method = method == 0 ? PaymentMethod.Cash : method,
                     TransactionRef = request.Payment.Reference,
                     PaymentDate = DateTime.UtcNow,
-                    CreatedAt = DateTime.UtcNow,
-                    ModifiedAt = DateTime.UtcNow
+                    CreatedAt = DateTime.UtcNow
                 });
+
+                if (method == PaymentMethod.Cash)
+                    cashAmount = request.Payment.Amount;
             }
 
-            var supplier = await _supplierRepository.GetByIdAsync(request.SupplierId);
-            if (supplier != null && !supplier.IsDeleted && supplier.TenantId == tenantId)
+            // =========================
+            // CASH MOVEMENT — CASH OUT
+            // =========================
+            if (cashAmount > 0)
             {
-                supplier.CurrentBalance += purchase.TotalAmountInclVat;
-                supplier.ModifiedAt = DateTime.UtcNow;
-                _supplierRepository.Update(supplier);
+                var last = await _cashMovementRepository.GetLastAsync(
+                    m => m.CashSessionId == activeCashSessionId &&
+                         !m.IsDeleted &&
+                         m.TenantId == tenantId,
+                    m => m.MovementDate
+                );
 
-                await _supplierTransactionRepository.AddAsync(new SupplierTransaction
+                var before = last?.BalanceAfter ?? 0m;
+                var after = before - cashAmount;
+
+                if (after < 0)
+                    throw new ValidationException("Cash drawer cannot go negative.");
+
+                await _cashMovementRepository.AddAsync(new CashMovement
                 {
                     Id = Guid.NewGuid(),
                     TenantId = tenantId,
-                    SupplierId = supplier.Id,
-                    Type = SupplierTransactionType.Purchase,
-                    Amount = purchase.TotalAmountInclVat,
-                    PurchaseId = purchase.Id,
-                    ReferenceNumber = purchase.PurchaseNumber,
-                    TransactionDate = DateTime.UtcNow
+                    CashSessionId = activeCashSessionId,
+                    Type = CashMovementType.Withdrawal,
+                    Amount = cashAmount,
+                    BalanceBefore = before,
+                    BalanceAfter = after,
+                    Reason = $"Purchase {purchase.PurchaseNumber}",
+                    MovementDate = DateTime.UtcNow,
+                    CreatedAt = DateTime.UtcNow
                 });
             }
 
             await _unitOfWork.SaveChangesAsync();
+
             return _mapper.Map<PurchaseResult>(purchase);
         }
 

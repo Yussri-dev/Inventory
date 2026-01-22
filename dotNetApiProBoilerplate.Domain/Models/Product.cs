@@ -10,7 +10,7 @@ namespace Inventory.Domain.Entities
         [Key]
         public Guid Id { get; set; }
 
-        public Guid? CatalogProductId { get; set; }
+        public Guid CatalogProductId { get; set; }
 
         [ForeignKey(nameof(CatalogProductId))]
         public ProductCatalog? CatalogProduct { get; set; }

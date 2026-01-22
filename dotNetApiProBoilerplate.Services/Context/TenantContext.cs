@@ -3,47 +3,35 @@ using System.Security.Claims;
 
 namespace Inventory.Services.Context
 {
-    public class TenantContext : ITenantContext
+    public sealed class TenantContext : ITenantContext
     {
-        private readonly IHttpContextAccessor _httpContextAccessor;
+        public Guid UserId { get; }
+        public Guid TenantId { get; }
+        public bool IsSuperAdmin { get; }
+        public bool IsAdmin { get; }
 
-        public TenantContext(IHttpContextAccessor httpContextAccessor)
+        public TenantContext(IHttpContextAccessor accessor)
         {
-            _httpContextAccessor = httpContextAccessor;
-        }
+            var user = accessor.HttpContext?.User
+                ?? throw new UnauthorizedAccessException();
 
-        public Guid GetTenantId()
-        {
-            var tenantIdClaim = _httpContextAccessor.HttpContext?.User
-                .FindFirstValue("TenantId");
+            UserId = Guid.Parse(
+                user.FindFirstValue(ClaimTypes.NameIdentifier)
+                ?? throw new UnauthorizedAccessException("UserId missing")
+            );
 
-            if (string.IsNullOrEmpty(tenantIdClaim))
-            {
-                throw new UnauthorizedAccessException("TenantId not found in token");
-            }
+            IsSuperAdmin = user.IsInRole("SuperAdmin");
+            IsAdmin = user.IsInRole("Admin") || IsSuperAdmin;
 
-            return Guid.Parse(tenantIdClaim);
-        }
+            var tenantClaim = user.FindFirstValue("TenantId");
 
-        public Guid GetUserId()
-        {
-            var userIdClaim = _httpContextAccessor.HttpContext?.User
-                .FindFirstValue(ClaimTypes.NameIdentifier);
+            if (!IsSuperAdmin && string.IsNullOrEmpty(tenantClaim))
+                throw new UnauthorizedAccessException("TenantId missing");
 
-            if (string.IsNullOrEmpty(userIdClaim))
-            {
-                throw new UnauthorizedAccessException("UserId not found in token");
-            }
-
-            return Guid.Parse(userIdClaim);
-        }
-
-        public string GetUserRole()
-        {
-            var roleClaim = _httpContextAccessor.HttpContext?.User
-                .FindFirstValue(ClaimTypes.Role);
-
-            return roleClaim ?? "User";
+            TenantId = string.IsNullOrEmpty(tenantClaim)
+                ? Guid.Empty
+                : Guid.Parse(tenantClaim);
         }
     }
+
 }

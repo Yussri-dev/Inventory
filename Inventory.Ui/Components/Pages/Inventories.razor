@@ -1,0 +1,258 @@
+﻿@page "/inventory"
+@using Inventory.Dto.InventoryLines.Requests
+@using Inventory.Dto.InventoryLines.Results
+@using Inventory.Dto.InventorySessions.Requests
+@using Inventory.Dto.InventorySessions.Results
+
+@inject IInventorySessionApi InventorySessionApi
+@inject IInventoryLineApi InventoryLineApi
+@inject IJSRuntime JS
+
+<h2>Inventory Sessions</h2>
+
+<!-- ===================== -->
+<!-- INVENTORY SESSIONS -->
+<!-- ===================== -->
+
+<div class="card mb-4">
+    <div class="card-header">
+        <strong>Sessions</strong>
+        <button class="btn btn-primary float-end" @onclick="CreateSession">
+            New Session
+        </button>
+    </div>
+
+    <div class="card-body">
+        @if (IsLoadingSessions)
+        {
+            <p>Loading sessions...</p>
+        }
+        else if (Sessions.Count == 0)
+        {
+            <p class="text-muted">No inventory sessions found.</p>
+        }
+        else
+        {
+            <table class="table table-hover">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Status</th>
+                        <th>Notes</th>
+                        <th style="width:200px;"></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var session in Sessions)
+                    {
+                        <tr class="@(SelectedSession?.Id == session.Id ? "table-active" : "")">
+                            <td>@session.StartedAt.ToLocalTime()</td>
+                            <td>@session.Status</td>
+                            <td>@session.Notes</td>
+                            <td>
+                                <button class="btn btn-sm btn-secondary"
+                                        @onclick="() => SelectSession(session)">
+                                    Open
+                                </button>
+                                <button class="btn btn-sm btn-danger"
+                                        @onclick="() => DeleteSession(session.Id)">
+                                    Delete
+                                </button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </div>
+</div>
+
+<!-- ===================== -->
+<!-- INVENTORY LINES -->
+<!-- ===================== -->
+
+@if (SelectedSession != null)
+{
+    <div class="card">
+        <div class="card-header">
+            <strong>Lines — Session @SelectedSession.StartedAt.ToLocalTime()</strong>
+        </div>
+
+        <div class="card-body">
+
+            <button class="btn btn-primary mb-3" @onclick="CreateLine">
+                Add Line
+            </button>
+
+            @if (IsLoadingLines)
+            {
+                <p>Loading lines...</p>
+            }
+            else if (Lines.Count == 0)
+            {
+                <p class="text-muted">No inventory lines.</p>
+            }
+            else
+            {
+                <table class="table table-sm table-striped">
+                    <thead>
+                        <tr>
+                            <th>Product</th>
+                            <th>Expected</th>
+                            <th>Counted</th>
+                            <th>Difference</th>
+                            <th style="width:160px;"></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var line in Lines)
+                        {
+                            <tr>
+                                <td>@line.ProductId</td>
+                                <td>@line.SystemQuantity</td>
+                                <td>@line.CountedQuantity</td>
+                                <td class="@(line.Variance == 0 ? "" : "text-danger")">
+                                    @line.Variance
+                                </td>
+                                <td>
+                                    <button class="btn btn-sm btn-secondary"
+                                            @onclick="() => EditLine(line)">
+                                        Edit
+                                    </button>
+                                    <button class="btn btn-sm btn-danger"
+                                            @onclick="() => DeleteLine(line.Id)">
+                                        Delete
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        </div>
+    </div>
+}
+
+@code {
+
+    // =====================
+    // STATE
+    // =====================
+
+    List<InventorySessionResult> Sessions = new();
+    List<InventoryLineResult> Lines = new();
+
+    InventorySessionResult? SelectedSession;
+
+    bool IsLoadingSessions;
+    bool IsLoadingLines;
+
+    // =====================
+    // INIT
+    // =====================
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadSessions();
+    }
+
+    async Task LoadSessions()
+    {
+        IsLoadingSessions = true;
+        try
+        {
+            Sessions = await InventorySessionApi.GetAll();
+        }
+        finally
+        {
+            IsLoadingSessions = false;
+        }
+    }
+
+    async Task LoadLines(Guid sessionId)
+    {
+        IsLoadingLines = true;
+        try
+        {
+            Lines = (await InventoryLineApi.Search(new InventoryLineQuery
+            {
+                InventorySessionId = sessionId,
+                PageSize = 200
+            })).Items;
+        }
+        finally
+        {
+            IsLoadingLines = false;
+        }
+    }
+
+    // =====================
+    // SESSIONS
+    // =====================
+
+    async Task CreateSession()
+    {
+        var result = await InventorySessionApi.Create(new CreateInventorySessionRequest
+        {
+            Notes = "New inventory session"
+        });
+
+        await LoadSessions();
+        SelectedSession = Sessions.FirstOrDefault(s => s.Id == result.Id);
+    }
+
+    async Task SelectSession(InventorySessionResult session)
+    {
+        SelectedSession = session;
+        await LoadLines(session.Id);
+    }
+
+    async Task DeleteSession(Guid id)
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", "Delete this session?"))
+            return;
+
+        await InventorySessionApi.Delete(id);
+        SelectedSession = null;
+        await LoadSessions();
+    }
+
+    // =====================
+    // LINES
+    // =====================
+
+    async Task CreateLine()
+    {
+        if (SelectedSession == null)
+            return;
+
+        await InventoryLineApi.Create(new CreateInventoryLineRequest
+        {
+            InventorySessionId = SelectedSession.Id,
+            ProductId = Guid.Empty, // set via modal later
+            SystemQuantity = 0,
+            CountedQuantity = 0
+        });
+
+        await LoadLines(SelectedSession.Id);
+    }
+
+    async Task EditLine(InventoryLineResult line)
+    {
+        await InventoryLineApi.Update(line.Id, new UpdateInventoryLineRequest
+        {
+            CountedQuantity = line.CountedQuantity
+        });
+
+        await LoadLines(SelectedSession!.Id);
+    }
+
+    async Task DeleteLine(Guid id)
+    {
+        if (!await JS.InvokeAsync<bool>("confirm", "Delete this line?"))
+            return;
+
+        await InventoryLineApi.Delete(id);
+        await LoadLines(SelectedSession!.Id);
+    }
+}

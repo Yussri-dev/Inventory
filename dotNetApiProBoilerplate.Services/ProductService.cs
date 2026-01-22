@@ -14,18 +14,21 @@ namespace Inventory.Services
     public class ProductService
     {
         private readonly IRepository<Product> _repository;
+        private readonly IRepository<ProductCatalog> _catalogRepository;
         private readonly IUnitOfWork _unitOfWork;
         private readonly IMapper _mapper;
         private readonly ITenantContext _tenantContext;
 
         public ProductService(
             IRepository<Product> repository,
+            IRepository<ProductCatalog> catalogRepository,
             IUnitOfWork unitOfWork,
             IMapper mapper,
             ITenantContext tenantContext
             )
         {
             _repository = repository;
+            _catalogRepository = catalogRepository;
             _unitOfWork = unitOfWork;
             _mapper = mapper;
             _tenantContext = tenantContext;
@@ -37,51 +40,36 @@ namespace Inventory.Services
             var tenantId = _tenantContext.GetTenantId();
             var userId = _tenantContext.GetUserId();
 
-            // Validation: Check if product with same name already exists
-            var exists = await _repository.ExistsAsync(p => 
-            p.Name == request.Name &&
-            p.TenantId == tenantId &&
-            !p.IsDeleted);
+            var catalogProduct = await _catalogRepository.GetByIdAsync(request.CatalogProductId);
+            if (catalogProduct == null || catalogProduct.IsDeleted)
+                throw new NotFoundException("Product Catalog", request.CatalogProductId);
+
+            var exists = await _repository.ExistsAsync(p =>
+                p.CatalogProductId == request.CatalogProductId &&
+                p.TenantId == tenantId &&
+                !p.IsDeleted);
+
             if (exists)
-            {
-                throw new ConflictException($"Product with name '{request.Name}' already exists.");
-            }
-
-            // Validation: Check price
-            if (request.SalePrice <= 0)
-            {
-                var errors = new Dictionary<string, string[]>
-                {
-                    { "SalePrice", new[] { "Sale price must be greater than or equal to 0." } }
-                };
-                throw new ValidationException(errors);
-            }
-
-            if (request.PurchasePrice <= 0)
-            {
-                var errors = new Dictionary<string, string[]>
-                {
-                    { "PurchasePrice", new[] { "Purchase price must be greater than or equal to 0." } }
-                };
-                throw new ValidationException(errors);
-            }
+                throw new ConflictException($"Product '{catalogProduct.Name}' already exists for this store.");
 
             if (request.PurchasePrice > request.SalePrice)
-            {
-                var errors = new Dictionary<string, string[]>
+                throw new ValidationException(new Dictionary<string, string[]>
                 {
-                    { "Price", new[] { "Purchase price must be greater than sale price" } }
-                };
-                throw new ValidationException(errors);
-            }
+                    { "Price", new[] { "Purchase price cannot be greater than sale price." } }
+                });
 
             var product = _mapper.Map<Product>(request);
 
+            // ✅ REQUIRED SNAPSHOT
+            product.Name = catalogProduct.Name;
+            product.Barcode = catalogProduct.Barcode;
+            product.Brand = catalogProduct.Brand;
+            product.Description = catalogProduct.Description;
+
             product.Id = Guid.NewGuid();
-            product.IsActive = ProductStatus.Active;
+            product.TenantId = tenantId;
             product.CreatedAt = DateTime.UtcNow;
             product.ModifiedAt = DateTime.UtcNow;
-            product.TenantId = tenantId;
             product.CreatedByUserId = userId;
 
             await _repository.AddAsync(product);
@@ -89,6 +77,7 @@ namespace Inventory.Services
 
             return _mapper.Map<ProductResult>(product);
         }
+
 
         // GET BY ID
         public async Task<ProductResult> GetByIdAsync(Guid id)
@@ -112,10 +101,9 @@ namespace Inventory.Services
 
             var products = await _repository.GetAllAsync();
 
-            // Filter out soft-deleted products
-            var activeProducts = products.Where(p => 
-            !p.IsDeleted &&
-            p.TenantId == tenantId).ToList();
+            var activeProducts = products
+                .Where(p => !p.IsDeleted && p.TenantId == tenantId)
+                .ToList();
 
             return _mapper.Map<List<ProductResult>>(activeProducts);
         }
@@ -128,55 +116,38 @@ namespace Inventory.Services
 
             var product = await _repository.GetByIdAsync(id);
 
-            if (product is null || product.IsDeleted || product.TenantId == tenantId)
+            if (product is null || product.IsDeleted || product.TenantId != tenantId)
             {
                 throw new NotFoundException("Product", id);
             }
 
-            // Check if trying to update to a name that already exists
-            if (!string.IsNullOrWhiteSpace(request.Name) && request.Name != product.Name)
-            {
-                var nameExists = await _repository.ExistsAsync(p =>
-                    p.Name == request.Name && p.Id != id && !p.IsDeleted);
-
-                if (nameExists)
-                {
-                    throw new ConflictException($"Product with name '{request.Name}' already exists.");
-                }
-            }
-
-            // Validation: Check price
+            // Validate prices
             if (request.SalePrice < 0)
             {
-                var errors = new Dictionary<string, string[]>
+                throw new ValidationException(new Dictionary<string, string[]>
                 {
                     { "SalePrice", new[] { "Sale price must be greater than or equal to 0." } }
-                };
-                throw new ValidationException(errors);
+                });
             }
 
             if (request.PurchasePrice < 0)
             {
-                var errors = new Dictionary<string, string[]>
+                throw new ValidationException(new Dictionary<string, string[]>
                 {
                     { "PurchasePrice", new[] { "Purchase price must be greater than or equal to 0." } }
-                };
-                throw new ValidationException(errors);
+                });
             }
 
-            if (request.PurchasePrice < request.SalePrice)
+            if (request.PurchasePrice > request.SalePrice)
             {
-                var errors = new Dictionary<string, string[]>
+                throw new ValidationException(new Dictionary<string, string[]>
                 {
-                    { "Price", new[] { "Purchase price must be greater than sale price" } }
-                };
-                throw new ValidationException(errors);
+                    { "Price", new[] { "Purchase price cannot be greater than sale price" } }
+                });
             }
 
-            // Map the request to the product
             _mapper.Map(request, product);
 
-            // Always update the ModifiedAt timestamp
             product.ModifiedAt = DateTime.UtcNow;
             product.ModifiedByUserId = userId;
 
@@ -212,57 +183,85 @@ namespace Inventory.Services
         // PAGINATION + FILTERING + SORTING
         public async Task<PagedResult<ProductResult>> QueryAsync(ProductQuery query)
         {
+            var tenantId = _tenantContext.GetTenantId();
+
             // Validate query parameters
             if (query.Page < 1)
             {
-                var errors = new Dictionary<string, string[]>
+                throw new ValidationException(new Dictionary<string, string[]>
                 {
                     { "Page", new[] { "Page must be greater than or equal to 1." } }
-                };
-                throw new ValidationException(errors);
+                });
             }
 
             if (query.PageSize < 1 || query.PageSize > 100)
             {
-                var errors = new Dictionary<string, string[]>
+                throw new ValidationException(new Dictionary<string, string[]>
                 {
                     { "PageSize", new[] { "PageSize must be between 1 and 100." } }
-                };
-                throw new ValidationException(errors);
+                });
             }
 
-            var all = await _repository.GetAllAsync();
+            var allProducts = await _repository.GetAllAsync();
+            var allCatalogs = await _catalogRepository.GetAllAsync();
 
-            // Filter out soft-deleted products
-            var filtered = all.Where(p => !p.IsDeleted).AsQueryable();
+            // Create a dictionary for fast catalog lookup
+            var catalogDict = allCatalogs
+                .Where(c => !c.IsDeleted)
+                .ToDictionary(c => c.Id);
 
-            // Search filter
+            // Filter tenant products - convert to in-memory list
+            var filtered = allProducts
+                .Where(p => !p.IsDeleted && p.TenantId == tenantId)
+                .ToList(); // Convert to in-memory list here
+
+            // Search filter - now working with in-memory data
             if (!string.IsNullOrWhiteSpace(query.Search))
             {
+                var searchTerm = query.Search.ToLower();
+
                 filtered = filtered.Where(p =>
-                    p.Name.Contains(query.Search, StringComparison.OrdinalIgnoreCase) ||
-                    (p.Description != null && p.Description.Contains(query.Search, StringComparison.OrdinalIgnoreCase)));
+                {
+                    // Get catalog product
+                    if (!catalogDict.TryGetValue(p.CatalogProductId, out var catalog))
+                        return false;
+
+                    // Search in catalog fields - null-conditional operators work in memory
+                    return (catalog.Name?.ToLower().Contains(searchTerm) ?? false) ||
+                           (catalog.Barcode?.ToLower().Contains(searchTerm) ?? false) ||
+                           (catalog.Description?.ToLower().Contains(searchTerm) ?? false) ||
+                           (catalog.Brand?.ToLower().Contains(searchTerm) ?? false) ||
+                           (catalog.Manufacturer?.ToLower().Contains(searchTerm) ?? false);
+                }).ToList();
             }
 
             // Status filter
             if (query.Status.HasValue)
             {
                 var status = (ProductStatus)query.Status.Value;
-                filtered = filtered.Where(p => p.IsActive == status);
+                filtered = filtered.Where(p => p.IsActive == status).ToList();
             }
 
-            // Sorting
-            filtered = query.SortBy?.ToLower() switch
+            // Sorting (using catalog data where appropriate)
+            IEnumerable<Product> sortedFiltered = query.SortBy?.ToLower() switch
             {
                 "name" => query.Desc
-                    ? filtered.OrderByDescending(p => p.Name)
-                    : filtered.OrderBy(p => p.Name),
+                    ? filtered.OrderByDescending(p => catalogDict.ContainsKey(p.CatalogProductId) ? catalogDict[p.CatalogProductId].Name : "")
+                    : filtered.OrderBy(p => catalogDict.ContainsKey(p.CatalogProductId) ? catalogDict[p.CatalogProductId].Name : ""),
 
-                "salePrice" => query.Desc
+                "barcode" => query.Desc
+                    ? filtered.OrderByDescending(p => catalogDict.ContainsKey(p.CatalogProductId) ? catalogDict[p.CatalogProductId].Barcode : "")
+                    : filtered.OrderBy(p => catalogDict.ContainsKey(p.CatalogProductId) ? catalogDict[p.CatalogProductId].Barcode : ""),
+
+                "manufacturer" => query.Desc
+                    ? filtered.OrderByDescending(p => catalogDict.ContainsKey(p.CatalogProductId) ? catalogDict[p.CatalogProductId].Manufacturer : "")
+                    : filtered.OrderBy(p => catalogDict.ContainsKey(p.CatalogProductId) ? catalogDict[p.CatalogProductId].Manufacturer : ""),
+
+                "saleprice" => query.Desc
                     ? filtered.OrderByDescending(p => p.SalePrice)
                     : filtered.OrderBy(p => p.SalePrice),
 
-                "purchasePrice" => query.Desc
+                "purchaseprice" => query.Desc
                     ? filtered.OrderByDescending(p => p.PurchasePrice)
                     : filtered.OrderBy(p => p.PurchasePrice),
 
@@ -271,9 +270,9 @@ namespace Inventory.Services
                     : filtered.OrderBy(p => p.CreatedAt)
             };
 
-            var total = filtered.Count();
+            var total = sortedFiltered.Count();
 
-            var items = filtered
+            var items = sortedFiltered
                 .Skip((query.Page - 1) * query.PageSize)
                 .Take(query.PageSize)
                 .ToList();

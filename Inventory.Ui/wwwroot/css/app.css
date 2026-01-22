@@ -88,3 +88,52 @@
         display: none
     }
 }
+
+/* Receipt Styling */
+#receipt {
+    display: none;
+}
+
+@media print {
+    body * {
+        visibility: hidden;
+    }
+
+    #receipt, #receipt * {
+        visibility: visible;
+    }
+
+    #receipt {
+        position: absolute;
+        left: 0;
+        top: 0;
+        display: block !important;
+        font-family: 'Courier New', monospace;
+        font-size: 12px;
+        max-width: 300px;
+    }
+
+        #receipt h3 {
+            text-align: center;
+            margin: 10px 0;
+            font-size: 14px;
+        }
+
+        #receipt hr {
+            border: none;
+            border-top: 1px dashed #000;
+            margin: 10px 0;
+        }
+
+        #receipt strong {
+            font-weight: bold;
+        }
+
+        #receipt p {
+            margin: 5px 0;
+        }
+
+        #receipt div {
+            margin: 3px 0;
+        }
+}

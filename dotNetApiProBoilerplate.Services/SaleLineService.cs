@@ -68,35 +68,36 @@ namespace Inventory.Services
                 throw new NotFoundException("Sale", request.SaleId);
             }
 
-            var purchaseLine = _mapper.Map<SaleLine>(request);
-            purchaseLine.Id = Guid.NewGuid();
-            purchaseLine.VatRate = request.VatRate;
+            var saleLine = _mapper.Map<SaleLine>(request);
+            saleLine.Id = Guid.NewGuid();
+            saleLine.TenantId = tenantId;
+            saleLine.VatRate = request.VatRate;
 
-            await _repository.AddAsync(purchaseLine);
+            await _repository.AddAsync(saleLine);
             await _unitOfWork.SaveChangesAsync();
 
-            return _mapper.Map<SaleLineResult>(purchaseLine);
+            return _mapper.Map<SaleLineResult>(saleLine);
         }
 
         // GET BY ID
         public async Task<SaleLineResult> GetByIdAsync(Guid id)
         {
             var tenantId = _tenantContext.GetTenantId();
-            var purchaseLine = await _repository.GetByIdAsync(id);
+            var saleLine = await _repository.GetByIdAsync(id);
 
-            if (purchaseLine == null)
+            if (saleLine == null)
             {
                 throw new NotFoundException("SaleLine", id);
             }
 
             // Verify through parent Sale
-            var sale = await _saleRepository.GetByIdAsync(purchaseLine.SaleId);
+            var sale = await _saleRepository.GetByIdAsync(saleLine.SaleId);
             if (sale == null || sale.TenantId != tenantId)
             {
                 throw new NotFoundException("SaleLine", id);
             }
 
-            return _mapper.Map<SaleLineResult>(purchaseLine);
+            return _mapper.Map<SaleLineResult>(saleLine);
         }
 
         // GET ALL
@@ -123,9 +124,9 @@ namespace Inventory.Services
         public async Task<SaleLineResult> UpdateAsync(Guid id, UpdateSaleLineRequest request)
         {
             var tenantId = _tenantContext.GetTenantId();
-            var purchaseLine = await _repository.GetByIdAsync(id);
+            var saleLine = await _repository.GetByIdAsync(id);
 
-            if (purchaseLine == null)
+            if (saleLine == null)
             {
                 throw new NotFoundException("SaleLine", id);
             }
@@ -155,39 +156,39 @@ namespace Inventory.Services
             }
 
             // Verify through parent Sale
-            var sale = await _saleRepository.GetByIdAsync(purchaseLine.SaleId);
+            var sale = await _saleRepository.GetByIdAsync(saleLine.SaleId);
             if (sale == null || sale.TenantId != tenantId)
             {
                 throw new NotFoundException("SaleLine", id);
             }
 
-            _mapper.Map(request, purchaseLine);
+            _mapper.Map(request, saleLine);
 
-            _repository.Update(purchaseLine);
+            _repository.Update(saleLine);
             await _unitOfWork.SaveChangesAsync();
 
-            return _mapper.Map<SaleLineResult>(purchaseLine);
+            return _mapper.Map<SaleLineResult>(saleLine);
         }
 
         // SOFT DELETE
         public async Task<bool> DeleteAsync(Guid id)
         {
             var tenantId = _tenantContext.GetTenantId();
-            var purchaseLine = await _repository.GetByIdAsync(id);
+            var saleLine = await _repository.GetByIdAsync(id);
 
-            if (purchaseLine == null)
+            if (saleLine == null)
             {
                 throw new NotFoundException("SaleLine", id);
             }
 
             // Verify through parent Sale
-            var sale = await _saleRepository.GetByIdAsync(purchaseLine.SaleId);
+            var sale = await _saleRepository.GetByIdAsync(saleLine.SaleId);
             if (sale == null || sale.TenantId != tenantId)
             {
                 throw new NotFoundException("SaleLine", id);
             }
 
-            _repository.Update(purchaseLine);
+            _repository.Update(saleLine);
             await _unitOfWork.SaveChangesAsync();
 
             return true;

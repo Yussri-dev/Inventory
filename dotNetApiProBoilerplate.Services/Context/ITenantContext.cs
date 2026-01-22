@@ -6,10 +6,19 @@ using System.Threading.Tasks;
 
 namespace Inventory.Services.Context
 {
+    //public interface ITenantContext
+    //{
+    //    Guid GetTenantId();
+    //    Guid GetUserId();
+    //    string GetUserRole();
+    //}
+
     public interface ITenantContext
     {
-        Guid GetTenantId();
-        Guid GetUserId();
-        string GetUserRole();
+        Guid UserId { get; }
+        Guid TenantId { get; }
+        bool IsSuperAdmin { get; }
+        bool IsAdmin { get; }
     }
+
 }

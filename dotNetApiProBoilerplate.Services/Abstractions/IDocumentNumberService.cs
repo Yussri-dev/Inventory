@@ -10,5 +10,4 @@ namespace Inventory.Services.Abstractions
     {
         Task<string> GenerateAsync(string documentType);
     }
-
 }

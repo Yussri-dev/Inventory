@@ -1,42 +1,81 @@
 ﻿@page "/login"
 @layout AuthLayout
-
-@inject IAuthApi AuthApi
 @inject IAuthApiOpen AuthApi
-
 @inject ISecureStorageService SecureStorage
 @inject NavigationManager Nav
 
-<h3>Login</h3>
+<div class="login-container">
+    <div class="login-card">
+        <!-- Logo/Header -->
+        <div class="login-header">
+            <div class="logo-circle">
+                <span class="logo-icon">🏪</span>
+            </div>
+            <h2>Welcome Back</h2>
+            <p class="subtitle">Sign in to your account</p>
+        </div>
 
-@if (!string.IsNullOrEmpty(Error))
-{
-    <div class="alert alert-danger">@Error</div>
-}
+        <!-- Error Message -->
+        @if (!string.IsNullOrEmpty(Error))
+        {
+            <div class="alert alert-error">
+                <span class="alert-icon">⚠️</span>
+                <span>@Error</span>
+            </div>
+        }
 
-<div class="mb-3">
-    <label>Email</label>
-    <input class="form-control"
-           type="email"
-           @bind="Model.Email"
-           @bind:event="oninput"
-           autocomplete="username" />
+        <!-- Login Form -->
+        <form class="login-form" @onsubmit="LoginAsync" @onsubmit:preventDefault>
+            <div class="form-group">
+                <label class="form-label">Email Address</label>
+                <div class="input-wrapper">
+                    <span class="input-icon">📧</span>
+                    <input class="form-input"
+                           type="email"
+                           @bind="Model.Email"
+                           @bind:event="oninput"
+                           placeholder="your@email.com"
+                           autocomplete="username"
+                           disabled="@IsLoading" />
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Password</label>
+                <div class="input-wrapper">
+                    <span class="input-icon">🔒</span>
+                    <input class="form-input"
+                           type="password"
+                           @bind="Model.Password"
+                           @bind:event="oninput"
+                           placeholder="Enter your password"
+                           autocomplete="current-password"
+                           disabled="@IsLoading" />
+                </div>
+            </div>
+
+            <button class="btn-login"
+                    type="submit"
+                    disabled="@IsLoading">
+                @if (IsLoading)
+                {
+                    <span class="spinner"></span>
+                    <span>Logging in...</span>
+                }
+                else
+                {
+                    <span>Sign In</span>
+                    <span class="btn-arrow">→</span>
+                }
+            </button>
+        </form>
+
+        <!-- Footer -->
+        <div class="login-footer">
+            <p class="footer-text">Forgot your password? <a href="/forgot-password">Reset it</a></p>
+        </div>
+    </div>
 </div>
-
-<div class="mb-3">
-    <label>Password</label>
-    <input class="form-control"
-           type="password"
-           @bind="Model.Password"
-           @bind:event="oninput"
-           autocomplete="current-password" />
-</div>
-
-<button class="btn btn-primary w-100"
-        @onclick="LoginAsync"
-        disabled="@IsLoading">
-    @(IsLoading ? "Logging in…" : "Login")
-</button>
 
 @code {
     private LoginRequest Model = new();
@@ -59,15 +98,15 @@
         {
             var result = await AuthApi.Login(Model);
 
-            if (string.IsNullOrWhiteSpace(result.Token))
+            if (string.IsNullOrWhiteSpace(result.AccessToken))
             {
                 Error = "Invalid login response.";
                 return;
             }
 
-            var token = result.Token.StartsWith("Bearer ")
-                ? result.Token["Bearer ".Length..]
-                : result.Token;
+            var token = result.AccessToken.StartsWith("Bearer ")
+                ? result.AccessToken["Bearer ".Length..]
+                : result.AccessToken;
 
             await SecureStorage.SaveTokenAsync(token);
             Nav.NavigateTo("/", true);

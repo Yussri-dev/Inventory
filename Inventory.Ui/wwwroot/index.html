@@ -24,7 +24,12 @@
     </div>
 
     <script src="_framework/blazor.webview.js" autostart="false"></script>
-
+    <script>
+        window.focusElement = (el) => {
+            if (el) el.focus();
+        };
+    </script>
+    <script src="./js/print.js"></script>
 </body>
 
 </html>

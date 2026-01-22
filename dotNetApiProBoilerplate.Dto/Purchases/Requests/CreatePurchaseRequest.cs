@@ -1,5 +1,6 @@
 ﻿
 using Inventory.Dto.Enums;
+using Inventory.Dto.Sales.Requests;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
@@ -37,4 +38,6 @@ namespace Inventory.Dto.Purchases.Requests
         [MaxLength(1000)]
         public string? Notes { get; set; }
     }
+
+
 }

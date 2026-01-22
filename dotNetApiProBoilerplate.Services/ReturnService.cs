@@ -27,6 +27,8 @@ namespace Inventory.Services
         private readonly IMapper _mapper;
         private readonly IDocumentNumberService _documentNumberService;
         private readonly ITenantContext _tenantContext;
+        private readonly IRepository<CashMovement> _cashMovementRepository;
+        private readonly ICashSessionService _cashSessionService;
 
         public ReturnService(
             IRepository<Return> repository,
@@ -40,6 +42,9 @@ namespace Inventory.Services
             IUnitOfWork unitOfWork,
             IMapper mapper,
             IDocumentNumberService documentNumberService,
+            IRepository<CashMovement> cashMovementRepository,
+            ICashSessionService cashSessionService,
+
             ITenantContext tenantContext)
         {
             _repository = repository;
@@ -54,6 +59,8 @@ namespace Inventory.Services
             _mapper = mapper;
             _documentNumberService = documentNumberService;
             _tenantContext = tenantContext;
+            _cashMovementRepository = cashMovementRepository;
+            _cashSessionService = cashSessionService;
         }
 
         // =========================
@@ -93,38 +100,50 @@ namespace Inventory.Services
         public async Task<ReturnResult> CreateCompleteAsync(CreateCompleteReturnRequest request)
         {
             var tenantId = _tenantContext.GetTenantId();
+            var activeCashSessionId = await _cashSessionService.EnsureActiveSessionAsync();
 
+            // =========================
+            // VALIDATION
+            // =========================
             if (request.Lines == null || !request.Lines.Any())
             {
                 throw new ValidationException(new Dictionary<string, string[]>
-                {
-                    { "Lines", new[] { "At least one return line is required." } }
-                });
+        {
+            { "Lines", new[] { "At least one return line is required." } }
+        });
             }
 
             var sale = await _saleRepository.GetByIdAsync(request.SaleId);
-            if (sale == null || sale.TenantId != tenantId)
-            {
+            if (sale == null || sale.IsDeleted || sale.TenantId != tenantId)
                 throw new NotFoundException("Sale", request.SaleId);
-            }
 
-            var entity = _mapper.Map<Return>(request);
+            // =========================
+            // CREATE RETURN HEADER
+            // =========================
+            var entity = new Return
+            {
+                Id = Guid.NewGuid(),
+                TenantId = tenantId,
+                SaleId = sale.Id,
+                ReturnNumber = await _documentNumberService.GenerateAsync("RETURN"),
+                ReturnDate = request.ReturnDate == default ? DateTime.UtcNow : request.ReturnDate,
+                CreatedAt = DateTime.UtcNow,
+                ModifiedAt = DateTime.UtcNow
+            };
 
-            entity.Id = Guid.NewGuid();
-            entity.TenantId = tenantId;
-            entity.ReturnNumber = await _documentNumberService.GenerateAsync("RETURN");
-            entity.ReturnDate = request.ReturnDate == default ? DateTime.UtcNow : request.ReturnDate;
             entity.TotalAmount = request.Lines.Sum(l => l.Quantity * l.UnitPrice);
-            entity.CreatedAt = DateTime.UtcNow;
-            entity.ModifiedAt = DateTime.UtcNow;
 
             await _repository.AddAsync(entity);
 
+            // =========================
+            // RETURN LINES + STOCK
+            // =========================
             foreach (var lineItem in request.Lines)
             {
                 var line = new ReturnLine
                 {
                     Id = Guid.NewGuid(),
+                    TenantId = tenantId,
                     ReturnId = entity.Id,
                     ProductId = lineItem.ProductId,
                     Quantity = lineItem.Quantity,
@@ -136,87 +155,104 @@ namespace Inventory.Services
 
                 await _returnLineRepository.AddAsync(line);
 
-                if (lineItem.RestockItem)
+                if (!lineItem.RestockItem)
+                    continue;
+
+                var stock = await _stockRepository.GetSingleAsync(
+                    s => s.ProductId == lineItem.ProductId &&
+                         !s.IsDeleted &&
+                         s.TenantId == tenantId);
+
+                var quantityBefore = stock?.Quantity ?? 0;
+                var quantityAfter = quantityBefore + lineItem.Quantity;
+
+                if (stock == null)
                 {
-                    var stock = await _stockRepository.GetSingleAsync(
-                        s => s.ProductId == lineItem.ProductId && !s.IsDeleted);
-
-                    decimal quantityBefore = stock?.Quantity ?? 0;
-
-                    if (stock == null)
-                    {
-                        stock = new Stock
-                        {
-                            Id = Guid.NewGuid(),
-                            ProductId = lineItem.ProductId,
-                            Quantity = 0,
-                            CreatedAt = DateTime.UtcNow,
-                            ModifiedAt = DateTime.UtcNow
-                        };
-                        await _stockRepository.AddAsync(stock);
-                    }
-
-                    stock.Quantity += lineItem.Quantity;
-                    stock.LastUpdated = DateTime.UtcNow;
-                    stock.ModifiedAt = DateTime.UtcNow;
-
-                    _stockRepository.Update(stock);
-
-                    var movement = new StockMovement
+                    stock = new Stock
                     {
                         Id = Guid.NewGuid(),
+                        TenantId = tenantId,
                         ProductId = lineItem.ProductId,
-                        Type = StockMovementType.Return,
-                        QuantityChange = lineItem.Quantity,
-                        QuantityBefore = quantityBefore,
-                        QuantityAfter = stock.Quantity,
-                        ReferenceId = entity.Id,
-                        ReferenceNumber = entity.ReturnNumber,
-                        MovementDate = DateTime.UtcNow,
-                        Notes = $"Return {entity.ReturnNumber}",
+                        Quantity = quantityAfter,
                         CreatedAt = DateTime.UtcNow,
-                        ModifiedAt = DateTime.UtcNow
+                        ModifiedAt = DateTime.UtcNow,
+                        LastUpdated = DateTime.UtcNow
                     };
-
-                    await _stockMovementRepository.AddAsync(movement);
+                    await _stockRepository.AddAsync(stock);
                 }
+                else
+                {
+                    stock.Quantity = quantityAfter;
+                    stock.LastUpdated = DateTime.UtcNow;
+                    stock.ModifiedAt = DateTime.UtcNow;
+                    _stockRepository.Update(stock);
+                }
+
+                await _stockMovementRepository.AddAsync(new StockMovement
+                {
+                    Id = Guid.NewGuid(),
+                    TenantId = tenantId,
+                    ProductId = lineItem.ProductId,
+                    Type = StockMovementType.Return,
+                    QuantityChange = lineItem.Quantity,
+                    QuantityBefore = quantityBefore,
+                    QuantityAfter = quantityAfter,
+                    ReferenceId = entity.Id,
+                    ReferenceNumber = entity.ReturnNumber,
+                    MovementDate = DateTime.UtcNow,
+                    Notes = $"Return {entity.ReturnNumber}",
+                    CreatedAt = DateTime.UtcNow,
+                    ModifiedAt = DateTime.UtcNow
+                });
             }
 
+            // =========================
+            // CUSTOMER REFUND (ACCOUNT)
+            // =========================
             if (sale.CustomerId.HasValue)
             {
                 var customer = await _customerRepository.GetByIdAsync(sale.CustomerId.Value);
+
                 if (customer != null && !customer.IsDeleted)
                 {
-                    customer.CurrentBalance -= entity.TotalAmount;
+                    var balanceBefore = customer.CurrentBalance;
+                    var balanceAfter = balanceBefore - entity.TotalAmount;
+
+                    customer.CurrentBalance = balanceAfter;
                     customer.ModifiedAt = DateTime.UtcNow;
+
                     _customerRepository.Update(customer);
 
-                    var trans = new CustomerTransaction
+                    await _customerTransactionRepository.AddAsync(new CustomerTransaction
                     {
                         Id = Guid.NewGuid(),
+                        TenantId = tenantId,
                         CustomerId = customer.Id,
                         Type = "Refund",
                         Amount = entity.TotalAmount,
-                        BalanceBefore = customer.CurrentBalance + entity.TotalAmount,
-                        BalanceAfter = customer.CurrentBalance,
+                        BalanceBefore = balanceBefore,
+                        BalanceAfter = balanceAfter,
                         TransactionDate = entity.ReturnDate,
                         SaleId = sale.Id,
-                        Description = $"Return {entity.ReturnNumber} for Sale {sale.InvoiceNumber}",
-                        TenantId = tenantId
-                    };
-
-                    await _customerTransactionRepository.AddAsync(trans);
+                        Description = $"Return {entity.ReturnNumber} for Sale {sale.InvoiceNumber}"
+                    });
                 }
             }
 
+            // =========================
+            // SALES SUMMARY
+            // =========================
             var today = entity.ReturnDate.Date;
             var summary = (await _salesSummaryRepository.GetAllAsync())
-                .FirstOrDefault(x => x.Date == today && x.TenantId == tenantId && !x.IsDeleted);
+                .FirstOrDefault(x => x.Date == today &&
+                                     x.TenantId == tenantId &&
+                                     !x.IsDeleted);
 
             if (summary != null)
             {
-                summary.TotalRevenue -= entity.TotalAmount;
                 var totalVat = request.Lines.Sum(l => l.Quantity * l.UnitPrice * (l.VatRate / 100));
+
+                summary.TotalRevenue -= entity.TotalAmount;
                 summary.TotalVat -= totalVat;
                 summary.CreditSales -= entity.TotalAmount;
                 summary.ModifiedAt = DateTime.UtcNow;
@@ -224,6 +260,47 @@ namespace Inventory.Services
                 _salesSummaryRepository.Update(summary);
             }
 
+            // =========================
+            // CASH MOVEMENT — CASH REFUND
+            // =========================
+            bool isCashRefund =
+                sale.Payments != null &&
+                sale.Payments.Any(p => p.Method == PaymentMethod.Cash);
+
+            if (isCashRefund && entity.TotalAmount > 0)
+            {
+                var last = await _cashMovementRepository.GetLastAsync(
+                    m => m.CashSessionId == activeCashSessionId &&
+                         !m.IsDeleted &&
+                         m.TenantId == tenantId,
+                    m => m.MovementDate
+                );
+
+                var balanceBefore = last?.BalanceAfter ?? 0m;
+                var balanceAfter = balanceBefore - entity.TotalAmount;
+
+                if (balanceAfter < 0)
+                    throw new ValidationException("Cash drawer cannot go negative.");
+
+                await _cashMovementRepository.AddAsync(new CashMovement
+                {
+                    Id = Guid.NewGuid(),
+                    TenantId = tenantId,
+                    CashSessionId = activeCashSessionId,
+                    Type = CashMovementType.Refund,
+                    Amount = entity.TotalAmount,
+                    BalanceBefore = balanceBefore,
+                    BalanceAfter = balanceAfter,
+                    SaleId = sale.Id,
+                    Reason = $"Refund {entity.ReturnNumber} for Sale {sale.InvoiceNumber}",
+                    MovementDate = DateTime.UtcNow,
+                    CreatedAt = DateTime.UtcNow
+                });
+            }
+
+            // =========================
+            // COMMIT
+            // =========================
             await _unitOfWork.SaveChangesAsync();
 
             return _mapper.Map<ReturnResult>(entity);

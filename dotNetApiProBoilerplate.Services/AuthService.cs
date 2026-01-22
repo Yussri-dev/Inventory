@@ -317,7 +317,7 @@ namespace Inventory.Services
         {
             return new AuthResult
             {
-                Token = _jwt.Generate(user.Id, user.Email!, user.TenantId, user.Role.ToString()),
+                AccessToken = _jwt.Generate(user.Id, user.Email!, user.TenantId, user.Role.ToString()),
                 ExpiresAt = DateTime.UtcNow.AddHours(2),
                 UserId = user.Id,
                 Email = user.Email!,

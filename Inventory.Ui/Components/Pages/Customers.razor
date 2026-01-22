@@ -1,0 +1,304 @@
+﻿@page "/customers"
+@using Inventory.Dto.Customers.Requests
+@using Inventory.Dto.Customers.Results
+@using global::Inventory.Dto.Customers.Requests
+@using global::Inventory.Dto.Customers.Results
+
+@inject ICustomerApi Api
+
+<h3>Customers</h3>
+
+@if (!string.IsNullOrEmpty(errorMessage))
+{
+    <div class="alert error">
+        <span>@errorMessage</span>
+        <button @onclick="ClearError">×</button>
+    </div>
+}
+
+@if (!string.IsNullOrEmpty(successMessage))
+{
+    <div class="alert success">
+        <span>@successMessage</span>
+        <button @onclick="ClearSuccess">×</button>
+    </div>
+}
+
+<!-- CREATE / EDIT -->
+<div class="card">
+    <h4>@(editingId == null ? "Create customer" : "Edit customer")</h4>
+
+    <EditForm Model="form" OnValidSubmit="HandleSubmit">
+        <DataAnnotationsValidator />
+
+        <div class="form-grid">
+            <div class="form-row">
+                <div class="form-field">
+                    <label>Name *</label>
+                    <InputText @bind-Value="form.Name" disabled="@isLoading" />
+                    <ValidationMessage For="@(() => form.Name)" />
+                </div>
+
+                <div class="form-field">
+                    <label>Email</label>
+                    <InputText type="email" @bind-Value="form.Email" disabled="@isLoading" />
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-field">
+                    <label>Phone</label>
+                    <InputText @bind-Value="form.Phone" disabled="@isLoading" />
+                </div>
+
+                <div class="form-field">
+                    <label>Tax Number</label>
+                    <InputText @bind-Value="form.TaxNumber" disabled="@isLoading" />
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-field">
+                    <label>Address</label>
+                    <InputText @bind-Value="form.Address" disabled="@isLoading" />
+                </div>
+
+                <div class="form-field">
+                    <label>Credit Limit</label>
+                    <InputNumber @bind-Value="form.CreditLimit" disabled="@isLoading" />
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-field">
+                    <label>Notes</label>
+                    <InputTextArea @bind-Value="form.Notes" disabled="@isLoading" />
+                </div>
+
+                <div class="form-field">
+                    <label class="checkbox-label">
+                        <InputCheckbox @bind-Value="form.IsActive" />
+                        <span>Active</span>
+                    </label>
+                </div>
+            </div>
+
+            <div class="actions-end">
+                <button class="btn primary" type="submit" disabled="@isLoading">
+                    @(editingId == null ? "Create" : "Update")
+                </button>
+
+                @if (editingId != null)
+                {
+                    <button class="btn ghost" type="button" @onclick="CancelEdit">Cancel</button>
+                }
+            </div>
+        </div>
+    </EditForm>
+</div>
+
+<!-- SEARCH -->
+<div class="card">
+    <h4>Search Customers</h4>
+
+    <div class="search-grid">
+        <input type="text"
+               placeholder="Search by name"
+               @bind="searchTerm"
+               @bind:event="oninput"
+               @onkeyup="OnSearchKeyUp" />
+
+        <div class="search-actions">
+            <button class="btn primary" @onclick="Search">Search</button>
+            <button class="btn ghost" @onclick="ClearSearch">Clear</button>
+        </div>
+    </div>
+</div>
+
+@if (isLoadingData)
+{
+    <p>Loading customers...</p>
+}
+else if (items is null || items.Count == 0)
+{
+    <p>No customers found.</p>
+}
+else
+{
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Phone</th>
+                <th>Balance</th>
+                <th>Status</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var c in items)
+            {
+                <tr>
+                    <td>@c.Name</td>
+                    <td>@(c.Email ?? "-")</td>
+                    <td>@(c.Phone ?? "-")</td>
+                    <td>@c.CurrentBalance</td>
+                    <td>
+                        <span class="badge @(c.IsActive ? "badge-success" : "badge-inactive")">
+                            @(c.IsActive ? "Active" : "Inactive")
+                        </span>
+                    </td>
+                    <td class="actions-end">
+                        <button class="btn small ghost" @onclick="() => StartEdit(c)">Edit</button>
+                        <button class="btn small danger" @onclick="() => AskDelete(c)">Delete</button>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@if (showDelete && customerToDelete != null)
+{
+    <div class="modal-overlay" @onclick="CancelDelete">
+        <div class="modal-content" @onclick:stopPropagation="true">
+            <h4>Confirm Delete</h4>
+            <p>Delete <strong>@customerToDelete.Name</strong>?</p>
+            <div class="modal-actions">
+                <button class="btn ghost" @onclick="CancelDelete">Cancel</button>
+                <button class="btn danger" @onclick="ConfirmDelete">Delete</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<CustomerResult>? items;
+    private CustomerForm form = new();
+    private Guid? editingId;
+
+    private bool isLoading;
+    private bool isLoadingData;
+    private bool showDelete;
+
+    private string? errorMessage;
+    private string? successMessage;
+    private string searchTerm = string.Empty;
+
+    private CustomerResult? customerToDelete;
+
+    protected override async Task OnInitializedAsync()
+        => await LoadAll();
+
+    private async Task LoadAll()
+    {
+        isLoadingData = true;
+        items = await Api.GetAll();
+        isLoadingData = false;
+    }
+
+    private async Task Search()
+    {
+        var result = await Api.Search(new CustomerQuery { Search = searchTerm });
+        items = result.Items.ToList();
+    }
+
+    private async Task HandleSubmit()
+    {
+        if (editingId == null)
+            await Api.Create(form.ToCreate());
+        else
+            await Api.Update(editingId.Value, form.ToUpdate(editingId.Value));
+
+        Reset();
+        await LoadAll();
+    }
+
+    private void StartEdit(CustomerResult c)
+    {
+        editingId = c.Id;
+        form = CustomerForm.From(c);
+    }
+
+    private void AskDelete(CustomerResult c)
+    {
+        customerToDelete = c;
+        showDelete = true;
+    }
+
+    private async Task ConfirmDelete()
+    {
+        await Api.Delete(customerToDelete!.Id);
+        showDelete = false;
+        await LoadAll();
+    }
+
+    private async Task OnSearchKeyUp(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await Search();
+        }
+    }
+
+    private async Task ClearSearch()
+    {
+        searchTerm = string.Empty;
+        await LoadAll();
+    }
+
+    private void CancelDelete() => showDelete = false;
+    private void CancelEdit() => Reset();
+    private void Reset() { editingId = null; form = new(); }
+    private void ClearError() => errorMessage = null;
+    private void ClearSuccess() => successMessage = null;
+
+    private sealed class CustomerForm
+    {
+        [Required] public string Name { get; set; } = string.Empty;
+        public string? Email { get; set; }
+        public string? Phone { get; set; }
+        public string? Address { get; set; }
+        public string? TaxNumber { get; set; }
+        public decimal CreditLimit { get; set; }
+        public bool IsActive { get; set; } = true;
+        public string? Notes { get; set; }
+
+        public CreateCustomerRequest ToCreate() => new()
+        {
+            Name = Name,
+            Email = Email,
+            Phone = Phone,
+            Address = Address,
+            TaxNumber = TaxNumber,
+            CreditLimit = CreditLimit,
+            IsActive = IsActive,
+            Notes = Notes
+        };
+
+        public UpdateCustomerRequest ToUpdate(Guid id) => new()
+        {
+            Id = id,
+            Name = Name,
+            Email = Email,
+            Phone = Phone,
+            Address = Address,
+            TaxNumber = TaxNumber,
+            CreditLimit = CreditLimit,
+            IsActive = IsActive,
+            Notes = Notes
+        };
+
+        public static CustomerForm From(CustomerResult c) => new()
+        {
+            Name = c.Name,
+            Email = c.Email,
+            Phone = c.Phone,
+            TaxNumber = c.TaxNumber,
+            CreditLimit = c.CreditLimit,
+            IsActive = c.IsActive,
+            Notes = c.Notes
+        };
+    }
+}

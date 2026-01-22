@@ -1,0 +1,382 @@
+﻿@page "/cashSessions"
+
+@using Inventory.Dto.CashSessions.Requests
+@using Inventory.Dto.CashSessions.Results
+@using global::Inventory.Dto.CashSessions.Results
+@using global::Inventory.Ui.Interfaces
+
+@inject ICashSessionApi CashSessionApi
+@inject NavigationManager Navigation
+
+<div class="cash-session-container">
+
+    @if (ActiveSession != null)
+    {
+        <!-- ACTIVE SESSION VIEW -->
+        <div class="card session-active">
+            <div class="session-header">
+                <div class="session-status">
+                    <span class="status-badge open">● OPEN</span>
+                    <h2>Cash Session #@ActiveSession.SessionNumber</h2>
+                </div>
+                <button class="btn btn-danger" @onclick="OpenCloseModal">
+                    Close Session
+                </button>
+            </div>
+
+            <div class="session-details">
+                <div class="detail-row">
+                    <div class="detail-item">
+                        <span class="label">Opened At</span>
+                        <strong>@ActiveSession.OpenedAt.ToString("dd/MM/yyyy HH:mm")</strong>
+                    </div>
+                    <div class="detail-item">
+                        <span class="label">Duration</span>
+                        <strong>@GetSessionDuration(ActiveSession.OpenedAt)</strong>
+                    </div>
+                </div>
+
+                <div class="detail-row">
+                    <div class="detail-item">
+                        <span class="label">Opening Balance</span>
+                        <strong class="amount">€@ActiveSession.OpeningAmount.ToString("F2")</strong>
+                    </div>
+                    <div class="detail-item">
+                        <span class="label">Expected Cash</span>
+                        <strong class="amount success">€@ActiveSession.ClosingAmountExpected.ToString("F2")</strong>
+                    </div>
+                </div>
+
+                @if (!string.IsNullOrEmpty(ActiveSession.OpeningNotes))
+                {
+                    <div class="notes">
+                        <span class="label">Opening Notes:</span>
+                        <p>@ActiveSession.OpeningNotes</p>
+                    </div>
+                }
+            </div>
+
+            <div class="quick-actions">
+                <button class="btn btn-primary" @onclick="NavigateToSales">
+                    Start Selling
+                </button>
+                <button class="btn btn-secondary" @onclick="ViewHistory">
+                    View History
+                </button>
+            </div>
+        </div>
+    }
+    else
+    {
+        <!-- NO ACTIVE SESSION VIEW -->
+        <div class="card session-inactive">
+            <div class="empty-state">
+                <div class="icon">🏪</div>
+                <h2>No Active Cash Session</h2>
+                <p>Open a new cash session to start selling</p>
+                <button class="btn btn-primary btn-lg" @onclick="OpenCreateModal">
+                    Open New Session
+                </button>
+            </div>
+        </div>
+    }
+
+    <!-- RECENT SESSIONS -->
+    @if (RecentSessions.Count > 0)
+    {
+        <div class="card recent-sessions">
+            <h3>Recent Sessions</h3>
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Session #</th>
+                        <th>Opened</th>
+                        <th>Closed</th>
+                        <th>Expected</th>
+                        <th>Actual</th>
+                        <th>Difference</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var session in RecentSessions)
+                    {
+                        <tr>
+                            <td><strong>@session.SessionNumber</strong></td>
+                            <td>@session.OpenedAt.ToString("dd/MM/yyyy HH:mm")</td>
+                            <td>@(session.ClosedAt?.ToString("dd/MM/yyyy HH:mm") ?? "-")</td>
+                            <td>€@session.ClosingAmountExpected.ToString("F2")</td>
+                            <td>€@session.ClosingAmountCounted.ToString("F2")</td>
+                            <td class="@GetDifferenceClass(session.Difference)">
+                                €@session.Difference.ToString("F2")
+                            </td>
+                            <td>
+                                <span class="status-badge @session.Status.ToString().ToLower()">
+                                    @session.Status
+                                </span>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>
+
+<!-- MODAL: OPEN SESSION -->
+@if (ShowCreateModal)
+{
+    <div class="modal-overlay" @onclick="CloseCreateModal">
+        <div class="modal-content" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <h3>Open New Cash Session</h3>
+                <button class="modal-close" @onclick="CloseCreateModal">×</button>
+            </div>
+
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Opening Balance (€)</label>
+                    <input type="number"
+                           class="form-input"
+                           @bind="OpeningBalance"
+                           step="0.01"
+                           min="0"
+                           placeholder="0.00" />
+                </div>
+
+                <div class="form-group">
+                    <label>Opening Notes (optional)</label>
+                    <textarea class="form-textarea"
+                              @bind="OpeningNotes"
+                              rows="3"
+                              placeholder="Any notes about opening..."></textarea>
+                </div>
+            </div>
+
+            <div class="modal-footer">
+                <button class="btn btn-secondary" @onclick="CloseCreateModal">Cancel</button>
+                <button class="btn btn-primary" @onclick="CreateSession" disabled="@IsLoading">
+                    @(IsLoading ? "Opening..." : "Open Session")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- MODAL: CLOSE SESSION -->
+@if (ShowCloseModal)
+{
+    <div class="modal-overlay" @onclick="CloseCloseModal">
+        <div class="modal-content" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <h3>Close Cash Session</h3>
+                <button class="modal-close" @onclick="CloseCloseModal">×</button>
+            </div>
+
+            <div class="modal-body">
+                <div class="session-summary">
+                    <div class="summary-item">
+                        <span class="label">Expected Cash</span>
+                        <strong class="amount">€@(ActiveSession?.ClosingAmountExpected.ToString("F2") ?? "0.00")</strong>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Actual Cash Counted (€) *</label>
+                    <input type="number"
+                           class="form-input"
+                           @bind="ActualCash"
+                           step="0.01"
+                           min="0"
+                           placeholder="0.00" />
+                </div>
+
+                @if (ActualCash > 0 && ActiveSession != null)
+                {
+                    <div class="difference-preview">
+                        <span class="label">Difference:</span>
+                        <strong class="@GetDifferenceClass(ActualCash - ActiveSession.ClosingAmountExpected)">
+                            €@((ActualCash - ActiveSession.ClosingAmountExpected).ToString("F2"))
+                        </strong>
+                    </div>
+                }
+
+                <div class="form-group">
+                    <label>Closing Notes (optional)</label>
+                    <textarea class="form-textarea"
+                              @bind="ClosingNotes"
+                              rows="3"
+                              placeholder="Any notes about closing..."></textarea>
+                </div>
+            </div>
+
+            <div class="modal-footer">
+                <button class="btn btn-secondary" @onclick="CloseCloseModal">Cancel</button>
+                <button class="btn btn-danger" @onclick="CloseSession" disabled="@(IsLoading || ActualCash <= 0)">
+                    @(IsLoading ? "Closing..." : "Close Session")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    CashSessionResult? ActiveSession;
+    List<CashSessionResult> RecentSessions = new();
+
+    bool ShowCreateModal;
+    bool ShowCloseModal;
+    bool IsLoading;
+
+    decimal OpeningBalance;
+    string OpeningNotes = "";
+    decimal ActualCash;
+    string ClosingNotes = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    async Task LoadData()
+    {
+        try
+        {
+            // Charger la session active
+            try
+            {
+                ActiveSession = await CashSessionApi.GetActive();
+            }
+            catch
+            {
+                ActiveSession = null;
+            }
+
+            // Charger les sessions récentes
+            var allSessions = await CashSessionApi.GetAll();
+            RecentSessions = allSessions
+                .OrderByDescending(s => s.OpenedAt)
+                .Take(5)
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading data: {ex.Message}");
+        }
+    }
+
+    // OPEN SESSION
+    void OpenCreateModal()
+    {
+        ShowCreateModal = true;
+        OpeningBalance = 0;
+        OpeningNotes = "";
+    }
+
+    void CloseCreateModal()
+    {
+        ShowCreateModal = false;
+    }
+
+    async Task CreateSession()
+    {
+        if (OpeningBalance < 0)
+            return;
+
+        IsLoading = true;
+
+        try
+        {
+            var request = new CreateCashSessionRequest
+            {
+                OpeningAmount = OpeningBalance,
+                OpeningNotes = OpeningNotes
+            };
+
+            ActiveSession = await CashSessionApi.Create(request);
+            CloseCreateModal();
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error creating session: {ex.Message}");
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+
+    // CLOSE SESSION
+    void OpenCloseModal()
+    {
+        ShowCloseModal = true;
+        ActualCash = ActiveSession?.ClosingAmountExpected ?? 0;
+        ClosingNotes = "";
+    }
+
+    void CloseCloseModal()
+    {
+        ShowCloseModal = false;
+    }
+
+    async Task CloseSession()
+    {
+        if (ActiveSession == null || ActualCash < 0)
+            return;
+
+        IsLoading = true;
+
+        try
+        {
+            var request = new CloseCashSessionRequest
+            {
+                ActualCash = ActualCash,
+                ClosingNotes = ClosingNotes
+            };
+
+            await CashSessionApi.Close(ActiveSession.Id, request);
+            CloseCloseModal();
+            ActiveSession = null;
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error closing session: {ex.Message}");
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+
+    // HELPERS
+    string GetSessionDuration(DateTime openedAt)
+    {
+        var duration = DateTime.UtcNow - openedAt;
+
+        if (duration.TotalHours < 1)
+            return $"{(int)duration.TotalMinutes} min";
+
+        if (duration.TotalDays < 1)
+            return $"{(int)duration.TotalHours}h {duration.Minutes}min";
+
+        return $"{(int)duration.TotalDays}d {duration.Hours}h";
+    }
+
+    string GetDifferenceClass(decimal difference)
+    {
+        if (difference == 0) return "neutral";
+        return difference > 0 ? "success" : "danger";
+    }
+
+    void NavigateToSales()
+    {
+        Navigation.NavigateTo("/sales");
+    }
+
+    void ViewHistory()
+    {
+        // TODO: Navigate to full history page
+    }
+}

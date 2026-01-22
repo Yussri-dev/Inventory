@@ -58,26 +58,30 @@ namespace Inventory.Services
         {
             var tenantId = _tenantContext.GetTenantId();
 
+            // =========================
+            // VALIDATION
+            // =========================
             if (request.Lines == null || !request.Lines.Any())
                 throw new ValidationException(new Dictionary<string, string[]>
-                {
-                    { "Lines", new[] { "At least one line is required." } }
-                });
+        {
+            { "Lines", new[] { "At least one line is required." } }
+        });
 
-            // Verify supplier belongs to tenant
             var supplier = await _supplierRepository.GetByIdAsync(request.SupplierId);
             if (supplier == null || supplier.IsDeleted || supplier.TenantId != tenantId)
                 throw new NotFoundException("Supplier", request.SupplierId);
 
-            // 1. Create Header
+            // =========================
+            // CREATE HEADER
+            // =========================
             var entity = new SupplierReturn
             {
                 Id = Guid.NewGuid(),
-                SupplierId = request.SupplierId,
                 TenantId = tenantId,
+                SupplierId = request.SupplierId,
                 ReturnNumber = request.ReturnNumber ?? await _documentNumberService.GenerateAsync("SUP_RET"),
-                ReturnDate = request.ReturnDate,
-                Reason = request.Reason ?? "Manual Return",
+                ReturnDate = request.ReturnDate == default ? DateTime.UtcNow : request.ReturnDate,
+                Reason = request.Reason ?? "Supplier return",
                 Status = SupplierReturnStatus.Accepted,
                 Notes = request.Notes,
                 CreatedAt = DateTime.UtcNow,
@@ -86,19 +90,23 @@ namespace Inventory.Services
 
             await _repository.AddAsync(entity);
 
-            decimal totalAmount = 0;
+            decimal totalAmount = 0m;
 
-            // 2. Lines & Stock
+            // =========================
+            // LINES + STOCK
+            // =========================
             foreach (var item in request.Lines)
             {
                 var line = new SupplierReturnLine
                 {
                     Id = Guid.NewGuid(),
+                    TenantId = tenantId,
                     SupplierReturnId = entity.Id,
                     ProductId = item.ProductId,
                     Quantity = item.Quantity,
                     Reason = item.Reason
                 };
+
                 await _lineRepository.AddAsync(line);
 
                 totalAmount += item.Quantity * item.UnitPrice;
@@ -108,30 +116,32 @@ namespace Inventory.Services
                          !s.IsDeleted &&
                          s.TenantId == tenantId);
 
-                decimal quantityBefore = 0;
+                var quantityBefore = stock?.Quantity ?? 0;
+                var quantityAfter = quantityBefore - item.Quantity;
 
-                if (stock != null)
-                {
-                    quantityBefore = stock.Quantity;
-                    stock.Quantity -= item.Quantity;
-                    stock.ModifiedAt = DateTime.UtcNow;
-                    _stockRepository.Update(stock);
-                }
-                else
+                if (stock == null)
                 {
                     stock = new Stock
                     {
                         Id = Guid.NewGuid(),
                         TenantId = tenantId,
                         ProductId = item.ProductId,
-                        Quantity = -item.Quantity,
+                        Quantity = quantityAfter,
                         CreatedAt = DateTime.UtcNow,
-                        ModifiedAt = DateTime.UtcNow
+                        ModifiedAt = DateTime.UtcNow,
+                        LastUpdated = DateTime.UtcNow
                     };
                     await _stockRepository.AddAsync(stock);
                 }
+                else
+                {
+                    stock.Quantity = quantityAfter;
+                    stock.LastUpdated = DateTime.UtcNow;
+                    stock.ModifiedAt = DateTime.UtcNow;
+                    _stockRepository.Update(stock);
+                }
 
-                var sm = new StockMovement
+                await _stockMovementRepository.AddAsync(new StockMovement
                 {
                     Id = Guid.NewGuid(),
                     TenantId = tenantId,
@@ -139,37 +149,41 @@ namespace Inventory.Services
                     Type = StockMovementType.SupplierReturn,
                     QuantityChange = -item.Quantity,
                     QuantityBefore = quantityBefore,
-                    QuantityAfter = stock.Quantity,
+                    QuantityAfter = quantityAfter,
                     ReferenceId = entity.Id,
                     ReferenceNumber = entity.ReturnNumber,
                     MovementDate = DateTime.UtcNow,
                     Notes = $"Supplier Return {entity.ReturnNumber}",
                     CreatedAt = DateTime.UtcNow,
                     ModifiedAt = DateTime.UtcNow
-                };
-                await _stockMovementRepository.AddAsync(sm);
+                });
             }
 
-            // 3. Supplier Integration
+            // =========================
+            // SUPPLIER ACCOUNTING (CREDIT NOTE)
+            // =========================
             supplier.CurrentBalance -= totalAmount;
             supplier.ModifiedAt = DateTime.UtcNow;
             _supplierRepository.Update(supplier);
 
-            var trans = new SupplierTransaction
+            await _supplierTransactionRepository.AddAsync(new SupplierTransaction
             {
                 Id = Guid.NewGuid(),
+                TenantId = tenantId,
                 SupplierId = supplier.Id,
                 Type = SupplierTransactionType.Return,
                 Amount = totalAmount,
                 TransactionDate = DateTime.UtcNow,
                 ReferenceNumber = entity.ReturnNumber,
                 SupplierReturnId = entity.Id,
-                Notes = $"Return {entity.ReturnNumber}",
-                TenantId = tenantId
-            };
-            await _supplierTransactionRepository.AddAsync(trans);
+                Notes = $"Supplier return {entity.ReturnNumber}"
+            });
 
+            // =========================
+            // COMMIT
+            // =========================
             await _unitOfWork.SaveChangesAsync();
+
             return _mapper.Map<SupplierReturnResult>(entity);
         }
 

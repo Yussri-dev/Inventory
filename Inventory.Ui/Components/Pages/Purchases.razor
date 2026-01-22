@@ -1,0 +1,775 @@
+﻿@page "/purchases"
+
+@using Inventory.Dto.Enums
+@using Inventory.Dto.Products.Results
+@using Inventory.Dto.ProductCatalogs.Results
+@using Inventory.Dto.Purchases.Requests
+@using Inventory.Dto.PurchaseLines.Requests
+@using Inventory.Dto.Suppliers.Results
+@using Inventory.Dto.Queries
+
+@inject IJSRuntime JS
+@inject IProductApi ProductApi
+@inject IProductCatalogApi CatalogApi
+@inject IPurchaseApi PurchaseApi
+@inject ISupplierApi SupplierApi
+@inject NavigationManager Navigation
+
+<div class="purchase-container">
+
+    <!-- LEFT COLUMN: Cart & Totals -->
+    <div class="purchase-left" @onclick="() => FocusBarcodeInput()">
+
+        <!-- Header: Purchase Info & Supplier -->
+        <div class="card header-section">
+            <div class="purchase-info">
+                <div>
+                    <strong class="title">Purchase</strong>
+                    <span class="muted">@PurchaseCount</span>
+                </div>
+            </div>
+
+            <div class="supplier-section">
+                <label>Supplier</label>
+                <button class="supplier-select-btn" @onclick="OpenSupplierModal">
+                    @(SelectedSupplier?.Name ?? "-- Select supplier --")
+                </button>
+            </div>
+        </div>
+
+        <!-- Cart Table -->
+        <div class="card cart-table" @onclick="() => FocusBarcodeInput()">
+            @if (Lines.Count == 0)
+            {
+                <div class="empty-state">
+                    <p>No products added yet</p>
+                    <p class="muted">Scan barcode or search products to add them</p>
+                </div>
+            }
+            else
+            {
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th style="width: 200px;">Quantity</th>
+                            <th>Name</th>
+                            <th style="width: 100px;">Price</th>
+                            <th style="width: 100px;">Amount</th>
+                            <th style="width: 100px;">Tax</th>
+                            <th style="width: 80px;">Rate</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var line in Lines)
+                        {
+                            <tr class="@(line == SelectedLine ? "selected" : "")"
+                                @onclick="() => OnLineClicked(line)">
+
+                                <td>
+                                    <div class="qty-controls">
+                                        <button class="qty-btn"
+                                                @onclick="() => Decrement(line)"
+                                                @onclick:stopPropagation="true">
+                                            −
+                                        </button>
+                                        <span class="qty-value">@line.Quantity</span>
+                                        <button class="qty-btn"
+                                                @onclick="() => Increment(line)"
+                                                @onclick:stopPropagation="true">
+                                            +
+                                        </button>
+                                    </div>
+                                </td>
+
+                                <td>@line.ProductName</td>
+
+                                <td class="text-right">
+                                    €@line.EffectiveUnitPrice.ToString("F2")
+                                </td>
+
+                                <td class="text-right">
+                                    €@line.Amount.ToString("F2")
+                                </td>
+
+                                <td class="text-right">
+                                    €@line.TaxAmount.ToString("F2")
+                                </td>
+
+                                <td class="text-right">
+                                    @(line.TaxRate)%
+                                </td>
+                            </tr>
+
+                            @if (line.IsExpanded)
+                            {
+                                @foreach (var adj in line.Adjustments)
+                                {
+                                    <tr class="sub-line">
+                                        <td></td>
+                                        <td colspan="5">
+                                            <span class="adjustment">@adj.Display</span>
+                                        </td>
+                                    </tr>
+                                }
+
+                                <tr class="sub-actions">
+                                    <td></td>
+                                    <td colspan="5">
+                                        <button class="btn small"
+                                                @onclick="() => AddPriceOverride(line)">
+                                            Change price
+                                        </button>
+                                        <button class="btn small"
+                                                @onclick="() => AddDiscountPercent(line)">
+                                            Discount %
+                                        </button>
+                                        <button class="btn small"
+                                                @onclick="() => AddDiscountAmount(line)">
+                                            Discount €
+                                        </button>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            }
+        </div>
+
+        <!-- Totals Row -->
+        <div class="totals-row">
+            <div class="total-item">
+                <span class="total-label">Total Qty</span>
+                <strong class="total-value primary">@TotalQuantity</strong>
+            </div>
+            <div class="total-item">
+                <span class="total-label">Number of Lines</span>
+                <strong class="total-value primary">@Lines.Count</strong>
+            </div>
+            <div class="total-item">
+                <span class="total-label">Total</span>
+                <strong class="total-value primary">€@TotalAmount.ToString("F2")</strong>
+            </div>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="actions-footer">
+            <div class="tax-info">
+                <strong>Taxes: €@TotalTax.ToString("F2")</strong>
+            </div>
+            <button class="btn btn-secondary" @onclick="Reset">Reset</button>
+            <button class="btn btn-secondary" @onclick="RemoveSelected" disabled="@(SelectedLine == null)">
+                Delete
+            </button>
+            <button class="btn btn-primary" @onclick="SavePurchase" disabled="@IsSaving">
+                @(IsSaving ? "Saving..." : "Add")
+            </button>
+            <button class="btn btn-secondary" @onclick="NavigateToDashboard">Close</button>
+        </div>
+    </div>
+
+    <!-- RIGHT COLUMN: Product Search & Numpad -->
+    <div class="purchase-right" @onclick="() => FocusBarcodeInput()">
+
+        <!-- Barcode Scanner Section -->
+        <div class="card search-section">
+            <div class="search-box">
+                <input type="text"
+                       class="search-input"
+                       placeholder="Scan barcode or type product code..."
+                       @bind="BarcodeInput"
+                       @bind:event="oninput"
+                       @onkeydown="OnBarcodeKeyDown"
+                       @ref="barcodeInputRef"
+                       autofocus />
+                <span class="search-icon">🔍</span>
+            </div>
+        </div>
+
+        <!-- Manual Search Section -->
+        <div class="card search-section">
+            <div class="search-box">
+                <input type="text"
+                       class="search-input"
+                       placeholder="Search products by name..."
+                       @bind="SearchText"
+                       @bind:event="oninput" />
+                <span class="search-icon">🔍</span>
+            </div>
+        </div>
+
+        <!-- Products List -->
+        <div class="card product-list-container">
+            @if (IsLoadingProducts)
+            {
+                <div class="loading-state">Loading products...</div>
+            }
+            else if (FilteredProducts.Count == 0)
+            {
+                <div class="empty-state">
+                    <p>No products found</p>
+                </div>
+            }
+            else
+            {
+                <ul class="product-list">
+                    @foreach (var product in FilteredProducts)
+                    {
+                        var catalog = GetCatalogProduct(product.CatalogProductId);
+                        <li class="product-item"
+                            @onclick="() => SelectAndAddProduct(product)">
+                            <strong>@(product.CatalogName ?? catalog?.Name ?? "Unknown")</strong>
+                            @if (!string.IsNullOrEmpty(product.CatalogBarcode ?? catalog?.Barcode))
+                            {
+                                <span class="muted">@(product.CatalogBarcode ?? catalog?.Barcode)</span>
+                            }
+                            <span class="muted price">€@product.PurchasePrice.ToString("F2")</span>
+                        </li>
+                    }
+                </ul>
+            }
+        </div>
+
+        <!-- Numeric Pad -->
+        <div class="card numpad-container">
+            <div class="numpad">
+                <div class="display">@NumpadValue</div>
+                <div class="keys">
+                    @foreach (var key in NumpadKeys)
+                    {
+                        <button class="key-btn" @onclick="() => PressKey(key)">@key</button>
+                    }
+                    <button class="key-btn clear" @onclick="ClearNumpad">C</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Supplier Selection Modal -->
+@if (ShowSupplierModal)
+{
+    <div class="modal-overlay" @onclick="CloseSupplierModal">
+        <div class="modal-content" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <h3>Select Supplier</h3>
+                <button class="modal-close" @onclick="CloseSupplierModal">×</button>
+            </div>
+
+            <div class="modal-body">
+                <div class="search-box">
+                    <input type="text"
+                           class="search-input"
+                           placeholder="Search suppliers..."
+                           @bind="SupplierSearchText"
+                           @bind:event="oninput"
+                           autofocus />
+                    <span class="search-icon">🔍</span>
+                </div>
+
+                <ul class="supplier-list">
+                    @if (FilteredSuppliers.Count == 0)
+                    {
+                        <li class="empty-state">No suppliers found</li>
+                    }
+                    else
+                    {
+                        @foreach (var supplier in FilteredSuppliers)
+                        {
+                            <li class="supplier-item @(TempSelectedSupplier?.Id == supplier.Id ? "selected" : "")"
+                                @onclick="() => TempSelectedSupplier = supplier">
+                                <strong>@supplier.Name</strong>
+                                @if (!string.IsNullOrEmpty(supplier.Phone))
+                                {
+                                    <span class="muted">📞 @supplier.Phone</span>
+                                }
+                                @if (!string.IsNullOrEmpty(supplier.Email))
+                                {
+                                    <span class="muted">✉ @supplier.Email</span>
+                                }
+                            </li>
+                        }
+                    }
+                </ul>
+            </div>
+
+            <div class="modal-footer">
+                <button class="btn btn-secondary" @onclick="CloseSupplierModal">Cancel</button>
+                <button class="btn btn-primary"
+                        @onclick="ConfirmSupplierSelection"
+                        disabled="@(TempSelectedSupplier == null)">
+                    OK
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    // STATE
+    List<CartLine> Lines = new();
+    List<ProductResult> Products = new();
+    List<ProductCatalogResult> CatalogProducts = new();
+    List<SupplierResult> Suppliers = new();
+
+    SupplierResult? SelectedSupplier;
+    SupplierResult? TempSelectedSupplier;
+    CartLine? SelectedLine;
+
+    string BarcodeInput = string.Empty;
+    string SearchText = string.Empty;
+    string SupplierSearchText = string.Empty;
+
+    bool IsSaving;
+    bool IsLoadingProducts;
+    bool ShowSupplierModal;
+
+    ElementReference barcodeInputRef;
+
+    string NumpadValue = "";
+    readonly string[] NumpadKeys = { "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "." };
+
+    // COMPUTED PROPERTIES
+    string PurchaseCount => $"Lines: {Lines.Count}";
+    decimal TotalQuantity => Lines.Sum(l => l.Quantity);
+    decimal TotalAmount => Lines.Sum(l => l.Amount);
+    decimal TotalTax => Lines.Sum(l => l.TaxAmount);
+
+    List<ProductResult> FilteredProducts =>
+        string.IsNullOrWhiteSpace(SearchText)
+            ? Products
+            : Products.Where(p =>
+            {
+                var catalog = GetCatalogProduct(p.CatalogProductId);
+                var name = p.CatalogName ?? catalog?.Name ?? "";
+                var barcode = p.CatalogBarcode ?? catalog?.Barcode ?? "";
+
+                return name.Contains(SearchText, StringComparison.OrdinalIgnoreCase) ||
+                       barcode.Contains(SearchText, StringComparison.OrdinalIgnoreCase);
+            }).ToList();
+
+    List<SupplierResult> FilteredSuppliers =>
+        string.IsNullOrWhiteSpace(SupplierSearchText)
+            ? Suppliers
+            : Suppliers.Where(s =>
+                s.Name.Contains(SupplierSearchText, StringComparison.OrdinalIgnoreCase) ||
+                (s.Phone?.Contains(SupplierSearchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (s.Email?.Contains(SupplierSearchText, StringComparison.OrdinalIgnoreCase) ?? false)
+            ).ToList();
+
+    // INIT
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadInitialData();
+    }
+
+    async Task LoadInitialData()
+    {
+        IsLoadingProducts = true;
+
+        try
+        {
+            // Load catalog products
+            try
+            {
+                CatalogProducts = await CatalogApi.GetAll();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Catalog API failed: {ex.Message}");
+            }
+
+            // Load suppliers
+            try
+            {
+                Suppliers = await SupplierApi.GetAll();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Supplier API failed: {ex.Message}");
+            }
+
+            // Load products
+            try
+            {
+                Products = await ProductApi.GetAll();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Product API failed: {ex.Message}");
+            }
+
+            await FocusBarcodeInput();
+        }
+        finally
+        {
+            IsLoadingProducts = false;
+            StateHasChanged();
+        }
+    }
+
+    ProductCatalogResult? GetCatalogProduct(Guid catalogProductId)
+    {
+        return CatalogProducts.FirstOrDefault(c => c.Id == catalogProductId);
+    }
+
+    // SUPPLIER MODAL
+    void OpenSupplierModal()
+    {
+        ShowSupplierModal = true;
+        TempSelectedSupplier = SelectedSupplier;
+        SupplierSearchText = string.Empty;
+    }
+
+    void CloseSupplierModal()
+    {
+        ShowSupplierModal = false;
+        TempSelectedSupplier = null;
+        SupplierSearchText = string.Empty;
+    }
+
+    void ConfirmSupplierSelection()
+    {
+        if (TempSelectedSupplier != null)
+        {
+            SelectedSupplier = TempSelectedSupplier;
+        }
+        CloseSupplierModal();
+    }
+
+    // BARCODE SCANNING
+    async Task OnBarcodeKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !string.IsNullOrWhiteSpace(BarcodeInput))
+        {
+            var code = BarcodeInput.Trim();
+            BarcodeInput = "";
+
+            // Search in ProductResult denormalized fields
+            var product = Products.FirstOrDefault(p =>
+                p.CatalogBarcode == code ||
+                (p.CatalogBarcode?.Contains(code) ?? false));
+
+            // If not found in denormalized fields, search in catalog
+            if (product == null)
+            {
+                var catalog = CatalogProducts.FirstOrDefault(c =>
+                    c.Barcode == code ||
+                    (c.Barcode?.Contains(code) ?? false));
+
+                if (catalog != null)
+                {
+                    product = Products.FirstOrDefault(p => p.CatalogProductId == catalog.Id);
+                }
+            }
+
+            if (product != null)
+            {
+                AddProduct(product, GetQuantityFromNumpad());
+                await FocusBarcodeInput();
+                NumpadValue = "";
+                return;
+            }
+
+            await SearchAndAddByBarcode(code);
+        }
+    }
+
+    async Task SearchAndAddByBarcode(string searchTerm)
+    {
+        try
+        {
+            var result = await ProductApi.Search(new ProductQuery
+            {
+                Search = searchTerm,
+                PageSize = 10
+            });
+
+            var product = result.Items.FirstOrDefault();
+
+            if (product != null)
+            {
+                AddProduct(product, 1);
+            }
+
+            await FocusBarcodeInput();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Search error: {ex.Message}");
+        }
+    }
+
+    // NUMPAD
+    void PressKey(string key) => NumpadValue += key;
+
+    void ClearNumpad()
+    {
+        NumpadValue = "";
+        _ = FocusBarcodeInput();
+    }
+
+    void SelectAndAddProduct(ProductResult product)
+    {
+        AddProduct(product, GetQuantityFromNumpad());
+        NumpadValue = "";
+        _ = FocusBarcodeInput();
+    }
+
+    int GetQuantityFromNumpad()
+    {
+        if (int.TryParse(NumpadValue, out var q) && q > 0)
+            return q;
+        return 1;
+    }
+
+    // CART OPERATIONS
+    void AddProduct(ProductResult product, int quantity = 1)
+    {
+        var existingLine = Lines.FirstOrDefault(l => l.ProductId == product.Id);
+        var catalog = GetCatalogProduct(product.CatalogProductId);
+
+        if (existingLine != null)
+        {
+            existingLine.Quantity += quantity;
+        }
+        else
+        {
+            Lines.Add(new CartLine
+            {
+                ProductId = product.Id,
+                ProductName = product.CatalogName ?? catalog?.Name ?? "Unknown Product",
+                BasePurchasePrice = product.PurchasePrice,
+                Quantity = quantity,
+                TaxRate = product.VatRate
+            });
+        }
+
+        SelectedLine = Lines.Last();
+        _ = FocusBarcodeInput();
+    }
+
+    void Increment(CartLine line)
+    {
+        line.Quantity++;
+        _ = FocusBarcodeInput();
+    }
+
+    void Decrement(CartLine line)
+    {
+        if (Lines.Count == 1 && line.Quantity == 1)
+            return;
+
+        if (line.Quantity > 1)
+        {
+            line.Quantity--;
+            return;
+        }
+
+        Lines.Remove(line);
+        if (SelectedLine == line)
+            SelectedLine = null;
+        _ = FocusBarcodeInput();
+    }
+
+    void RemoveSelected()
+    {
+        if (SelectedLine != null)
+        {
+            Lines.Remove(SelectedLine);
+            SelectedLine = null;
+        }
+        _ = FocusBarcodeInput();
+    }
+
+    void Reset()
+    {
+        Lines.Clear();
+        SelectedLine = null;
+        SelectedSupplier = null;
+        _ = FocusBarcodeInput();
+    }
+
+    // ADJUSTMENTS
+    void OnLineClicked(CartLine line)
+    {
+        if (SelectedLine == line)
+        {
+            line.IsExpanded = !line.IsExpanded;
+        }
+        else
+        {
+            if (SelectedLine != null)
+                SelectedLine.IsExpanded = false;
+            SelectedLine = line;
+            line.IsExpanded = true;
+        }
+    }
+
+    void AddPriceOverride(CartLine line)
+    {
+        if (decimal.TryParse(NumpadValue, out var price) && price > 0)
+        {
+            line.Adjustments.Add(new CartAdjustment
+            {
+                Type = AdjustmentType.PriceOverride,
+                Value = price
+            });
+            NumpadValue = "";
+        }
+    }
+
+    void AddDiscountPercent(CartLine line)
+    {
+        if (decimal.TryParse(NumpadValue, out var value) && value > 0)
+        {
+            line.Adjustments.Add(new CartAdjustment
+            {
+                Type = AdjustmentType.DiscountPercent,
+                Value = value
+            });
+            NumpadValue = "";
+        }
+    }
+
+    void AddDiscountAmount(CartLine line)
+    {
+        if (decimal.TryParse(NumpadValue, out var value) && value > 0)
+        {
+            line.Adjustments.Add(new CartAdjustment
+            {
+                Type = AdjustmentType.DiscountAmount,
+                Value = value
+            });
+            NumpadValue = "";
+        }
+    }
+
+    // SAVE PURCHASE
+    async Task SavePurchase()
+    {
+        if (SelectedSupplier == null || Lines.Count == 0)
+            return;
+
+        IsSaving = true;
+
+        try
+        {
+            var request = new CreateCompletePurchaseRequest
+            {
+                SupplierId = SelectedSupplier.Id,
+                Lines = Lines.Select(l => new PurchaseLineItem
+                {
+                    ProductId = l.ProductId,
+                    Quantity = l.Quantity,
+                    UnitPrice = l.EffectiveUnitPrice,
+                    VatRate = l.TaxRate,
+                    DiscountPercent = l.CalculateDiscountPercent()
+                }).ToList()
+            };
+
+            await PurchaseApi.CreateComplete(request);
+            Reset();
+        }
+        finally
+        {
+            IsSaving = false;
+            await FocusBarcodeInput();
+        }
+    }
+
+    // NAVIGATION
+    void NavigateToDashboard()
+    {
+        Navigation.NavigateTo("/");
+    }
+
+    async Task FocusBarcodeInput()
+    {
+        try
+        {
+            await Task.Delay(100);
+            await barcodeInputRef.FocusAsync();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Focus error: {ex.Message}");
+        }
+    }
+
+    // MODELS
+    enum AdjustmentType
+    {
+        PriceOverride,
+        DiscountPercent,
+        DiscountAmount,
+        Fee
+    }
+
+    class CartAdjustment
+    {
+        public AdjustmentType Type { get; set; }
+        public decimal Value { get; set; }
+        public string? Note { get; set; }
+
+        public decimal Apply(decimal basePrice)
+        {
+            return Type switch
+            {
+                AdjustmentType.PriceOverride => Value,
+                AdjustmentType.DiscountPercent => basePrice * (1 - Value / 100),
+                AdjustmentType.DiscountAmount => basePrice - Value,
+                AdjustmentType.Fee => basePrice + Value,
+                _ => basePrice
+            };
+        }
+
+        public string Display =>
+            Type switch
+            {
+                AdjustmentType.PriceOverride => $"Prix modifié → {Value:0.00} €",
+                AdjustmentType.DiscountPercent => $"Remise → -{Value} %",
+                AdjustmentType.DiscountAmount => $"Remise → -{Value:0.00} €",
+                AdjustmentType.Fee => $"Frais → +{Value:0.00} €",
+                _ => ""
+            };
+    }
+
+    class CartLine
+    {
+        public Guid ProductId { get; set; }
+        public string ProductName { get; set; } = "";
+        public decimal Quantity { get; set; }
+        public decimal BasePurchasePrice { get; set; }
+        public decimal TaxRate { get; set; }
+        public bool IsExpanded { get; set; }
+        public List<CartAdjustment> Adjustments { get; set; } = new();
+
+        public decimal EffectiveUnitPrice
+        {
+            get
+            {
+                decimal price = BasePurchasePrice;
+                foreach (var adj in Adjustments)
+                    price = adj.Apply(price);
+                return price;
+            }
+        }
+
+        public decimal Amount => Quantity * EffectiveUnitPrice;
+        public decimal TaxAmount => Amount * (TaxRate / 100);
+
+        public decimal CalculateDiscountPercent()
+        {
+            var discountAdj = Adjustments.FirstOrDefault(a => a.Type == AdjustmentType.DiscountPercent);
+            if (discountAdj != null)
+                return discountAdj.Value;
+
+            var discountAmount = Adjustments.FirstOrDefault(a => a.Type == AdjustmentType.DiscountAmount);
+            if (discountAmount != null && BasePurchasePrice > 0)
+                return (discountAmount.Value / BasePurchasePrice) * 100;
+
+            return 0;
+        }
+    }
+}

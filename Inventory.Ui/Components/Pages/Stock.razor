@@ -1,0 +1,156 @@
+﻿@page "/stock"
+@using Inventory.Dto.Stock.Results
+@using Inventory.Dto.StockMouvements.Requests
+@using Inventory.Dto.Enums
+
+@inject IStockApi StockApi
+@inject IStockMovementApi StockMovementApi
+
+<h2>Stock</h2>
+
+<div class="card stock-card">
+
+    <table class="table stock-table">
+        <thead>
+            <tr>
+                <th>#</th>
+                <th>Product</th>
+                <th>Total</th>
+                <th>Reserved</th>
+                <th>Available</th>
+                <th>Last Update</th>
+                <th></th>
+            </tr>
+        </thead>
+
+        <tbody>
+            @foreach (var stock in Stocks)
+            {
+                <tr class="@(SelectedStock?.Id == stock.Id ? "selected" : "")"
+                    @onclick="() => Select(stock)">
+
+                    <td>@stock.ProductId</td>
+                    <td>@stock.Name</td>
+                    <td>@stock.Quantity</td>
+                    <td>@stock.ReservedQuantity</td>
+                    <td class="available">@stock.AvailableQuantity</td>
+                    <td>@stock.LastUpdated.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</td>
+                    <td>
+                        <button class="btn small"
+                                @onclick="() => OpenAdjust(stock)"
+                                @onclick:stopPropagation="true">
+                            Adjust
+                        </button>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+
+</div>
+
+<!-- ADJUSTMENT MODAL -->
+@if (ShowAdjustModal && SelectedStock != null)
+{
+    <div class="modal-overlay" @onclick="CloseAdjust">
+        <div class="modal-content" @onclick:stopPropagation="true">
+
+            <h3>Adjust stock</h3>
+
+            <p><strong>Product: @SelectedStock.ProductId</strong></p>
+
+            <div class="form-group">
+                <label>Current quantity</label>
+                <input class="form-input" value="@SelectedStock.Quantity" disabled />
+            </div>
+
+            <div class="form-group">
+                <label>New quantity</label>
+                <input type="number"
+                       class="form-input"
+                       step="0.001"
+                       @bind="NewQuantity" />
+            </div>
+
+            <div class="form-group">
+                <label>Notes</label>
+                <input class="form-input"
+                       @bind="Notes" />
+            </div>
+
+            <div class="modal-footer">
+                <button class="btn secondary" @onclick="CloseAdjust">Cancel</button>
+                <button class="btn primary" @onclick="ConfirmAdjust">Confirm</button>
+            </div>
+
+        </div>
+    </div>
+}
+
+@code {
+
+    List<StockResult> Stocks = new();
+    StockResult? SelectedStock;
+
+    bool ShowAdjustModal;
+    decimal NewQuantity;
+    string Notes = "Manual stock adjustment";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadStock();
+    }
+
+    async Task LoadStock()
+    {
+        Stocks = await StockApi.GetAll();
+    }
+
+    void Select(StockResult stock)
+    {
+        SelectedStock = stock;
+    }
+
+    void OpenAdjust(StockResult stock)
+    {
+        SelectedStock = stock;
+        NewQuantity = stock.Quantity;
+        Notes = "Manual stock adjustment";
+        ShowAdjustModal = true;
+    }
+
+    void CloseAdjust()
+    {
+        ShowAdjustModal = false;
+        SelectedStock = null;
+    }
+
+    async Task ConfirmAdjust()
+    {
+        if (SelectedStock == null)
+            return;
+
+        var delta = NewQuantity - SelectedStock.Quantity;
+
+        if (delta == 0)
+        {
+            CloseAdjust();
+            return;
+        }
+
+        // FULLY VALID REQUEST — matches DTO exactly
+        await StockMovementApi.Create(new CreateStockMouvementRequest
+        {
+            ProductId = SelectedStock.ProductId,
+            QuantityChange = delta,
+            QuantityBefore = SelectedStock.Quantity,
+            QuantityAfter = NewQuantity,
+            Type = StockMovementType.Adjustment,
+            Notes = Notes,
+            MovementDate = DateTime.UtcNow
+        });
+
+        await LoadStock();
+        CloseAdjust();
+    }
+}

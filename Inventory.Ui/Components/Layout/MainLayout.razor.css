@@ -1,22 +1,11 @@
-/* ===============================
+/* =========================================================
    GLOBAL RESET & VARIABLES
-   =============================== */
+   ========================================================= */
 
 *,
 *::before,
 *::after {
     box-sizing: border-box;
-}
-
-html, body {
-    margin: 0;
-    padding: 0;
-    min-height: 100%;
-    overflow-x: hidden;
-    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-    background: var(--bg);
-    color: var(--text);
-    -webkit-font-smoothing: antialiased;
 }
 
 :root {
@@ -30,79 +19,98 @@ html, body {
     --danger: #dc2626;
 }
 
-/* ===============================
-   MAIN LAYOUT
-   =============================== */
+/* =========================================================
+   HARD VIEWPORT LOCK (DESKTOP APP MODE)
+   ========================================================= */
 
-.main-layout {
+html,
+body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    -webkit-font-smoothing: antialiased;
+}
+
+/* =========================================================
+   ROOT APP LAYOUT
+   ========================================================= */
+
+.inv-layout {
     display: grid;
     grid-template-columns: 260px 1fr;
-    min-height: 100vh;
-    min-height: 100dvh;
+    height: 100vh;
+    width: 100vw;
+    overflow: hidden;
     background: var(--bg);
 }
 
-@media (max-width: 900px) {
-    .main-layout {
-        grid-template-columns: 1fr;
-        position: relative;
-    }
-}
+/* =========================================================
+   SIDEBAR (FIXED)
+   ========================================================= */
 
-/* ===============================
-   SIDEBAR
-   =============================== */
-
+.inv-sidebar,
 .sidebar {
+    height: 100vh;
     background: var(--bg-soft);
     border-right: 1px solid var(--border);
-    min-height: 100vh;
-    min-height: 100dvh;
-    position: sticky;
-    top: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
 }
 
+/* Hide sidebar on mobile */
 @media (max-width: 900px) {
+    .inv-sidebar,
     .sidebar {
         display: none;
     }
 }
 
-/* ===============================
-   MAIN CONTENT
-   =============================== */
+/* =========================================================
+   MAIN CONTENT AREA (NO SCROLL)
+   ========================================================= */
 
+.inv-content,
 .main-content {
-    position: relative;
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
     background: var(--bg);
+}
+
+/* Wrapper used by pages */
+.page-wrapper,
+.purchase-container {
+    flex: 1;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    padding: 16px;
+}
+
+/* =========================================================
+   OPTIONAL: LOCAL SCROLL AREAS (ONLY WHEN NEEDED)
+   ========================================================= */
+
+/* Example: table or list that may scroll */
+.scroll-area,
+.cart-table,
+.product-list-container {
+    flex: 1;
+    overflow-y: auto;
     overflow-x: hidden;
-    min-height: 100vh;
-    min-height: 100dvh;
 }
 
-.page-wrapper {
-    padding: 20px;
-    max-width: 100%;
-}
-
-/* ===============================
-   MOBILE SAFE SPACING
-   =============================== */
-
-@media (max-width: 900px) {
-    .main-content {
-        padding-top: 56px; /* top bar */
-        padding-bottom: 66px; /* bottom nav */
-    }
-
-    .page-wrapper {
-        padding: 16px 12px;
-    }
-}
-
-/* ===============================
+/* =========================================================
    LOADER
-   =============================== */
+   ========================================================= */
 
 .loader {
     position: fixed;
@@ -114,9 +122,9 @@ html, body {
     z-index: 9999;
 }
 
-/* ===============================
-   NAV MENU (GENERIC)
-   =============================== */
+/* =========================================================
+   NAVIGATION / MENU
+   ========================================================= */
 
 .nav-menu,
 .nav-drawer {
@@ -136,9 +144,53 @@ html, body {
             color: #fff;
         }
 
-/* ===============================
+/* =========================================================
+   BUTTONS
+   ========================================================= */
+
+button,
+.btn {
+    background: var(--primary);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    padding: 10px 14px;
+    cursor: pointer;
+    font-weight: 500;
+}
+
+    .btn.danger {
+        background: var(--danger);
+    }
+
+/* =========================================================
+   USER CARD
+   ========================================================= */
+
+.user-card {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.avatar {
+    width: 42px;
+    height: 42px;
+    border-radius: 50%;
+}
+
+.user-info .name {
+    font-weight: 600;
+}
+
+.user-info .status {
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+/* =========================================================
    MOBILE TOP BAR
-   =============================== */
+   ========================================================= */
 
 .android-topbar {
     position: fixed;
@@ -165,9 +217,9 @@ html, body {
     }
 }
 
-/* ===============================
+/* =========================================================
    MOBILE BOTTOM NAV
-   =============================== */
+   ========================================================= */
 
 .android-bottom-nav {
     position: fixed;
@@ -195,9 +247,9 @@ html, body {
             color: #fff;
         }
 
-/* ===============================
-   DRAWER (MOBILE)
-   =============================== */
+/* =========================================================
+   MOBILE DRAWER
+   ========================================================= */
 
 .drawer-backdrop {
     position: fixed;
@@ -229,68 +281,24 @@ html, body {
         transform: translateX(0);
     }
 
-/* ===============================
-   USER CARD
-   =============================== */
-
-.user-card {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-}
-
-.avatar {
-    width: 42px;
-    height: 42px;
-    border-radius: 50%;
-}
-
-.user-info .name {
-    font-weight: 600;
-}
-
-.user-info .status {
-    font-size: 12px;
-    color: var(--text-muted);
-}
-
-/* ===============================
-   BUTTONS
-   =============================== */
-
-button,
-.btn {
-    background: var(--primary);
-    color: #fff;
-    border: none;
-    border-radius: 8px;
-    padding: 10px 14px;
-    cursor: pointer;
-    font-weight: 500;
-}
-
-    .btn.danger {
-        background: var(--danger);
-    }
-
+/* =========================================================
+   MOBILE SAFE AREAS (iOS)
+   ========================================================= */
 
 @supports (-webkit-touch-callout: none) {
     .android-topbar {
-        padding-top: calc(12px + env(safe-area-inset-top));
+        padding-top: env(safe-area-inset-top);
         height: calc(56px + env(safe-area-inset-top));
     }
 
     .android-bottom-nav {
         padding-bottom: env(safe-area-inset-bottom);
     }
-
-    @media (max-width: 900px) {
-        .main-content {
-            padding-top: calc(56px + env(safe-area-inset-top));
-        }
-    }
 }
 
+/* =========================================================
+   PERFORMANCE
+   ========================================================= */
 
 .android-topbar,
 .android-bottom-nav,

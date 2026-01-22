@@ -100,12 +100,16 @@ namespace Inventory.Services
         public async Task<List<StockResult>> GetAllAsync()
         {
             var tenantId = _tenantContext.GetTenantId();
-            var stocks = await _repository.GetAllAsync();
 
-            return _mapper.Map<List<StockResult>>(
-                stocks.Where(s => !s.IsDeleted && s.TenantId == tenantId).ToList()
+            var stocks = await _repository.GetAsync(
+                s => !s.IsDeleted && s.TenantId == tenantId,
+                s => s.Product,
+                s => s.Product.CatalogProduct
             );
+
+            return _mapper.Map<List<StockResult>>(stocks);
         }
+
 
         // =========================
         // UPDATE

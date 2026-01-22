@@ -26,4 +26,5 @@
         // Passed directly to the base Exception class
         public ConflictException(string message) : base(message) { }
     }
+
 }

@@ -6,20 +6,34 @@ namespace Inventory.Dto.Purchases.Requests
     /// <summary>
     /// Request to create a complete purchase with lines and payment in a single atomic operation.
     /// </summary>
-    public class CreateCompletePurchaseRequest : CreatePurchaseRequest
+    public sealed class CreateCompletePurchaseRequest
     {
-        /// <summary>
-        /// List of products being purchased
-        /// </summary>
+        [Required]
+        public Guid SupplierId { get; set; }
+
+        public DateTime PurchaseDate { get; set; } = DateTime.UtcNow;
+
         [Required]
         [MinLength(1, ErrorMessage = "At least one purchase line is required")]
         public List<PurchaseLineItem> Lines { get; set; } = new();
 
-        /// <summary>
-        /// Payment information (optional - if not provided, purchase is unpaid/pending)
-        /// </summary>
         public PaymentInfo? Payment { get; set; }
     }
+
+    //public class CreateCompletePurchaseRequest : CreatePurchaseRequest
+    //{
+    //    /// <summary>
+    //    /// List of products being purchased
+    //    /// </summary>
+    //    [Required]
+    //    [MinLength(1, ErrorMessage = "At least one purchase line is required")]
+    //    public List<PurchaseLineItem> Lines { get; set; } = new();
+
+    //    /// <summary>
+    //    /// Payment information (optional - if not provided, purchase is unpaid/pending)
+    //    /// </summary>
+    //    public PaymentInfo? Payment { get; set; }
+    //}
 
     public class PurchaseLineItem
     {

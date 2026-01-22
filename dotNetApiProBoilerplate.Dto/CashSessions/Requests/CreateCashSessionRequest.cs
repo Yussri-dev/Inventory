@@ -7,34 +7,53 @@ namespace Inventory.Dto.CashSessions.Requests
 {
     public class CreateCashSessionRequest
     {
-        [Required, MaxLength(100)]
-        public string SessionNumber { get; set; } = null!;
-
-        public DateTime OpenedAt { get; set; }
-        public DateTime? ClosedAt { get; set; }
-
-        [Column(TypeName = "decimal(18,2)")]
+        [Required]
         public decimal OpeningAmount { get; set; }
-
-        [Column(TypeName = "decimal(18,2)")]
-        public decimal ClosingAmountExpected { get; set; }
-
-        [Column(TypeName = "decimal(18,2)")]
-        public decimal ClosingAmountCounted { get; set; }
-
-        [Column(TypeName = "decimal(18,2)")]
-        public decimal Difference { get; set; }
-
-        [Required]
-        public CashSessionStatus Status { get; set; }
-
-        [Required]
-        public Guid OpenedByUserId { get; set; }
-
-        public Guid? ClosedByUserId { get; set; }
 
         [MaxLength(1000)]
         public string? OpeningNotes { get; set; }
+    }
+
+    //public class CreateCashSessionRequest
+    //{
+    //    [Required, MaxLength(100)]
+    //    public string SessionNumber { get; set; } = null!;
+
+    //    public DateTime OpenedAt { get; set; }
+    //    public DateTime? ClosedAt { get; set; }
+
+    //    [Column(TypeName = "decimal(18,2)")]
+    //    public decimal OpeningAmount { get; set; }
+
+    //    [Column(TypeName = "decimal(18,2)")]
+    //    public decimal ClosingAmountExpected { get; set; }
+
+    //    [Column(TypeName = "decimal(18,2)")]
+    //    public decimal ClosingAmountCounted { get; set; }
+
+    //    [Column(TypeName = "decimal(18,2)")]
+    //    public decimal Difference { get; set; }
+
+    //    [Required]
+    //    public CashSessionStatus Status { get; set; }
+
+    //    [Required]
+    //    public Guid OpenedByUserId { get; set; }
+
+    //    public Guid? ClosedByUserId { get; set; }
+
+    //    [MaxLength(1000)]
+    //    public string? OpeningNotes { get; set; }
+
+    //    [MaxLength(1000)]
+    //    public string? ClosingNotes { get; set; }
+    //}
+
+    public class CloseCashSessionRequest
+    {
+        [Required]
+        [Range(0, double.MaxValue, ErrorMessage = "Actual cash must be non-negative")]
+        public decimal ActualCash { get; set; }
 
         [MaxLength(1000)]
         public string? ClosingNotes { get; set; }

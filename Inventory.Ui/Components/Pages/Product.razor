@@ -1,0 +1,624 @@
+﻿@page "/products"
+@using Inventory.Dto.Enums
+@using Inventory.Dto.Products.Requests
+@using Inventory.Dto.Products.Results
+@using Inventory.Dto.ProductCatalogs.Results
+@using Inventory.Dto.Queries
+@inject IProductApi ProductApi
+@inject IProductCatalogApi CatalogApi
+
+<link href="css/product.css" rel="stylesheet" />
+
+<div class="page-container">
+    <h3>Products</h3>
+
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert error">
+            <span>@errorMessage</span>
+            <button @onclick="ClearError">×</button>
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(successMessage))
+    {
+        <div class="alert success">
+            <span>@successMessage</span>
+            <button @onclick="ClearSuccess">×</button>
+        </div>
+    }
+
+    <div class="card">
+        <h4>@(editingId == null ? "Create Product" : "Edit Product")</h4>
+        <EditForm Model="form" OnValidSubmit="HandleSubmit">
+            <DataAnnotationsValidator />
+            <div class="form-grid">
+                <!-- PRODUCT CATALOG SELECTION (MANDATORY) -->
+                <div class="form-field">
+                    <label>Product Catalog *</label>
+                    <InputSelect @bind-Value="form.CatalogProductId" disabled="@(isLoading || editingId != null)">
+                        <option value="@Guid.Empty">-- Select a product from catalog --</option>
+                        @foreach (var catalog in catalogProducts)
+                        {
+                            <option value="@catalog.Id">
+                                @catalog.Name
+                                @if (!string.IsNullOrEmpty(catalog.Brand))
+                                {
+                                    <text> - @catalog.Brand</text>
+                                }
+                                @if (!string.IsNullOrEmpty(catalog.Manufacturer))
+                                {
+                                    <text> (@catalog.Manufacturer)</text>
+                                }
+                                @if (!string.IsNullOrEmpty(catalog.Barcode))
+                                {
+                                    <text> [@catalog.Barcode]</text>
+                                }
+                            </option>
+                        }
+                    </InputSelect>
+                    <ValidationMessage For="@(() => form.CatalogProductId)" />
+                    @if (editingId != null)
+                    {
+                        <small class="text-muted">Cannot change product catalog when editing</small>
+                    }
+                </div>
+
+                <!-- PRICING -->
+                <div class="form-row">
+                    <div class="form-field">
+                        <label>Sale Price *</label>
+                        <InputNumber placeholder="0.00"
+                                     @bind-Value="form.SalePrice"
+                                     disabled="@isLoading" />
+                        <ValidationMessage For="@(() => form.SalePrice)" />
+                    </div>
+                    <div class="form-field">
+                        <label>Purchase Price *</label>
+                        <InputNumber placeholder="0.00"
+                                     @bind-Value="form.PurchasePrice"
+                                     disabled="@isLoading" />
+                        <ValidationMessage For="@(() => form.PurchasePrice)" />
+                    </div>
+                    <div class="form-field">
+                        <label>VAT Rate (%) *</label>
+                        <InputNumber placeholder="0-100"
+                                     @bind-Value="form.VatRate"
+                                     disabled="@isLoading" />
+                        <ValidationMessage For="@(() => form.VatRate)" />
+                    </div>
+                </div>
+
+                <!-- STOCK LEVELS -->
+                <div class="form-row">
+                    <div class="form-field">
+                        <label>Min Stock Level *</label>
+                        <InputNumber placeholder="0"
+                                     @bind-Value="form.MinStockLevel"
+                                     disabled="@isLoading" />
+                        <ValidationMessage For="@(() => form.MinStockLevel)" />
+                    </div>
+                    <div class="form-field">
+                        <label>Max Stock Level *</label>
+                        <InputNumber placeholder="0"
+                                     @bind-Value="form.MaxStockLevel"
+                                     disabled="@isLoading" />
+                        <ValidationMessage For="@(() => form.MaxStockLevel)" />
+                    </div>
+                </div>
+
+                <!-- STATUS & TRACKING -->
+                <div class="form-row">
+                    <div class="form-field">
+                        <label>
+                            <InputCheckbox @bind-Value="form.IsTracked" disabled="@isLoading" />
+                            Track inventory for this product
+                        </label>
+                    </div>
+                    <div class="form-field">
+                        <label>Status</label>
+                        <InputSelect @bind-Value="form.Status" disabled="@isLoading">
+                            <option value="@ProductStatus.Active">Active</option>
+                            <option value="@ProductStatus.Inactive">Inactive</option>
+                            <option value="@ProductStatus.Discontinued">Discontinued</option>
+                        </InputSelect>
+                        <ValidationMessage For="@(() => form.Status)" />
+                    </div>
+                </div>
+
+                <div class="actions-end">
+                    @if (editingId == null)
+                    {
+                        <button type="submit" class="btn primary" disabled="@isLoading">
+                            @(isLoading ? "Creating..." : "Create")
+                        </button>
+                    }
+                    else
+                    {
+                        <button type="submit" class="btn primary" disabled="@isLoading">
+                            @(isLoading ? "Updating..." : "Update")
+                        </button>
+                        <button type="button" class="btn ghost" @onclick="CancelEdit" disabled="@isLoading">
+                            Cancel
+                        </button>
+                    }
+                </div>
+            </div>
+        </EditForm>
+    </div>
+
+    <div class="card">
+        <h4>Search Products</h4>
+        <div class="search-grid">
+            <input type="text"
+                   placeholder="Search by name, SKU, or barcode..."
+                   @bind="searchTerm"
+                   @bind:event="oninput"
+                   @onkeyup="OnSearchKeyUp"
+                   disabled="@isLoading" />
+            <div class="search-actions">
+                <button class="btn primary" @onclick="Search" disabled="@isLoading">
+                    Search
+                </button>
+                <button class="btn ghost" @onclick="ClearSearch" disabled="@isLoading">
+                    Clear
+                </button>
+            </div>
+        </div>
+    </div>
+
+    @if (isLoadingData)
+    {
+        <div class="loading-container">
+            <p>Loading products...</p>
+        </div>
+    }
+    else if (items == null || items.Count == 0)
+    {
+        <p>@(isSearching ? "No products found matching your search." : "No products.")</p>
+    }
+    else
+    {
+        <div class="results-header">
+            <span>@items.Count product(s) found</span>
+            @if (isSearching)
+            {
+                <button class="btn small ghost" @onclick="ClearSearch">Show All</button>
+            }
+        </div>
+
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Product Info</th>
+                    <th>Manufacturer</th>
+                    <th>Barcode</th>
+                    <th>Pricing</th>
+                    <th>Stock Levels</th>
+                    <th>Status</th>
+                    <th style="width:160px"></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var p in items)
+                {
+                    var catalogProduct = GetCatalogProduct(p.CatalogProductId);
+                    <tr>
+                        <td>
+                            <div class="product-name">@(catalogProduct?.Name ?? "Unknown Product")</div>
+                            @if (!string.IsNullOrEmpty(catalogProduct?.Description))
+                            {
+                                <div class="product-desc">@catalogProduct.Description</div>
+                            }
+                            @if (!string.IsNullOrEmpty(catalogProduct?.Brand))
+                            {
+                                <div class="product-desc">Brand: @catalogProduct.Brand</div>
+                            }
+                        </td>
+                        <td>@(catalogProduct?.Manufacturer ?? "-")</td>
+                        <td><code>@(catalogProduct?.Barcode ?? "-")</code></td>
+                        <td>
+                            <div><strong>Sale:</strong> €@p.SalePrice.ToString("F2")</div>
+                            <div><small>Purchase: €@p.PurchasePrice.ToString("F2")</small></div>
+                            <div><small>VAT: @p.VatRate%</small></div>
+                        </td>
+                        <td>
+                            <small>Min: @p.MinStockLevel</small><br />
+                            <small>Max: @p.MaxStockLevel</small>
+                        </td>
+                        <td>
+                            <span class="badge @GetStatusClass(p.Status)">
+                                @p.Status
+                            </span>
+                            @if (!p.IsTracked)
+                            {
+                                <br />
+                    
+                                <small class="text-muted">Not tracked</small>
+                            }
+                        </td>
+                        <td class="actions-end">
+                            <button class="btn small ghost"
+                                    @onclick="() => StartEdit(p)"
+                                    disabled="@isLoading">
+                                Edit
+                            </button>
+                            <button class="btn small danger"
+                                    @onclick="() => ConfirmDelete(p)"
+                                    disabled="@isLoading">
+                                Delete
+                            </button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+
+    @if (showDeleteConfirm && productToDelete != null)
+    {
+        var catalogProduct = GetCatalogProduct(productToDelete.CatalogProductId);
+        <div class="modal-overlay" @onclick="CancelDelete">
+            <div class="modal-content" @onclick:stopPropagation="true">
+                <h4>Confirm Delete</h4>
+                <p>Are you sure you want to delete <strong>@(catalogProduct?.Name ?? "this product")</strong>?</p>
+                <p class="text-muted">This action cannot be undone.</p>
+                <div class="modal-actions">
+                    <button class="btn ghost" @onclick="CancelDelete">Cancel</button>
+                    <button class="btn danger" @onclick="ConfirmDeleteAction">Delete</button>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code
+{
+    private List<ProductResult>? items;
+    private List<ProductCatalogResult> catalogProducts = new();
+    private Guid? editingId;
+    private ProductForm form = new();
+    private bool isLoading;
+    private bool isLoadingData;
+    private string? errorMessage;
+    private string? successMessage;
+    private bool showDeleteConfirm;
+    private ProductResult? productToDelete;
+    private string searchTerm = string.Empty;
+    private bool isSearching;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadCatalogProducts();
+        await LoadData();
+    }
+
+    private async Task LoadCatalogProducts()
+    {
+        try
+        {
+            catalogProducts = await CatalogApi.GetAll();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to load product catalog: {ex.Message}";
+            catalogProducts = new List<ProductCatalogResult>();
+        }
+    }
+
+    private ProductCatalogResult? GetCatalogProduct(Guid catalogProductId)
+    {
+        return catalogProducts.FirstOrDefault(c => c.Id == catalogProductId);
+    }
+
+    private async Task LoadData()
+    {
+        try
+        {
+            isLoadingData = true;
+            errorMessage = null;
+            items = await ProductApi.GetAll();
+            isSearching = false;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to load products: {ex.Message}";
+            items = new List<ProductResult>();
+        }
+        finally
+        {
+            isLoadingData = false;
+        }
+    }
+
+    private async Task Search()
+    {
+        if (string.IsNullOrWhiteSpace(searchTerm))
+        {
+            await LoadData();
+            return;
+        }
+
+        try
+        {
+            isLoadingData = true;
+            errorMessage = null;
+
+            var query = new ProductQuery
+            {
+                Search = searchTerm
+            };
+
+            var response = await ProductApi.Search(query);
+
+            if (response is null)
+            {
+                items = new List<ProductResult>();
+                errorMessage = "Search failed";
+                return;
+            }
+
+            items = response.Items?.ToList() ?? new List<ProductResult>();
+            isSearching = true;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Search failed: {ex.Message}";
+            items = new List<ProductResult>();
+        }
+        finally
+        {
+            isLoadingData = false;
+        }
+    }
+
+    private async Task OnSearchKeyUp(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await Search();
+        }
+    }
+
+    private async Task ClearSearch()
+    {
+        searchTerm = string.Empty;
+        await LoadData();
+    }
+
+    private async Task HandleSubmit()
+    {
+        if (form.CatalogProductId == Guid.Empty)
+        {
+            errorMessage = "Please select a product from the catalog";
+            return;
+        }
+
+        if (editingId == null)
+        {
+            await Create();
+        }
+        else
+        {
+            await Update();
+        }
+    }
+
+    private async Task Create()
+    {
+        try
+        {
+            isLoading = true;
+            ClearMessages();
+
+            var request = new CreateProductRequest
+            {
+                CatalogProductId = form.CatalogProductId,
+                SalePrice = form.SalePrice,
+                PurchasePrice = form.PurchasePrice,
+                VatRate = form.VatRate,
+                MinStockLevel = form.MinStockLevel,
+                MaxStockLevel = form.MaxStockLevel,
+                IsTracked = form.IsTracked,
+                IsActive = form.Status
+            };
+
+
+            await ProductApi.Create(request);
+
+            var catalogProduct = GetCatalogProduct(form.CatalogProductId);
+            successMessage = $"Product '{catalogProduct?.Name ?? "Unknown"}' created successfully.";
+            ResetForm();
+
+            if (isSearching)
+            {
+                await Search();
+            }
+            else
+            {
+                await LoadData();
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to create product: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task Update()
+    {
+        if (editingId == null)
+            return;
+
+        try
+        {
+            isLoading = true;
+            ClearMessages();
+
+            var request = new UpdateProductRequest
+            {
+                SalePrice = form.SalePrice,
+                PurchasePrice = form.PurchasePrice,
+                VatRate = form.VatRate,
+                MinStockLevel = form.MinStockLevel,
+                MaxStockLevel = form.MaxStockLevel,
+                // IsActive = form.Status,
+                IsTracked = form.IsTracked
+            };
+
+            await ProductApi.Update(editingId.Value, request);
+
+            var catalogProduct = GetCatalogProduct(form.CatalogProductId);
+            successMessage = $"Product '{catalogProduct?.Name ?? "Unknown"}' updated successfully.";
+            ResetForm();
+
+            if (isSearching)
+            {
+                await Search();
+            }
+            else
+            {
+                await LoadData();
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to update product: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void ConfirmDelete(ProductResult product)
+    {
+        productToDelete = product;
+        showDeleteConfirm = true;
+    }
+
+    private void CancelDelete()
+    {
+        productToDelete = null;
+        showDeleteConfirm = false;
+    }
+
+    private async Task ConfirmDeleteAction()
+    {
+        if (productToDelete == null)
+            return;
+
+        try
+        {
+            isLoading = true;
+            showDeleteConfirm = false;
+            ClearMessages();
+
+            var catalogProduct = GetCatalogProduct(productToDelete.CatalogProductId);
+            var productName = catalogProduct?.Name ?? "Unknown product";
+
+            await ProductApi.Delete(productToDelete.Id);
+
+            successMessage = $"Product '{productName}' deleted successfully.";
+            productToDelete = null;
+
+            if (isSearching)
+            {
+                await Search();
+            }
+            else
+            {
+                await LoadData();
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to delete product: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void StartEdit(ProductResult p)
+    {
+        editingId = p.Id;
+        form.CatalogProductId = p.CatalogProductId;
+        form.SalePrice = p.SalePrice;
+        form.PurchasePrice = p.PurchasePrice;
+        form.VatRate = p.VatRate;
+        form.MinStockLevel = p.MinStockLevel;
+        form.MaxStockLevel = p.MaxStockLevel;
+        // form.Status = p.Status;
+        form.IsTracked = p.IsTracked;
+        ClearMessages();
+    }
+
+    private void CancelEdit()
+    {
+        ResetForm();
+    }
+
+    private void ResetForm()
+    {
+        editingId = null;
+        form = new ProductForm();
+    }
+
+    private void ClearError()
+    {
+        errorMessage = null;
+    }
+
+    private void ClearSuccess()
+    {
+        successMessage = null;
+    }
+
+    private void ClearMessages()
+    {
+        errorMessage = null;
+        successMessage = null;
+    }
+
+    private string GetStatusClass(ProductStatus status)
+    {
+        return status switch
+        {
+            ProductStatus.Active => "success",
+            ProductStatus.Inactive => "warning",
+            ProductStatus.Discontinued => "error",
+            _ => ""
+        };
+    }
+
+    private sealed class ProductForm
+    {
+        [Required(ErrorMessage = "Product catalog is required")]
+        public Guid CatalogProductId { get; set; } = Guid.Empty;
+
+        [Range(0, double.MaxValue, ErrorMessage = "Sale price must be positive")]
+        public decimal SalePrice { get; set; }
+
+        [Range(0, double.MaxValue, ErrorMessage = "Purchase price must be positive")]
+        public decimal PurchasePrice { get; set; }
+
+        [Range(0, 100, ErrorMessage = "VAT rate must be between 0 and 100")]
+        public decimal VatRate { get; set; }
+
+        [Range(0, double.MaxValue, ErrorMessage = "Min stock level must be positive")]
+        public decimal MinStockLevel { get; set; }
+
+        [Range(0, double.MaxValue, ErrorMessage = "Max stock level must be positive")]
+        public decimal MaxStockLevel { get; set; }
+
+        public bool IsTracked { get; set; } = true;
+
+        public ProductStatus Status { get; set; } = ProductStatus.Active;
+    }
+}

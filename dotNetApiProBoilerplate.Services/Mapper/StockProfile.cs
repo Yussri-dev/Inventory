@@ -38,7 +38,17 @@ namespace Inventory.Services.Mapping
             // =========================
             // RESULT
             // =========================
-            CreateMap<Stock, StockResult>();
+            CreateMap<Stock, StockResult>()
+               .ForMember(
+                   d => d.Name,
+                   opt => opt.MapFrom(s =>
+                       s.Product.CatalogProduct != null
+                           ? s.Product.CatalogProduct.Name
+                           : s.Product.Name
+                   )
+               );
+
+
         }
     }
 }

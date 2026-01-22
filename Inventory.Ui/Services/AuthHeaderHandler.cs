@@ -1,4 +1,6 @@
 ﻿using Inventory.Ui.Interfaces;
+using Microsoft.AspNetCore.Components;
+using System.Net;
 using System.Net.Http.Headers;
 
 namespace Inventory.Ui.Services

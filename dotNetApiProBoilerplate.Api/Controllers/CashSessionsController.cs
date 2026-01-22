@@ -14,7 +14,7 @@ namespace Inventory.Api.Controllers
 {
     [ApiController]
     [ApiVersion("1.0")]
-    [Route("api/v{version:apiVersion}/cashsessios")]
+    [Route("api/v{version:apiVersion}/cashsessions")]
 
     [Authorize]
     public class CashSessionsController : ControllerBase

@@ -1,6 +1,10 @@
 ﻿using Inventory.Dto.Pages.Results;
 using Inventory.Dto.ProductCatalogs.Requests;
 using Inventory.Dto.ProductCatalogs.Results;
+using Inventory.Dto.Products.Requests;
+using Inventory.Dto.Products.Results;
+using Inventory.Dto.Purchases.Requests;
+using Inventory.Dto.Purchases.Results;
 using Inventory.Dto.Queries;
 using Inventory.Dto.Suppliers.Requests;
 using Inventory.Dto.Suppliers.Results;

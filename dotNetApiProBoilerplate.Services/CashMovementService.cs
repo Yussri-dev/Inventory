@@ -30,24 +30,53 @@ namespace Inventory.Services
             _tenantContext = tenantContext;
         }
 
-        // CREATE
         public async Task<CashMovementResult> CreateAsync(CreateCashMovementRequest request)
         {
             var tenantId = _tenantContext.GetTenantId();
             var userId = _tenantContext.GetUserId();
 
-            var cashMovement = _mapper.Map<CashMovement>(request);
+            // 🔒 Récupérer la DERNIÈRE écriture de la session
+            var lastMovement = await _repository.GetLastAsync(
+                m => m.CashSessionId == request.CashSessionId
+                     && !m.IsDeleted
+                     && m.TenantId == tenantId,
+                m => m.MovementDate
+            );
 
-            cashMovement.Id = Guid.NewGuid();
-            cashMovement.TenantId = tenantId;
-            cashMovement.CreatedByUserId = userId;
-            cashMovement.CreatedAt = DateTime.UtcNow;
+            var balanceBefore = lastMovement?.BalanceAfter ?? 0m;
+
+            // ➕ / ➖ Sens du mouvement
+            var signedAmount = request.Type.IsOut()
+                ? -request.Amount
+                : request.Amount;
+
+            var balanceAfter = balanceBefore + signedAmount;
+
+            if (balanceAfter < 0)
+                throw new ValidationException("Cash balance cannot be negative.");
+
+            var cashMovement = new CashMovement
+            {
+                Id = Guid.NewGuid(),
+                TenantId = tenantId,
+                CashSessionId = request.CashSessionId,
+                Type = (CashMovementType)request.Type,
+                Amount = request.Amount,
+                BalanceBefore = balanceBefore,
+                BalanceAfter = balanceAfter,
+                SaleId = request.SaleId,
+                Reason = request.Reason,
+                MovementDate = DateTime.UtcNow,
+                CreatedAt = DateTime.UtcNow,
+                CreatedByUserId = userId
+            };
 
             await _repository.AddAsync(cashMovement);
             await _unitOfWork.SaveChangesAsync();
 
             return _mapper.Map<CashMovementResult>(cashMovement);
         }
+
 
         // GET BY ID
         public async Task<CashMovementResult> GetByIdAsync(Guid id)

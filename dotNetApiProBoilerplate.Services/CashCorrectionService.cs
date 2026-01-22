@@ -36,8 +36,8 @@ namespace Inventory.Services
         // CREATE
         public async Task<CashCorrectionResult> CreateAsync(CreateCashCorrectionRequest request)
         {
-            var tenantId = _tenantContext.GetTenantId();
-            var userId = _tenantContext.GetUserId();
+            var tenantId = _tenantContext.TenantId;
+            var userId = _tenantContext.UserId;
 
             if (request.Amount == 0)
                 throw new ValidationException(new Dictionary<string, string[]>
@@ -70,7 +70,7 @@ namespace Inventory.Services
         // GET ALL
         public async Task<List<CashCorrectionResult>> GetAllAsync()
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
             var cashCorrections = await _repository.GetAllAsync();
 
             var activeCashCorrections = cashCorrections
@@ -83,7 +83,7 @@ namespace Inventory.Services
         // GET BY ID
         public async Task<CashCorrectionResult> GetByIdAsync(Guid id)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
             var cashCorrection = await _repository.GetByIdAsync(id);
 
             if (cashCorrection == null || cashCorrection.IsDeleted || cashCorrection.TenantId != tenantId)
@@ -96,8 +96,8 @@ namespace Inventory.Services
         // UPDATE
         public async Task<CashCorrectionResult> UpdateAsync(Guid id, UpdateCashCorrectionRequest request)
         {
-            var tenantId = _tenantContext.GetTenantId();
-            var userId = _tenantContext.GetUserId();
+            var tenantId = _tenantContext.TenantId;
+            var userId = _tenantContext.UserId;
 
             var cashCorrection = await _repository.GetByIdAsync(id);
             if (cashCorrection == null || cashCorrection.IsDeleted || cashCorrection.TenantId != tenantId)
@@ -119,8 +119,8 @@ namespace Inventory.Services
         // DELETE
         public async Task<bool> DeleteAsync(Guid id)
         {
-            var tenantId = _tenantContext.GetTenantId();
-            var userId = _tenantContext.GetUserId();
+            var tenantId = _tenantContext.TenantId;
+            var userId = _tenantContext.UserId;
 
             var cashCorrection = await _repository.GetByIdAsync(id);
             if (cashCorrection == null || cashCorrection.IsDeleted || cashCorrection.TenantId != tenantId)
@@ -141,8 +141,8 @@ namespace Inventory.Services
         // APPROVE
         public async Task<CashCorrectionResult> ApproveAsync(Guid id, string? notes)
         {
-            var tenantId = _tenantContext.GetTenantId();
-            var userId = _tenantContext.GetUserId();
+            var tenantId = _tenantContext.TenantId;
+            var userId = _tenantContext.UserId;
 
             var entity = await _repository.GetByIdAsync(id);
 
@@ -167,7 +167,7 @@ namespace Inventory.Services
         // QUERY
         public async Task<PagedResult<CashCorrectionResult>> QueryAsync(CashCorrectionQuery query)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
 
             if (query.Page < 1 || query.PageSize < 1 || query.PageSize > 100)
                 throw new ValidationException(new Dictionary<string, string[]>
