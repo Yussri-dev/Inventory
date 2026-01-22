@@ -23,8 +23,8 @@ namespace Inventory.Services
 
         public async Task<string> GenerateAsync(string documentType)
         {
-            var tenantId = _tenantContext.GetTenantId();
-            var userId = _tenantContext.GetUserId();
+            var tenantId = _tenantContext.TenantId;
+            var userId = _tenantContext.UserId;
             var now = DateTime.UtcNow;
 
             // Load configuration for this document type and tenant

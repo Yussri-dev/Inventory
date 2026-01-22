@@ -33,8 +33,8 @@ namespace Inventory.Services
         // CREATE
         public async Task<InventorySessionResult> CreateAsync(CreateInventorySessionRequest request)
         {
-            var tenantId = _tenantContext.GetTenantId();
-            var userId = _tenantContext.GetUserId();
+            var tenantId = _tenantContext.TenantId;
+            var userId = _tenantContext.UserId;
 
             var exists = await _repository.ExistsAsync(s =>
                 s.SessionNumber == request.SessionNumber &&
@@ -64,7 +64,7 @@ namespace Inventory.Services
         // GET BY ID
         public async Task<InventorySessionResult> GetByIdAsync(Guid id)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
             var entity = await _repository.GetByIdAsync(id);
 
             if (entity == null || entity.IsDeleted || entity.TenantId != tenantId)
@@ -76,7 +76,7 @@ namespace Inventory.Services
         // GET ALL
         public async Task<List<InventorySessionResult>> GetAllAsync()
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
             var sessions = await _repository.GetAllAsync();
 
             return _mapper.Map<List<InventorySessionResult>>(
@@ -86,8 +86,8 @@ namespace Inventory.Services
         // UPDATE
         public async Task<InventorySessionResult> UpdateAsync(Guid id, UpdateInventorySessionRequest request)
         {
-            var tenantId = _tenantContext.GetTenantId();
-            var userId = _tenantContext.GetUserId();
+            var tenantId = _tenantContext.TenantId;
+            var userId = _tenantContext.UserId;
 
             var entity = await _repository.GetByIdAsync(id);
 
@@ -107,8 +107,8 @@ namespace Inventory.Services
         // CLOSE
         public async Task<bool> CloseAsync(Guid id)
         {
-            var tenantId = _tenantContext.GetTenantId();
-            var userId = _tenantContext.GetUserId();
+            var tenantId = _tenantContext.TenantId;
+            var userId = _tenantContext.UserId;
 
             var entity = await _repository.GetByIdAsync(id);
 
@@ -132,8 +132,8 @@ namespace Inventory.Services
         // VALIDATE
         public async Task<bool> ValidateAsync(Guid id)
         {
-            var tenantId = _tenantContext.GetTenantId();
-            var userId = _tenantContext.GetUserId();
+            var tenantId = _tenantContext.TenantId;
+            var userId = _tenantContext.UserId;
 
             var entity = await _repository.GetByIdAsync(id);
 
@@ -158,8 +158,8 @@ namespace Inventory.Services
         // DELETE
         public async Task<bool> DeleteAsync(Guid id)
         {
-            var tenantId = _tenantContext.GetTenantId();
-            var userId = _tenantContext.GetUserId();
+            var tenantId = _tenantContext.TenantId;
+            var userId = _tenantContext.UserId;
 
             var entity = await _repository.GetByIdAsync(id);
 
@@ -180,7 +180,7 @@ namespace Inventory.Services
         // QUERY
         public async Task<PagedResult<InventorySessionResult>> QueryAsync(InventorySessionQuery query)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
 
             if (query.Page < 1 || query.PageSize < 1 || query.PageSize > 100)
                 throw new ValidationException(new Dictionary<string, string[]>

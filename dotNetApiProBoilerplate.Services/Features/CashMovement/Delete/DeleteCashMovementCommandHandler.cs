@@ -3,7 +3,7 @@
 namespace Inventory.Services.Features.CashMovement.Delete
 {
     public class DeleteCashMovementCommandHandler
-         : IRequestHandler<DeleteCashMovementCommand, Unit>
+         //: IRequestHandler<DeleteCashMovementCommand, Unit>
     {
         private readonly CashMovementService _customerService;
 
@@ -12,10 +12,10 @@ namespace Inventory.Services.Features.CashMovement.Delete
             _customerService = customerService;
         }
 
-        public async Task<Unit> Handle(DeleteCashMovementCommand command, CancellationToken cancellationToken)
-        {
-            await _customerService.DeleteAsync(command.Id);
-            return Unit.Value;
-        }
+        //public async Task<Unit> Handle(DeleteCashMovementCommand command, CancellationToken cancellationToken)
+        //{
+        //    //await _customerService.DeleteAsync(command.Id);
+        //    return Unit.Value;
+        //}
     }
 }

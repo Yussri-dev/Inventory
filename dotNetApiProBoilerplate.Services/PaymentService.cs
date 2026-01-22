@@ -31,8 +31,8 @@ namespace Inventory.Services
         //CREATE
         public async Task<PaymentResult> CreateAsync(CreatePaymentRequest request)
         {
-            var tenantId = _tenantContext.GetTenantId();
-            var userId = _tenantContext.GetUserId();
+            var tenantId = _tenantContext.TenantId;
+            var userId = _tenantContext.UserId;
 
 
             var exists = await _repository.ExistsAsync(c =>
@@ -67,7 +67,7 @@ namespace Inventory.Services
         //GET BY ID
         public async Task<PaymentResult> GetByIdAsync(Guid id)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
 
             var customer = await _repository.GetByIdAsync(id);
 
@@ -92,8 +92,8 @@ namespace Inventory.Services
         //UPDATE
         public async Task<PaymentResult> UpdateAsync(Guid id, UpdatePaymentRequest request)
         {
-            var tenantId = _tenantContext.GetTenantId();
-            var userId = _tenantContext.GetUserId();
+            var tenantId = _tenantContext.TenantId;
+            var userId = _tenantContext.UserId;
 
             var customer = await _repository.GetByIdAsync(id);
             
@@ -135,8 +135,8 @@ namespace Inventory.Services
         //DELETE
         public async Task<bool> DeleteAsync(Guid id)
         {
-            var tenantId = _tenantContext.GetTenantId();
-            var userId = _tenantContext.GetUserId();
+            var tenantId = _tenantContext.TenantId;
+            var userId = _tenantContext.UserId;
 
             var customer = await _repository.GetByIdAsync(id);
             if (customer == null || customer.IsDeleted || customer.TenantId != tenantId)

@@ -38,7 +38,7 @@ namespace Inventory.Services
         // =========================
         public async Task<SaleReceiptResult> CreateAsync(CreateSaleReceiptRequest request)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
 
             // Verify parent Sale belongs to tenant
             var sale = await _saleRepository.GetByIdAsync(request.SaleId);
@@ -79,7 +79,7 @@ namespace Inventory.Services
         // =========================
         public async Task<SaleReceiptResult> GetByIdAsync(Guid id)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
             var entity = await _repository.GetByIdAsync(id);
 
             if (entity == null || entity.IsDeleted || entity.TenantId != tenantId)
@@ -93,7 +93,7 @@ namespace Inventory.Services
         // =========================
         public async Task<List<SaleReceiptResult>> GetAllAsync()
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
             var receipts = await _repository.GetAllAsync();
 
             return _mapper.Map<List<SaleReceiptResult>>(
@@ -106,7 +106,7 @@ namespace Inventory.Services
         // =========================
         public async Task<bool> MarkAsPrintedAsync(Guid id)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
             var entity = await _repository.GetByIdAsync(id);
 
             if (entity == null || entity.IsDeleted || entity.TenantId != tenantId)
@@ -127,7 +127,7 @@ namespace Inventory.Services
         // =========================
         public async Task<bool> MarkAsEmailedAsync(Guid id, string email)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
             var entity = await _repository.GetByIdAsync(id);
 
             if (entity == null || entity.IsDeleted || entity.TenantId != tenantId)
@@ -149,7 +149,7 @@ namespace Inventory.Services
         // =========================
         public async Task<bool> DeleteAsync(Guid id)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
             var entity = await _repository.GetByIdAsync(id);
 
             if (entity == null || entity.IsDeleted || entity.TenantId != tenantId)
@@ -169,7 +169,7 @@ namespace Inventory.Services
         // =========================
         public async Task<PagedResult<SaleReceiptResult>> QueryAsync(SaleReceiptQuery query)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
 
             if (query.Page < 1 || query.PageSize < 1 || query.PageSize > 100)
             {

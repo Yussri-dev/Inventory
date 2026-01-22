@@ -7,6 +7,7 @@ using Inventory.Infrastructure.Identity;
 using Inventory.Services.Exceptions;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using System.Security;
 
 namespace Inventory.Services
 {
@@ -210,34 +211,33 @@ namespace Inventory.Services
             var user = await _userManager.FindByEmailAsync(request.Email);
 
             if (user == null)
-            {
                 throw new UnauthorizedAccessException("Invalid email or password.");
-            }
+
+            // HARD INVARIANT
+            if (user.Role != UserRole.SuperAdmin && user.TenantId == null)
+                throw new SecurityException("User without tenant is invalid.");
 
             // Check if user is active
             if (!user.IsActive)
-            {
                 throw new ForbiddenException("Account is deactivated.");
-            }
 
-            // Check if tenant is active
-            var tenant = await _context.Tenants.FindAsync(user.TenantId);
-            if (tenant == null || !tenant.IsActive)
+            // SuperAdmin BYPASSES tenant lifecycle rules
+            if (user.Role != UserRole.SuperAdmin)
             {
-                throw new ForbiddenException("Company account is not active.");
-            }
+                var tenant = await _context.Tenants.FindAsync(user.TenantId);
 
-            // Check if tenant subscription is active
-            if (!tenant.IsSubscriptionActive())
-            {
-                throw new ForbiddenException("Company subscription has expired.");
+                if (tenant == null || !tenant.IsActive)
+                    throw new ForbiddenException("Company account is not active.");
+
+                if (!tenant.IsSubscriptionActive())
+                    throw new ForbiddenException("Company subscription has expired.");
+
+                tenant.LastActivityAt = DateTime.UtcNow;
             }
 
             // Check if account is locked
             if (await _userManager.IsLockedOutAsync(user))
-            {
                 throw new ForbiddenException("Account is locked. Please try again later.");
-            }
 
             // Validate password
             var valid = await _userManager.CheckPasswordAsync(user, request.Password);
@@ -248,23 +248,20 @@ namespace Inventory.Services
                 throw new UnauthorizedAccessException("Invalid email or password.");
             }
 
-            // Reset failed login attempts on successful login
+            // Reset failed attempts
             if (await _userManager.GetAccessFailedCountAsync(user) > 0)
-            {
                 await _userManager.ResetAccessFailedCountAsync(user);
-            }
 
-            // Update last login info
+            // Update login info
             user.LastLoginAt = DateTime.UtcNow;
             user.LastLoginIp = request.IpAddress;
             await _userManager.UpdateAsync(user);
 
-            // Update tenant last activity
-            tenant.LastActivityAt = DateTime.UtcNow;
             await _context.SaveChangesAsync();
 
             return GenerateResult(user);
         }
+
 
         public async Task<AuthResult> RefreshTokenAsync(string userId)
         {
@@ -317,7 +314,12 @@ namespace Inventory.Services
         {
             return new AuthResult
             {
-                AccessToken = _jwt.Generate(user.Id, user.Email!, user.TenantId, user.Role.ToString()),
+                AccessToken = _jwt.Generate(
+                    user.Id,
+                    user.Email!,
+                    user.TenantId,
+                    user.Role.ToString()
+                ),
                 ExpiresAt = DateTime.UtcNow.AddHours(2),
                 UserId = user.Id,
                 Email = user.Email!,
@@ -326,5 +328,6 @@ namespace Inventory.Services
                 Role = user.Role.ToString()
             };
         }
+
     }
 }

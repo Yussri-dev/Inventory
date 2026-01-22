@@ -35,8 +35,8 @@ namespace Inventory.Services
         // CREATE
         public async Task<PurchasePaymentResult> CreateAsync(CreatePurchasePaymentRequest request)
         {
-            var tenantId = _tenantContext.GetTenantId();
-            var userId = _tenantContext.GetUserId();
+            var tenantId = _tenantContext.TenantId;
+            var userId = _tenantContext.UserId;
 
             if (request.Amount <= 0)
             {
@@ -69,7 +69,7 @@ namespace Inventory.Services
         // GET BY ID
         public async Task<PurchasePaymentResult> GetByIdAsync(Guid id)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
             var purchasePayment = await _repository.GetByIdAsync(id);
 
             if (purchasePayment == null || purchasePayment.TenantId != tenantId)
@@ -83,7 +83,7 @@ namespace Inventory.Services
         // GET ALL
         public async Task<List<PurchasePaymentResult>> GetAllAsync()
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
             var purchasePayments = await _repository.GetAllAsync();
 
             var filtered = purchasePayments
@@ -96,8 +96,8 @@ namespace Inventory.Services
         // UPDATE
         public async Task<PurchasePaymentResult> UpdateAsync(Guid id, UpdatePurchasePaymentRequest request)
         {
-            var tenantId = _tenantContext.GetTenantId();
-            var userId = _tenantContext.GetUserId();
+            var tenantId = _tenantContext.TenantId;
+            var userId = _tenantContext.UserId;
 
             if (request.Amount <= 0)
             {
@@ -126,8 +126,8 @@ namespace Inventory.Services
         // DELETE
         public async Task<bool> DeleteAsync(Guid id)
         {
-            var tenantId = _tenantContext.GetTenantId();
-            var userId = _tenantContext.GetUserId();
+            var tenantId = _tenantContext.TenantId;
+            var userId = _tenantContext.UserId;
 
             var purchasePayment = await _repository.GetByIdAsync(id);
             if (purchasePayment == null || purchasePayment.TenantId != tenantId)
@@ -148,7 +148,7 @@ namespace Inventory.Services
         // QUERY
         public async Task<PagedResult<PurchasePaymentResult>> QueryAsync(PurchasePaymentQuery query)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
 
             if (query.Page < 1 || query.PageSize < 1 || query.PageSize > 100)
             {

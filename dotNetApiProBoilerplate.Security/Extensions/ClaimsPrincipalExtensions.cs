@@ -20,7 +20,7 @@ namespace Inventory.Security.Extensions
         // Why this should NOT be deleted:
         // - Avoids duplicated claim-parsing logic across controllers/services
         // - Prevents magic strings ("sub") scattered in the codebase
-        // - Improves readability: User.GetUserId() is explicit and intention-revealing
+        // - Improves readability: User.UserId is explicit and intention-revealing
         // - Makes future changes trivial (e.g. switch to NameIdentifier)
         //
         // Why it returns Guid?:

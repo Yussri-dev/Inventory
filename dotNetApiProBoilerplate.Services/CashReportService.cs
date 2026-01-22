@@ -32,8 +32,8 @@ namespace Inventory.Services
         // CREATE
         public async Task<CashReportResult> CreateAsync(CreateCashReportRequest request)
         {
-            var tenantId = _tenantContext.GetTenantId();
-            var userId = _tenantContext.GetUserId();
+            var tenantId = _tenantContext.TenantId;
+            var userId = _tenantContext.UserId;
 
             var cashReport = _mapper.Map<CashReport>(request);
 
@@ -53,7 +53,7 @@ namespace Inventory.Services
         // GET BY ID
         public async Task<CashReportResult> GetByIdAsync(Guid id)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
             var cashReport = await _repository.GetByIdAsync(id);
 
             if (cashReport is null || cashReport.IsDeleted || cashReport.TenantId != tenantId)
@@ -67,7 +67,7 @@ namespace Inventory.Services
         // GET ALL
         public async Task<List<CashReportResult>> GetAllAsync()
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
             var cashReports = await _repository.GetAllAsync();
 
             var activeCashReports = cashReports
@@ -80,8 +80,8 @@ namespace Inventory.Services
         // UPDATE
         public async Task<CashReportResult> UpdateAsync(Guid id, UpdateCashReportRequest request)
         {
-            var tenantId = _tenantContext.GetTenantId();
-            var userId = _tenantContext.GetUserId();
+            var tenantId = _tenantContext.TenantId;
+            var userId = _tenantContext.UserId;
 
             var cashReport = await _repository.GetByIdAsync(id);
 
@@ -103,8 +103,8 @@ namespace Inventory.Services
         // SOFT DELETE
         public async Task<bool> DeleteAsync(Guid id)
         {
-            var tenantId = _tenantContext.GetTenantId();
-            var userId = _tenantContext.GetUserId();
+            var tenantId = _tenantContext.TenantId;
+            var userId = _tenantContext.UserId;
 
             var cashReport = await _repository.GetByIdAsync(id);
 
@@ -127,7 +127,7 @@ namespace Inventory.Services
         // PAGINATION + FILTERING + SORTING
         public async Task<PagedResult<CashReportResult>> QueryAsync(CashReportQuery query)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
 
             if (query.Page < 1 || query.PageSize < 1 || query.PageSize > 100)
                 throw new ValidationException(new Dictionary<string, string[]>

@@ -34,7 +34,7 @@ namespace Inventory.Services
         // =========================
         public async Task<SupplierResult> CreateAsync(CreateSupplierRequest request)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
 
             if (string.IsNullOrWhiteSpace(request.Name))
             {
@@ -74,7 +74,7 @@ namespace Inventory.Services
         // =========================
         public async Task<SupplierResult> GetByIdAsync(Guid id)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
             var supplier = await _repository.GetByIdAsync(id);
 
             if (supplier == null || supplier.IsDeleted || supplier.TenantId != tenantId)
@@ -90,7 +90,7 @@ namespace Inventory.Services
         // =========================
         public async Task<List<SupplierResult>> GetAllAsync()
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
             var suppliers = await _repository.GetAllAsync();
 
             return _mapper.Map<List<SupplierResult>>(
@@ -103,7 +103,7 @@ namespace Inventory.Services
         // =========================
         public async Task<SupplierResult> UpdateAsync(Guid id, UpdateSupplierRequest request)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
             var supplier = await _repository.GetByIdAsync(id);
 
             if (supplier == null || supplier.IsDeleted || supplier.TenantId != tenantId)
@@ -142,7 +142,7 @@ namespace Inventory.Services
         // =========================
         public async Task<bool> DeleteAsync(Guid id)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
             var supplier = await _repository.GetByIdAsync(id);
 
             if (supplier == null || supplier.IsDeleted || supplier.TenantId != tenantId)
@@ -164,7 +164,7 @@ namespace Inventory.Services
         // =========================
         public async Task<PagedResult<SupplierResult>> QueryAsync(SupplierQuery query)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
 
             if (query.Page < 1 || query.PageSize < 1 || query.PageSize > 100)
             {

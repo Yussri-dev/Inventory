@@ -56,7 +56,7 @@ namespace Inventory.Services
         // =========================
         public async Task<SupplierReturnResult> CreateCompleteAsync(CreateCompleteSupplierReturnRequest request)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
 
             // =========================
             // VALIDATION
@@ -192,7 +192,7 @@ namespace Inventory.Services
         // =========================
         public async Task<SupplierReturnResult> CreateAsync(CreateSupplierReturnRequest request)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
 
             var exists = await _repository.ExistsAsync(r =>
                 r.ReturnNumber == request.ReturnNumber &&
@@ -225,7 +225,7 @@ namespace Inventory.Services
         // =========================
         public async Task<SupplierReturnResult> GetByIdAsync(Guid id)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
             var entity = await _repository.GetByIdAsync(id);
 
             if (entity == null || entity.IsDeleted || entity.TenantId != tenantId)
@@ -241,7 +241,7 @@ namespace Inventory.Services
         // =========================
         public async Task<SupplierReturnResult> UpdateAsync(Guid id, UpdateSupplierReturnRequest request)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
             var entity = await _repository.GetByIdAsync(id);
 
             if (entity == null || entity.IsDeleted || entity.TenantId != tenantId)
@@ -263,7 +263,7 @@ namespace Inventory.Services
         // =========================
         public async Task<bool> DeleteAsync(Guid id)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
             var entity = await _repository.GetByIdAsync(id);
 
             if (entity == null || entity.IsDeleted || entity.TenantId != tenantId)
@@ -285,7 +285,7 @@ namespace Inventory.Services
         // =========================
         public async Task<List<SupplierReturnResult>> GetAllAsync()
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
             var supplierReturns = await _repository.GetAllAsync();
 
             return _mapper.Map<List<SupplierReturnResult>>(
@@ -298,7 +298,7 @@ namespace Inventory.Services
         // =========================
         public async Task<PagedResult<SupplierReturnResult>> QueryAsync(SupplierReturnQuery query)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
 
             if (query.Page < 1 || query.PageSize < 1 || query.PageSize > 100)
             {

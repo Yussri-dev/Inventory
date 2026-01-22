@@ -44,8 +44,8 @@ namespace Inventory.Services
         // CREATE
         public async Task<DamageResult> CreateAsync(CreateDamageRequest request)
         {
-            var tenantId = _tenantContext.GetTenantId();
-            var userId = _tenantContext.GetUserId();
+            var tenantId = _tenantContext.TenantId;
+            var userId = _tenantContext.UserId;
 
             if (request.Quantity <= 0)
             {
@@ -74,8 +74,8 @@ namespace Inventory.Services
         // CREATE COMPLETE (Auto-approve & Stock Update)
         public async Task<DamageResult> CreateCompleteAsync(CreateCompleteDamageRequest request)
         {
-            var tenantId = _tenantContext.GetTenantId();
-            var userId = _tenantContext.GetUserId();
+            var tenantId = _tenantContext.TenantId;
+            var userId = _tenantContext.UserId;
 
             if (request.Quantity <= 0)
             {
@@ -158,7 +158,7 @@ namespace Inventory.Services
         // GET BY ID
         public async Task<DamageResult> GetByIdAsync(Guid id)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
             var entity = await _repository.GetByIdAsync(id);
 
             if (entity == null || entity.IsDeleted || entity.TenantId != tenantId)
@@ -170,7 +170,7 @@ namespace Inventory.Services
         // GET ALL
         public async Task<List<DamageResult>> GetAllAsync()
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
             var damages = await _repository.GetAllAsync();
 
             return _mapper.Map<List<DamageResult>>(
@@ -181,8 +181,8 @@ namespace Inventory.Services
         // UPDATE
         public async Task<DamageResult> UpdateAsync(Guid id, UpdateDamageRequest request)
         {
-            var tenantId = _tenantContext.GetTenantId();
-            var userId = _tenantContext.GetUserId();
+            var tenantId = _tenantContext.TenantId;
+            var userId = _tenantContext.UserId;
 
             var entity = await _repository.GetByIdAsync(id);
 
@@ -202,8 +202,8 @@ namespace Inventory.Services
         // APPROVE
         public async Task<DamageResult> ApproveAsync(Guid id)
         {
-            var tenantId = _tenantContext.GetTenantId();
-            var userId = _tenantContext.GetUserId();
+            var tenantId = _tenantContext.TenantId;
+            var userId = _tenantContext.UserId;
 
             var entity = await _repository.GetByIdAsync(id);
 
@@ -228,8 +228,8 @@ namespace Inventory.Services
         // SOFT DELETE
         public async Task<bool> DeleteAsync(Guid id)
         {
-            var tenantId = _tenantContext.GetTenantId();
-            var userId = _tenantContext.GetUserId();
+            var tenantId = _tenantContext.TenantId;
+            var userId = _tenantContext.UserId;
 
             var entity = await _repository.GetByIdAsync(id);
 
@@ -250,7 +250,7 @@ namespace Inventory.Services
         // QUERY
         public async Task<PagedResult<DamageResult>> QueryAsync(DamageQuery query)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
 
             if (query.Page < 1 || query.PageSize < 1 || query.PageSize > 100)
             {

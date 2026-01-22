@@ -1,9 +1,12 @@
 ﻿using Inventory.Dto.CashSessions.Requests;
+using Inventory.Dto.CashSessions.Results;
 using Inventory.Dto.Queries;
+using Inventory.Services.Features.CashSession.Close;
 using Inventory.Services.Features.CashSession.Create;
 using Inventory.Services.Features.CashSession.Delete;
 using Inventory.Services.Features.CashSession.GetAll;
 using Inventory.Services.Features.CashSession.GetById;
+using Inventory.Services.Features.CashSession.Query;
 using Inventory.Services.Features.CashSession.Search;
 using Inventory.Services.Features.CashSession.Update;
 using MediatR;
@@ -24,8 +27,24 @@ namespace Inventory.Api.Controllers
         {
             _mediator = mediator;
         }
-        [HttpPost]
 
+
+        [HttpGet("active")]
+        [ProducesResponseType(typeof(CashSessionResult), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> GetActive(CancellationToken cancellationToken)
+        {
+            var result = await _mediator.Send(
+                new GetActiveCashSessionQuery(),
+                cancellationToken
+            );
+
+            return result == null ? NoContent() : Ok(result);
+        }
+
+
+
+        [HttpPost]
         [ProducesResponseType(typeof(object), StatusCodes.Status201Created)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
@@ -116,5 +135,26 @@ namespace Inventory.Api.Controllers
             );
             return Ok(result);
         }
+
+        [HttpPost("{id:guid}/close")]
+        [ProducesResponseType(typeof(CashSessionResult), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        public async Task<IActionResult> Close(
+            Guid id,
+            [FromBody] CloseCashSessionRequest request,
+            CancellationToken cancellationToken)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
+            var result = await _mediator.Send(
+                new CloseCashSessionCommand(id, request),
+                cancellationToken
+            );
+
+            return Ok(result);
+        }
+
     }
 }

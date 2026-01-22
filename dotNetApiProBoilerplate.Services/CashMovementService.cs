@@ -1,8 +1,8 @@
 ﻿using AutoMapper;
 using Inventory.Domain.Entities;
-using Inventory.Domain.Enums;
 using Inventory.Dto.CashMovements.Requests;
 using Inventory.Dto.CashMovements.Results;
+using Inventory.Dto.Enums;
 using Inventory.Dto.Pages.Results;
 using Inventory.Dto.Queries;
 using Inventory.Infrastructure.Repositories;
@@ -32,10 +32,15 @@ namespace Inventory.Services
 
         public async Task<CashMovementResult> CreateAsync(CreateCashMovementRequest request)
         {
-            var tenantId = _tenantContext.GetTenantId();
-            var userId = _tenantContext.GetUserId();
+            if (!_tenantContext.IsAdmin)
+                throw new ForbiddenException("Only admins can create cash movements.");
 
-            // 🔒 Récupérer la DERNIÈRE écriture de la session
+            if (request.Type is CashMovementType.Opening or CashMovementType.Closing)
+                throw new ForbiddenException("Opening and closing cash movements are system-controlled.");
+
+            var tenantId = _tenantContext.TenantId;
+            var userId = _tenantContext.UserId;
+
             var lastMovement = await _repository.GetLastAsync(
                 m => m.CashSessionId == request.CashSessionId
                      && !m.IsDeleted
@@ -60,7 +65,7 @@ namespace Inventory.Services
                 Id = Guid.NewGuid(),
                 TenantId = tenantId,
                 CashSessionId = request.CashSessionId,
-                Type = (CashMovementType)request.Type,
+                Type = (Domain.Enums.CashMovementType)request.Type,
                 Amount = request.Amount,
                 BalanceBefore = balanceBefore,
                 BalanceAfter = balanceAfter,
@@ -81,7 +86,7 @@ namespace Inventory.Services
         // GET BY ID
         public async Task<CashMovementResult> GetByIdAsync(Guid id)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
             var cashMovement = await _repository.GetByIdAsync(id);
 
             if (cashMovement is null || cashMovement.IsDeleted || cashMovement.TenantId != tenantId)
@@ -95,7 +100,7 @@ namespace Inventory.Services
         // GET ALL
         public async Task<List<CashMovementResult>> GetAllAsync()
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
             var cashMovements = await _repository.GetAllAsync();
 
             var activeCashMovements = cashMovements
@@ -105,11 +110,12 @@ namespace Inventory.Services
             return _mapper.Map<List<CashMovementResult>>(activeCashMovements);
         }
 
+        /*
         // UPDATE
         public async Task<CashMovementResult> UpdateAsync(Guid id, UpdateCashMovementRequest request)
         {
-            var tenantId = _tenantContext.GetTenantId();
-            var userId = _tenantContext.GetUserId();
+            var tenantId = _tenantContext.TenantId;
+            var userId = _tenantContext.UserId;
 
             var cashMovement = await _repository.GetByIdAsync(id);
 
@@ -131,8 +137,8 @@ namespace Inventory.Services
         // SOFT DELETE
         public async Task<bool> DeleteAsync(Guid id)
         {
-            var tenantId = _tenantContext.GetTenantId();
-            var userId = _tenantContext.GetUserId();
+            var tenantId = _tenantContext.TenantId;
+            var userId = _tenantContext.UserId;
 
             var cashMovement = await _repository.GetByIdAsync(id);
 
@@ -152,10 +158,11 @@ namespace Inventory.Services
             return true;
         }
 
+        */
         // PAGINATION + FILTERING + SORTING
         public async Task<PagedResult<CashMovementResult>> QueryAsync(CashMovementQuery query)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
 
             if (query.Page < 1 || query.PageSize < 1 || query.PageSize > 100)
                 throw new ValidationException(new Dictionary<string, string[]>
@@ -175,7 +182,10 @@ namespace Inventory.Services
                 movements = movements.Where(m => m.SaleId == query.SaleId.Value);
 
             if (query.Type.HasValue)
-                movements = movements.Where(m => m.Type == (CashMovementType)query.Type.Value);
+            {
+                var type = (Domain.Enums.CashMovementType)query.Type.Value;
+                movements = movements.Where(m => m.Type == type);
+            }
 
             if (query.FromDate.HasValue)
                 movements = movements.Where(m => m.MovementDate >= query.FromDate.Value);

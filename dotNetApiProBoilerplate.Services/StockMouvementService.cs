@@ -38,7 +38,7 @@ namespace Inventory.Services
         // =========================
         public async Task<StockMouvementResult> CreateAsync(CreateStockMouvementRequest request)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
 
             var stock = await _stockRepository
                 .GetSingleAsync(s =>
@@ -98,7 +98,7 @@ namespace Inventory.Services
         // =========================
         public async Task<StockMouvementResult> GetByIdAsync(Guid id)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
             var movement = await _movementRepository.GetByIdAsync(id);
 
             if (movement == null || movement.IsDeleted || movement.TenantId != tenantId)
@@ -114,7 +114,7 @@ namespace Inventory.Services
         // =========================
         public async Task<List<StockMouvementResult>> GetAllAsync()
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
             var movements = await _movementRepository.GetAllAsync();
 
             return _mapper.Map<List<StockMouvementResult>>(
@@ -127,7 +127,7 @@ namespace Inventory.Services
         // =========================
         public async Task<StockMouvementResult> UpdateAsync(Guid id, UpdateStockMouvementRequest request)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
             var movement = await _movementRepository.GetByIdAsync(id);
 
             if (movement == null || movement.IsDeleted || movement.TenantId != tenantId)
@@ -150,7 +150,7 @@ namespace Inventory.Services
         // =========================
         public async Task<bool> DeleteAsync(Guid id)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
             var movement = await _movementRepository.GetByIdAsync(id);
 
             if (movement == null || movement.IsDeleted || movement.TenantId != tenantId)
@@ -172,7 +172,7 @@ namespace Inventory.Services
         // =========================
         public async Task<PagedResult<StockMouvementResult>> QueryAsync(StockMouvementQuery query)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
 
             if (query.Page < 1 || query.PageSize < 1 || query.PageSize > 100)
             {

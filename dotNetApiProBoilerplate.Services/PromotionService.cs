@@ -32,8 +32,8 @@ namespace Inventory.Services
         // CREATE
         public async Task<PromotionResult> CreateAsync(CreatePromotionRequest request)
         {
-            var tenantId = _tenantContext.GetTenantId();
-            var userId = _tenantContext.GetUserId();
+            var tenantId = _tenantContext.TenantId;
+            var userId = _tenantContext.UserId;
 
             // FIXED: Changed != to == for proper tenant check
             var exists = await _repository.ExistsAsync(p =>
@@ -73,7 +73,7 @@ namespace Inventory.Services
         // GET BY ID
         public async Task<PromotionResult> GetByIdAsync(Guid id)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
             var entity = await _repository.GetByIdAsync(id);
 
             if (entity == null || entity.IsDeleted || entity.TenantId != tenantId)
@@ -85,7 +85,7 @@ namespace Inventory.Services
         // GET ALL
         public async Task<List<PromotionResult>> GetAllAsync()
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
             var promotions = await _repository.GetAllAsync();
 
             return _mapper.Map<List<PromotionResult>>(
@@ -96,8 +96,8 @@ namespace Inventory.Services
         // UPDATE
         public async Task<PromotionResult> UpdateAsync(Guid id, UpdatePromotionRequest request)
         {
-            var tenantId = _tenantContext.GetTenantId();
-            var userId = _tenantContext.GetUserId();
+            var tenantId = _tenantContext.TenantId;
+            var userId = _tenantContext.UserId;
 
             var entity = await _repository.GetByIdAsync(id);
 
@@ -140,8 +140,8 @@ namespace Inventory.Services
         // ACTIVATE / DEACTIVATE
         public async Task<bool> SetActiveAsync(Guid id, bool isActive)
         {
-            var tenantId = _tenantContext.GetTenantId();
-            var userId = _tenantContext.GetUserId();
+            var tenantId = _tenantContext.TenantId;
+            var userId = _tenantContext.UserId;
 
             var entity = await _repository.GetByIdAsync(id);
 
@@ -161,8 +161,8 @@ namespace Inventory.Services
         // SOFT DELETE
         public async Task<bool> DeleteAsync(Guid id)
         {
-            var tenantId = _tenantContext.GetTenantId();
-            var userId = _tenantContext.GetUserId();
+            var tenantId = _tenantContext.TenantId;
+            var userId = _tenantContext.UserId;
 
             var entity = await _repository.GetByIdAsync(id);
 
@@ -183,7 +183,7 @@ namespace Inventory.Services
         // QUERY
         public async Task<PagedResult<PromotionResult>> QueryAsync(PromotionQuery query)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
 
             if (query.Page < 1 || query.PageSize < 1 || query.PageSize > 100)
             {

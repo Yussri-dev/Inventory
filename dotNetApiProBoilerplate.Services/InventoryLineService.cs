@@ -32,8 +32,8 @@ namespace Inventory.Services
         // CREATE
         public async Task<InventoryLineResult> CreateAsync(CreateInventoryLineRequest request)
         {
-            var tenantId = _tenantContext.GetTenantId();
-            var userId = _tenantContext.GetUserId();
+            var tenantId = _tenantContext.TenantId;
+            var userId = _tenantContext.UserId;
 
             var exists = await _repository.ExistsAsync(l =>
                 l.InventorySessionId == request.InventorySessionId &&
@@ -62,7 +62,7 @@ namespace Inventory.Services
         // GET BY ID
         public async Task<InventoryLineResult> GetByIdAsync(Guid id)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
             var line = await _repository.GetByIdAsync(id);
 
             if (line == null || line.IsDeleted || line.TenantId != tenantId)
@@ -74,7 +74,7 @@ namespace Inventory.Services
         // GET ALL BY SESSION
         public async Task<List<InventoryLineResult>> GetBySessionAsync(Guid inventorySessionId)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
             var lines = (await _repository.GetAllAsync())
                 .Where(l => !l.IsDeleted &&
                            l.TenantId == tenantId &&
@@ -87,7 +87,7 @@ namespace Inventory.Services
         // GET ALL
         public async Task<List<InventoryLineResult>> GetAllAsync()
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
             var inventoryLines = await _repository.GetAllAsync();
 
             var activeLines = inventoryLines
@@ -100,8 +100,8 @@ namespace Inventory.Services
         // UPDATE (count only)
         public async Task<InventoryLineResult> UpdateAsync(Guid id, UpdateInventoryLineRequest request)
         {
-            var tenantId = _tenantContext.GetTenantId();
-            var userId = _tenantContext.GetUserId();
+            var tenantId = _tenantContext.TenantId;
+            var userId = _tenantContext.UserId;
 
             var line = await _repository.GetByIdAsync(id);
 
@@ -125,8 +125,8 @@ namespace Inventory.Services
         // MARK AS ADJUSTED
         public async Task<bool> MarkAsAdjustedAsync(Guid id)
         {
-            var tenantId = _tenantContext.GetTenantId();
-            var userId = _tenantContext.GetUserId();
+            var tenantId = _tenantContext.TenantId;
+            var userId = _tenantContext.UserId;
 
             var line = await _repository.GetByIdAsync(id);
 
@@ -150,8 +150,8 @@ namespace Inventory.Services
         // SOFT DELETE
         public async Task<bool> DeleteAsync(Guid id)
         {
-            var tenantId = _tenantContext.GetTenantId();
-            var userId = _tenantContext.GetUserId();
+            var tenantId = _tenantContext.TenantId;
+            var userId = _tenantContext.UserId;
 
             var line = await _repository.GetByIdAsync(id);
 
@@ -175,7 +175,7 @@ namespace Inventory.Services
         // QUERY
         public async Task<PagedResult<InventoryLineResult>> QueryAsync(InventoryLineQuery query)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
 
             if (query.Page < 1 || query.PageSize < 1 || query.PageSize > 100)
                 throw new ValidationException(new Dictionary<string, string[]>

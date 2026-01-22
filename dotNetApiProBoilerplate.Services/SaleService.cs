@@ -74,7 +74,7 @@ namespace Inventory.Services
         // =========================
         public async Task<SaleResult> CreateAsync(CreateSaleRequest request)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
 
             if (request.TotalAmount <= 0)
             {
@@ -100,134 +100,12 @@ namespace Inventory.Services
             return _mapper.Map<SaleResult>(sale);
         }
 
-        // =========================
-        // CREATE COMPLETE SALE
-        // =========================
-        //public async Task<SaleResult> CreateCompleteAsync(CreateCompleteSaleRequest request)
-        //{
-        //    var tenantId = _tenantContext.GetTenantId();
-
-        //    var activeCashSessionId = await _cashSessionService.EnsureActiveSessionAsync();
-
-        //    // Validation du stock
-        //    foreach (var line in request.Lines)
-        //    {
-        //        var stock = await _stockRepository.GetSingleAsync(
-        //            s => s.ProductId == line.ProductId && !s.IsDeleted && s.TenantId == tenantId);
-
-        //        if (stock == null)
-        //            throw new NotFoundException("Stock", line.ProductId);
-
-        //        if (stock.Quantity < line.Quantity)
-        //            throw new ValidationException(new Dictionary<string, string[]>
-        //        {
-        //            { "Stock", new[] { $"Insufficient stock for product {line.ProductId}." } }
-        //        });
-        //    }
-
-        //    var sale = new Sale
-        //    {
-        //        Id = Guid.NewGuid(),
-        //        TenantId = tenantId,
-        //        InvoiceNumber = await _documentNumberService.GenerateAsync("SALE"),
-        //        CustomerId = request.CustomerId,
-        //        CashSessionId = activeCashSessionId, // ✅ Utiliser la session active
-        //        SaleDate = request.SaleDate == default ? DateTime.UtcNow : request.SaleDate,
-        //        SubtotalAmount = request.SubtotalAmount,
-        //        DiscountAmount = request.DiscountAmount,
-        //        VatAmount = request.VatAmount,
-        //        TotalAmount = request.TotalAmount,
-        //        PaidAmount = request.PaidAmount,
-        //        ChangeAmount = request.ChangeAmount,
-        //        Status = SaleStatus.Completed,
-        //        PaymentStatus = request.Payment != null ? PaymentStatus.Paid : PaymentStatus.Pending,
-        //        Notes = request.Notes,
-        //        CreatedAt = DateTime.UtcNow,
-        //        ModifiedAt = DateTime.UtcNow
-        //    };
-
-        //    await _repository.AddAsync(sale);
-
-        //    foreach (var lineItem in request.Lines)
-        //    {
-        //        var saleLine = new SaleLine
-        //        {
-        //            Id = Guid.NewGuid(),
-        //            SaleId = sale.Id,
-        //            TenantId = tenantId,
-        //            ProductId = lineItem.ProductId,
-        //            Quantity = lineItem.Quantity,
-        //            UnitPrice = lineItem.UnitPrice,
-        //            VatRate = lineItem.VatRate,
-        //            DiscountPercent = lineItem.DiscountPercent,
-        //            DiscountAmount = lineItem.Quantity * lineItem.UnitPrice * (lineItem.DiscountPercent / 100)
-        //        };
-
-        //        await _saleLineRepository.AddAsync(saleLine);
-
-        //        var stock = await _stockRepository.GetSingleAsync(
-        //            s => s.ProductId == lineItem.ProductId && !s.IsDeleted && s.TenantId == tenantId);
-
-        //        var quantityBefore = stock.Quantity;
-        //        var quantityAfter = quantityBefore - lineItem.Quantity;
-
-        //        var movement = new StockMovement
-        //        {
-        //            Id = Guid.NewGuid(),
-        //            TenantId = tenantId,
-        //            ProductId = lineItem.ProductId,
-        //            Type = StockMovementType.Sale,
-        //            QuantityChange = -lineItem.Quantity,
-        //            QuantityBefore = quantityBefore,
-        //            QuantityAfter = quantityAfter,
-        //            ReferenceId = sale.Id,
-        //            ReferenceNumber = sale.InvoiceNumber,
-        //            MovementDate = DateTime.UtcNow,
-        //            Notes = $"Sale {sale.InvoiceNumber}",
-        //            CreatedAt = DateTime.UtcNow,
-        //            ModifiedAt = DateTime.UtcNow
-        //        };
-
-        //        await _stockMovementRepository.AddAsync(movement);
-
-        //        stock.Quantity = quantityAfter;
-        //        stock.LastUpdated = DateTime.UtcNow;
-        //        stock.ModifiedAt = DateTime.UtcNow;
-        //        _stockRepository.Update(stock);
-        //    }
-
-        //    if (request.Payment != null)
-        //    {
-        //        Enum.TryParse<PaymentMethod>(request.Payment.PaymentMethod, true, out var method);
-
-        //        var payment = new Payment
-        //        {
-        //            Id = Guid.NewGuid(),
-        //            SaleId = sale.Id,
-        //            TenantId = tenantId,
-        //            Method = method,
-        //            Amount = request.Payment.Amount,
-        //            TransactionRef = request.Payment.Reference,
-        //            PaidAt = DateTime.UtcNow,
-        //            IsRefunded = false,
-        //            CreatedAt = DateTime.UtcNow,
-        //            ModifiedAt = DateTime.UtcNow
-        //        };
-
-        //        await _paymentRepository.AddAsync(payment);
-        //    }
-
-        //    // customer, cash, loyalty, reporting logic unchanged
-        //    // tenant already propagated via sale.TenantId
-
-        //    await _unitOfWork.SaveChangesAsync();
-
-        //    return _mapper.Map<SaleResult>(sale);
-        //}
-
         public async Task<SaleResult> CreateCompleteAsync(CreateCompleteSaleRequest request)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            if (!_tenantContext.IsCashier && !_tenantContext.IsAdmin)
+                throw new ForbiddenException("Only cashiers or admins can create sales.");
+
+            var tenantId = _tenantContext.TenantId;
             var activeCashSessionId = await _cashSessionService.EnsureActiveSessionAsync();
 
             // =========================
@@ -249,7 +127,7 @@ namespace Inventory.Services
             }
 
             // =========================
-            // CREATE SALE
+            // SALE
             // =========================
             var sale = new Sale
             {
@@ -266,7 +144,9 @@ namespace Inventory.Services
                 PaidAmount = request.PaidAmount,
                 ChangeAmount = request.ChangeAmount,
                 Status = SaleStatus.Completed,
-                PaymentStatus = request.Payment != null ? PaymentStatus.Paid : PaymentStatus.Pending,
+                PaymentStatus = request.PaidAmount >= request.TotalAmount
+                    ? PaymentStatus.Paid
+                    : PaymentStatus.Pending,
                 Notes = request.Notes,
                 CreatedAt = DateTime.UtcNow,
                 ModifiedAt = DateTime.UtcNow
@@ -324,7 +204,7 @@ namespace Inventory.Services
             }
 
             // =========================
-            // PAYMENT
+            // PAYMENT (DOCUMENT)
             // =========================
             decimal cashAmount = 0m;
 
@@ -351,18 +231,15 @@ namespace Inventory.Services
             }
 
             // =========================
-            // CASH MOVEMENTS (AUTHORITATIVE)
+            // CASH MOVEMENTS
             // =========================
-
-            // CASH IN — SALE
             if (cashAmount > 0)
             {
                 var last = await _cashMovementRepository.GetLastAsync(
                     m => m.CashSessionId == activeCashSessionId &&
                          !m.IsDeleted &&
                          m.TenantId == tenantId,
-                    m => m.MovementDate
-                );
+                    m => m.MovementDate);
 
                 var before = last?.BalanceAfter ?? 0m;
                 var after = before + cashAmount;
@@ -383,15 +260,13 @@ namespace Inventory.Services
                 });
             }
 
-            // CASH OUT — CHANGE
             if (sale.ChangeAmount > 0)
             {
                 var last = await _cashMovementRepository.GetLastAsync(
                     m => m.CashSessionId == activeCashSessionId &&
                          !m.IsDeleted &&
                          m.TenantId == tenantId,
-                    m => m.MovementDate
-                );
+                    m => m.MovementDate);
 
                 var before = last?.BalanceAfter ?? 0m;
                 var after = before - sale.ChangeAmount;
@@ -416,6 +291,61 @@ namespace Inventory.Services
             }
 
             // =========================
+            // CUSTOMER LEDGER (AUTHORITATIVE)
+            // =========================
+            if (sale.CustomerId.HasValue)
+            {
+                var lastTx = await _customerTransactionRepository.GetLastAsync(
+                    t => t.CustomerId == sale.CustomerId.Value
+                         && !t.IsDeleted
+                         && t.TenantId == tenantId,
+                    t => t.TransactionDate);
+
+                var balance = lastTx?.BalanceAfter ?? 0m;
+
+                // CREDIT (UNPAID)
+                var creditAmount = sale.TotalAmount - sale.PaidAmount;
+                if (creditAmount > 0)
+                {
+                    await _customerTransactionRepository.AddAsync(new CustomerTransaction
+                    {
+                        Id = Guid.NewGuid(),
+                        TenantId = tenantId,
+                        CustomerId = sale.CustomerId.Value,
+                        SaleId = sale.Id,
+                        Type = "Credit",
+                        Amount = creditAmount,
+                        BalanceBefore = balance,
+                        BalanceAfter = balance + creditAmount,
+                        Description = $"Credit from sale {sale.InvoiceNumber}",
+                        TransactionDate = DateTime.UtcNow,
+                        CreatedAt = DateTime.UtcNow
+                    });
+
+                    balance += creditAmount;
+                }
+
+                // PAYMENT
+                if (sale.PaidAmount > 0)
+                {
+                    await _customerTransactionRepository.AddAsync(new CustomerTransaction
+                    {
+                        Id = Guid.NewGuid(),
+                        TenantId = tenantId,
+                        CustomerId = sale.CustomerId.Value,
+                        SaleId = sale.Id,
+                        Type = "Payment",
+                        Amount = sale.PaidAmount,
+                        BalanceBefore = balance,
+                        BalanceAfter = balance - sale.PaidAmount,
+                        Description = $"Payment for sale {sale.InvoiceNumber}",
+                        TransactionDate = DateTime.UtcNow,
+                        CreatedAt = DateTime.UtcNow
+                    });
+                }
+            }
+
+            // =========================
             // COMMIT
             // =========================
             await _unitOfWork.SaveChangesAsync();
@@ -424,12 +354,9 @@ namespace Inventory.Services
         }
 
 
-        // =========================
-        // GET BY ID
-        // =========================
         public async Task<SaleResult> GetByIdAsync(Guid id)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
             var sale = await _repository.GetByIdAsync(id);
 
             if (sale == null || sale.IsDeleted || sale.TenantId != tenantId)
@@ -443,7 +370,7 @@ namespace Inventory.Services
         // =========================
         public async Task<List<SaleResult>> GetAllAsync()
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
             var sales = await _repository.GetAllAsync();
 
             return _mapper.Map<List<SaleResult>>(
@@ -456,7 +383,7 @@ namespace Inventory.Services
         // =========================
         public async Task<SaleResult> UpdateAsync(Guid id, UpdateSaleRequest request)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
             var sale = await _repository.GetByIdAsync(id);
 
             if (sale == null || sale.IsDeleted || sale.TenantId != tenantId)
@@ -481,7 +408,7 @@ namespace Inventory.Services
         // =========================
         public async Task<bool> DeleteAsync(Guid id)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
             var sale = await _repository.GetByIdAsync(id);
 
             if (sale == null || sale.IsDeleted || sale.TenantId != tenantId)
@@ -501,7 +428,7 @@ namespace Inventory.Services
         // =========================
         public async Task<PagedResult<SaleResult>> QueryAsync(SaleQuery query)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
 
             var all = (await _repository.GetAllAsync())
                 .Where(s => !s.IsDeleted && s.TenantId == tenantId)

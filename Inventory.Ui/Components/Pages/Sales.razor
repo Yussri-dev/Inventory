@@ -218,7 +218,7 @@
                             @onclick="() => SelectAndAddProduct(product)"
                             title="@(isOutOfStock ? "Out of stock" : $"Available: {availableQty}")">
                             <strong>@product.CatalogName</strong>
-                           @*  @if (!string.IsNullOrEmpty(product.CatalogBarcode))
+                            @*  @if (!string.IsNullOrEmpty(product.CatalogBarcode))
                             {
                                 <span class="muted">@product.CatalogBarcode</span>
                             } *@
@@ -581,7 +581,7 @@
                 </button>
                 <button class="btn btn-success btn-complete"
                         @onclick="CompletePayment">
-                        @* disabled="@(!CanCompletePayment)" *@
+                    @* disabled="@(!CanCompletePayment)" *@
                     @if (IsSaving)
                     {
                         <span>Processing...</span>
@@ -760,8 +760,24 @@
     // INIT
     protected override async Task OnInitializedAsync()
     {
+        try
+        {
+            await CashSessionApi.GetActive();
+        }
+        catch
+        {
+            await JS.InvokeVoidAsync(
+                "alert",
+                "No active cash session.\n\nPlease open a cash session before making sales."
+            );
+
+            Navigation.NavigateTo("/cashsessions");
+            return;
+        }
+
         await LoadInitialData();
     }
+
 
     // async Task LoadInitialData()
     // {
@@ -795,7 +811,7 @@
     //         StateHasChanged();
     //     }
     // }
-   
+
     async Task LoadInitialData()
     {
         IsLoadingProducts = true;
@@ -1472,13 +1488,34 @@
     // COMPLETE PAYMENT - MODIFIED FOR CREDIT LOGIC
     async Task CompletePayment()
     {
+        bool isCreditSelected = currentPaymentType == PaymentType.Credit;
+        bool hasNoPayments = paymentEntries.Count == 0;
+
+        if (isCreditSelected && hasNoPayments)
+        {
+            if (SelectedCustomer == null)
+            {
+                await JS.InvokeVoidAsync("alert",
+                    "Credit payment requires a customer.");
+                return;
+            }
+
+            paymentEntries.Add(new PaymentEntry
+            {
+                Type = PaymentType.Credit,
+                Amount = TotalAmount,
+                Timestamp = DateTime.Now
+            });
+
+            paidAmount = TotalAmount;
+            remainingAmount = 0;
+        }
+
+
         if (paidAmount != TotalAmount)
         {
             await JS.InvokeVoidAsync("alert",
-                $"Payment mismatch!\n\n" +
-                $"Total: €{TotalAmount:F2}\n" +
-                $"Paid: €{paidAmount:F2}\n" +
-                $"This doesn't add up. Please check payments.");
+                $"Payment mismatch!\n\nTotal: €{TotalAmount:F2}\nPaid: €{paidAmount:F2}");
             return;
         }
         // Check if change needs validation for walk-in customers
@@ -1499,10 +1536,6 @@
                 $"Please collect the full amount or select a customer to add remaining balance to credit.");
             return;
         }
-
-        // CHECK IF CREDIT IS SELECTED AS PAYMENT METHOD
-        bool isCreditSelected = currentPaymentType == PaymentType.Credit;
-        bool hasNoPayments = paymentEntries.Count == 0;
 
         // NEW LOGIC: If credit is selected and no payments added yet, add the full amount as credit
         // BUT ONLY IF A CUSTOMER IS SELECTED

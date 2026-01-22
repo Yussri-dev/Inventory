@@ -9,7 +9,7 @@ namespace Inventory.Ui.Interfaces
     public interface ICashSessionApi
     {
         [Get("/api/v1/cashsessions/active")]
-        Task<CashSessionResult> GetActive();
+        Task<CashSessionResult?> GetActive();
 
         [Post("/api/v1/cashsessions")]
         Task<CashSessionResult> Create([Body] CreateCashSessionRequest request);

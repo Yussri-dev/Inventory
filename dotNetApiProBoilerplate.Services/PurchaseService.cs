@@ -64,7 +64,7 @@ namespace Inventory.Services
         // =========================
         public async Task<PurchaseResult> CreateAsync(CreatePurchaseRequest request)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
 
             if (request.TotalAmountInclVat <= 0 || request.TotalAmountExclVat <= 0)
                 throw new ValidationException(new Dictionary<string, string[]>
@@ -93,7 +93,7 @@ namespace Inventory.Services
         // =========================
         public async Task<PurchaseResult> CreateCompleteAsync(CreateCompletePurchaseRequest request)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
             var activeCashSessionId = await _cashSessionService.EnsureActiveSessionAsync();
 
             // =========================
@@ -265,7 +265,7 @@ namespace Inventory.Services
         // =========================
         public async Task<PurchaseResult> GetByIdAsync(Guid id)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
             var entity = await _repository.GetByIdAsync(id);
 
             if (entity == null || entity.IsDeleted || entity.TenantId != tenantId)
@@ -279,7 +279,7 @@ namespace Inventory.Services
         // =========================
         public async Task<List<PurchaseResult>> GetAllAsync()
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
 
             var entities = await _repository.GetAllAsync();
             return _mapper.Map<List<PurchaseResult>>(
@@ -292,7 +292,7 @@ namespace Inventory.Services
         // =========================
         public async Task<PurchaseResult> UpdateAsync(Guid id, UpdatePurchaseRequest request)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
             var entity = await _repository.GetByIdAsync(id);
 
             if (entity == null || entity.IsDeleted || entity.TenantId != tenantId)
@@ -312,7 +312,7 @@ namespace Inventory.Services
         // =========================
         public async Task<bool> DeleteAsync(Guid id)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
             var entity = await _repository.GetByIdAsync(id);
 
             if (entity == null || entity.IsDeleted || entity.TenantId != tenantId)
@@ -332,7 +332,7 @@ namespace Inventory.Services
         // =========================
         public async Task<PagedResult<PurchaseResult>> QueryAsync(PurchaseQuery query)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
 
             var source = (await _repository.GetAllAsync())
                 .Where(x => !x.IsDeleted && x.TenantId == tenantId)

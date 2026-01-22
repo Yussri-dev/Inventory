@@ -68,7 +68,7 @@ namespace Inventory.Services
         // =========================
         public async Task<ReturnResult> CreateAsync(CreateReturnRequest request)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
 
             if (request.TotalAmount <= 0)
             {
@@ -99,7 +99,7 @@ namespace Inventory.Services
         // =========================
         public async Task<ReturnResult> CreateCompleteAsync(CreateCompleteReturnRequest request)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
             var activeCashSessionId = await _cashSessionService.EnsureActiveSessionAsync();
 
             // =========================
@@ -311,7 +311,7 @@ namespace Inventory.Services
         // =========================
         public async Task<ReturnResult> GetByIdAsync(Guid id)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
             var entity = await _repository.GetByIdAsync(id);
 
             if (entity == null || entity.IsDeleted || entity.TenantId != tenantId)
@@ -325,7 +325,7 @@ namespace Inventory.Services
         // =========================
         public async Task<List<ReturnResult>> GetAllAsync()
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
 
             var items = await _repository.GetAllAsync();
 
@@ -339,7 +339,7 @@ namespace Inventory.Services
         // =========================
         public async Task<ReturnResult> UpdateAsync(Guid id, UpdateReturnRequest request)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
             var entity = await _repository.GetByIdAsync(id);
 
             if (entity == null || entity.IsDeleted || entity.TenantId != tenantId)
@@ -368,7 +368,7 @@ namespace Inventory.Services
         // =========================
         public async Task<bool> DeleteAsync(Guid id)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
             var entity = await _repository.GetByIdAsync(id);
 
             if (entity == null || entity.IsDeleted || entity.TenantId != tenantId)
@@ -388,7 +388,7 @@ namespace Inventory.Services
         // =========================
         public async Task<PagedResult<ReturnResult>> QueryAsync(ReturnQuery query)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
 
             if (query.Page < 1 || query.PageSize < 1 || query.PageSize > 100)
             {

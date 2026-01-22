@@ -9,6 +9,7 @@ namespace Inventory.Services.Context
         public Guid TenantId { get; }
         public bool IsSuperAdmin { get; }
         public bool IsAdmin { get; }
+        public bool IsCashier { get; }
 
         public TenantContext(IHttpContextAccessor accessor)
         {
@@ -22,6 +23,7 @@ namespace Inventory.Services.Context
 
             IsSuperAdmin = user.IsInRole("SuperAdmin");
             IsAdmin = user.IsInRole("Admin") || IsSuperAdmin;
+            IsCashier = user.IsInRole("Cashier");
 
             var tenantClaim = user.FindFirstValue("TenantId");
 
@@ -33,5 +35,6 @@ namespace Inventory.Services.Context
                 : Guid.Parse(tenantClaim);
         }
     }
+
 
 }

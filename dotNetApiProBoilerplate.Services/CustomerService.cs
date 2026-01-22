@@ -32,8 +32,8 @@ namespace Inventory.Services
         //CREATE
         public async Task<CustomerResult> CreateAsync(CreateCustomerRequest request)
         {
-            var tenantId = _tenantContext.GetTenantId();
-            var userId = _tenantContext.GetUserId();
+            var tenantId = _tenantContext.TenantId;
+            var userId = _tenantContext.UserId;
 
             // Check if customer exists within the same tenant
             var exists = await _repository.ExistsAsync(c =>
@@ -72,7 +72,7 @@ namespace Inventory.Services
         //GET BY ID
         public async Task<CustomerResult> GetByIdAsync(Guid id)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
 
             var customer = await _repository.GetByIdAsync(id);
 
@@ -88,7 +88,7 @@ namespace Inventory.Services
         //GET ALL
         public async Task<List<CustomerResult>> GetAllAsync()
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
 
             var customers = await _repository.GetAllAsync();
 
@@ -103,8 +103,8 @@ namespace Inventory.Services
         //UPDATE
         public async Task<CustomerResult> UpdateAsync(Guid id, UpdateCustomerRequest request)
         {
-            var tenantId = _tenantContext.GetTenantId();
-            var userId = _tenantContext.GetUserId();
+            var tenantId = _tenantContext.TenantId;
+            var userId = _tenantContext.UserId;
 
             var customer = await _repository.GetByIdAsync(id);
 
@@ -142,8 +142,8 @@ namespace Inventory.Services
         //DELETE
         public async Task<bool> DeleteAsync(Guid id)
         {
-            var tenantId = _tenantContext.GetTenantId();
-            var userId = _tenantContext.GetUserId();
+            var tenantId = _tenantContext.TenantId;
+            var userId = _tenantContext.UserId;
 
             var customer = await _repository.GetByIdAsync(id);
 
@@ -166,7 +166,7 @@ namespace Inventory.Services
         // Pagination + filtering + sorting
         public async Task<PagedResult<CustomerResult>> QueryAsync(CustomerQuery query)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
 
             if (query.Page < 1)
             {

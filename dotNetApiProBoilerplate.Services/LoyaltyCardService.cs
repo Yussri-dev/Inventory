@@ -33,8 +33,8 @@ namespace Inventory.Services
         // =========================
         public async Task<LoyaltyCardResult> CreateAsync(CreateLoyaltyCardRequest request)
         {
-            var tenantId = _tenantContext.GetTenantId();
-            var userId = _tenantContext.GetUserId();
+            var tenantId = _tenantContext.TenantId;
+            var userId = _tenantContext.UserId;
 
             var exists = await _repository.ExistsAsync(c =>
                 c.CardNumber == request.CardNumber &&
@@ -68,7 +68,7 @@ namespace Inventory.Services
         // =========================
         public async Task<LoyaltyCardResult> GetByIdAsync(Guid id)
         {
-            var tenantId = _tenantContext?.GetTenantId();
+            var tenantId = _tenantContext?.TenantId;
 
             var entity = await _repository.GetByIdAsync(id);
 
@@ -94,8 +94,8 @@ namespace Inventory.Services
         // =========================
         public async Task<LoyaltyCardResult> UpdateAsync(Guid id, UpdateLoyaltyCardRequest request)
         {
-            var tenantId = _tenantContext.GetTenantId();
-            var userId = _tenantContext?.GetUserId();
+            var tenantId = _tenantContext.TenantId;
+            var userId = _tenantContext?.UserId;
 
             var entity = await _repository.GetByIdAsync(id);
 
@@ -117,7 +117,7 @@ namespace Inventory.Services
         // =========================
         public async Task<bool> AddPointsAsync(Guid id, int points)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
 
             if (points <= 0)
                 throw new ValidationException(new Dictionary<string, string[]>
@@ -145,7 +145,7 @@ namespace Inventory.Services
         // =========================
         public async Task<bool> DeactivateAsync(Guid id)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
 
             var entity = await _repository.GetByIdAsync(id);
 
@@ -166,8 +166,8 @@ namespace Inventory.Services
         // =========================
         public async Task<bool> DeleteAsync(Guid id)
         {
-            var tenantId = _tenantContext.GetTenantId();
-            var userId = _tenantContext.GetUserId();
+            var tenantId = _tenantContext.TenantId;
+            var userId = _tenantContext.UserId;
 
 
             var entity = await _repository.GetByIdAsync(id);

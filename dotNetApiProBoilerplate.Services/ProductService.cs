@@ -37,8 +37,8 @@ namespace Inventory.Services
         // CREATE
         public async Task<ProductResult> CreateAsync(CreateProductRequest request)
         {
-            var tenantId = _tenantContext.GetTenantId();
-            var userId = _tenantContext.GetUserId();
+            var tenantId = _tenantContext.TenantId;
+            var userId = _tenantContext.UserId;
 
             var catalogProduct = await _catalogRepository.GetByIdAsync(request.CatalogProductId);
             if (catalogProduct == null || catalogProduct.IsDeleted)
@@ -82,7 +82,7 @@ namespace Inventory.Services
         // GET BY ID
         public async Task<ProductResult> GetByIdAsync(Guid id)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
 
             var product = await _repository.GetByIdAsync(id);
 
@@ -97,7 +97,7 @@ namespace Inventory.Services
         // GET ALL
         public async Task<List<ProductResult>> GetAllAsync()
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
 
             var products = await _repository.GetAllAsync();
 
@@ -111,8 +111,8 @@ namespace Inventory.Services
         // UPDATE
         public async Task<ProductResult> UpdateAsync(Guid id, UpdateProductRequest request)
         {
-            var tenantId = _tenantContext.GetTenantId();
-            var userId = _tenantContext.GetUserId();
+            var tenantId = _tenantContext.TenantId;
+            var userId = _tenantContext.UserId;
 
             var product = await _repository.GetByIdAsync(id);
 
@@ -160,8 +160,8 @@ namespace Inventory.Services
         // SOFT DELETE
         public async Task<bool> DeleteAsync(Guid id)
         {
-            var tenantId = _tenantContext.GetTenantId();
-            var userId = _tenantContext.GetUserId();
+            var tenantId = _tenantContext.TenantId;
+            var userId = _tenantContext.UserId;
 
             var product = await _repository.GetByIdAsync(id);
 
@@ -183,7 +183,7 @@ namespace Inventory.Services
         // PAGINATION + FILTERING + SORTING
         public async Task<PagedResult<ProductResult>> QueryAsync(ProductQuery query)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
 
             // Validate query parameters
             if (query.Page < 1)

@@ -27,6 +27,7 @@ namespace Inventory.Api.Controllers
         }
         [HttpPost]
 
+        [Authorize(Roles = "Admin,SuperAdmin")]
         [ProducesResponseType(typeof(object), StatusCodes.Status201Created)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
@@ -49,6 +50,7 @@ namespace Inventory.Api.Controllers
             );
         }
 
+        [Authorize(Roles = "Admin,SuperAdmin")]
         [HttpGet("{id:guid}")]
         [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -61,6 +63,7 @@ namespace Inventory.Api.Controllers
             return Ok(result);
         }
 
+        [Authorize(Roles = "Admin,SuperAdmin")]
         [HttpGet]
         [ProducesResponseType(typeof(List<object>), StatusCodes.Status200OK)] // List of products
         public async Task<IActionResult> GetAll(CancellationToken cancellationToken)
@@ -72,6 +75,7 @@ namespace Inventory.Api.Controllers
             return Ok(results);
         }
 
+        /*
         [HttpPut("{id:guid}")]
         [ProducesResponseType(typeof(object), StatusCodes.Status200OK)] // Updated
         [ProducesResponseType(StatusCodes.Status400BadRequest)]          // Invalid payload
@@ -102,7 +106,8 @@ namespace Inventory.Api.Controllers
             );
             return NoContent();
         }
-
+        */
+        [Authorize(Roles = "Admin,SuperAdmin")]
         [HttpGet("search")]
         [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]

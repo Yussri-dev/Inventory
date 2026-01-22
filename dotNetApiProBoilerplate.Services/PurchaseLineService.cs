@@ -35,7 +35,7 @@ namespace Inventory.Services
         // CREATE
         public async Task<PurchaseLineResult> CreateAsync(CreatePurchaseLineRequest request)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
 
             if (request.QuantityOrdered <= 0)
             {
@@ -64,7 +64,7 @@ namespace Inventory.Services
         // GET BY ID
         public async Task<PurchaseLineResult> GetByIdAsync(Guid id)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
             var purchaseLine = await _repository.GetByIdAsync(id);
 
             if (purchaseLine == null)
@@ -85,7 +85,7 @@ namespace Inventory.Services
         // GET ALL
         public async Task<List<PurchaseLineResult>> GetAllAsync()
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
             var purchaseLines = await _repository.GetAllAsync();
             var purchases = await _purchaseRepository.GetAllAsync();
 
@@ -104,7 +104,7 @@ namespace Inventory.Services
         // UPDATE
         public async Task<PurchaseLineResult> UpdateAsync(Guid id, UpdatePurchaseLineRequest request)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
 
             if (request.QuantityOrdered <= 0)
             {
@@ -137,7 +137,7 @@ namespace Inventory.Services
         // DELETE
         public async Task<bool> DeleteAsync(Guid id)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
             var purchaseLine = await _repository.GetByIdAsync(id);
 
             if (purchaseLine == null)
@@ -161,7 +161,7 @@ namespace Inventory.Services
         // QUERY
         public async Task<PagedResult<PurchaseLineResult>> QueryAsync(PurchaseLineQuery query)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
 
             if (query.Page < 1 || query.PageSize < 1 || query.PageSize > 100)
             {

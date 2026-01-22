@@ -34,7 +34,7 @@ namespace Inventory.Services
         // =========================
         public async Task<StockResult> CreateAsync(CreateStockRequest request)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
 
             // One stock per product
             var exists = await _repository.ExistsAsync(
@@ -83,7 +83,7 @@ namespace Inventory.Services
         // =========================
         public async Task<StockResult> GetByIdAsync(Guid id)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
             var stock = await _repository.GetByIdAsync(id);
 
             if (stock is null || stock.IsDeleted || stock.TenantId != tenantId)
@@ -99,7 +99,7 @@ namespace Inventory.Services
         // =========================
         public async Task<List<StockResult>> GetAllAsync()
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
 
             var stocks = await _repository.GetAsync(
                 s => !s.IsDeleted && s.TenantId == tenantId,
@@ -116,7 +116,7 @@ namespace Inventory.Services
         // =========================
         public async Task<StockResult> UpdateAsync(Guid id, UpdateStockRequest request)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
             var stock = await _repository.GetByIdAsync(id);
 
             if (stock is null || stock.IsDeleted || stock.TenantId != tenantId)
@@ -156,7 +156,7 @@ namespace Inventory.Services
         // =========================
         public async Task<bool> DeleteAsync(Guid id)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
             var stock = await _repository.GetByIdAsync(id);
 
             if (stock is null || stock.IsDeleted || stock.TenantId != tenantId)
@@ -178,7 +178,7 @@ namespace Inventory.Services
         // =========================
         public async Task<PagedResult<StockResult>> QueryAsync(StockQuery query)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
 
             if (query.Page < 1 || query.PageSize < 1 || query.PageSize > 100)
             {

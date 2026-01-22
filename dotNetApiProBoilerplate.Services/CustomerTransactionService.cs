@@ -31,8 +31,8 @@ namespace Inventory.Services
 
         public async Task<CustomerTransactionResult> CreateAsync(CreateCustomerTransactionRequest request)
         {
-            var tenantId = _tenantContext.GetTenantId();
-            var userId = _tenantContext.GetUserId();
+            var tenantId = _tenantContext.TenantId;
+            var userId = _tenantContext.UserId;
 
             var transaction = _mapper.Map<CustomerTransaction>(request);
 
@@ -49,7 +49,7 @@ namespace Inventory.Services
 
         public async Task<CustomerTransactionResult> GetByIdAsync(Guid id)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
             var transaction = await _repository.GetByIdAsync(id);
 
             if (transaction == null || transaction.IsDeleted || transaction.TenantId != tenantId)
@@ -62,7 +62,7 @@ namespace Inventory.Services
 
         public async Task<List<CustomerTransactionResult>> GetAllAsync()
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
             var transactions = await _repository.GetAllAsync();
 
             var activeTransactions = transactions
@@ -74,8 +74,8 @@ namespace Inventory.Services
 
         public async Task<CustomerTransactionResult> UpdateAsync(Guid id, UpdateCustomerTransactionRequest request)
         {
-            var tenantId = _tenantContext.GetTenantId();
-            var userId = _tenantContext.GetUserId();
+            var tenantId = _tenantContext.TenantId;
+            var userId = _tenantContext.UserId;
 
             var transaction = await _repository.GetByIdAsync(id);
             if (transaction == null || transaction.IsDeleted || transaction.TenantId != tenantId)
@@ -95,8 +95,8 @@ namespace Inventory.Services
 
         public async Task<bool> DeleteAsync(Guid id)
         {
-            var tenantId = _tenantContext.GetTenantId();
-            var userId = _tenantContext.GetUserId();
+            var tenantId = _tenantContext.TenantId;
+            var userId = _tenantContext.UserId;
 
             var transaction = await _repository.GetByIdAsync(id);
             if (transaction == null || transaction.IsDeleted || transaction.TenantId != tenantId)
@@ -116,7 +116,7 @@ namespace Inventory.Services
 
         public async Task<PagedResult<CustomerTransactionResult>> QueryAsync(CustomerTransactionQuery query)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
 
             if (query.Page < 1 || query.PageSize < 1 || query.PageSize > 100)
             {

@@ -37,22 +37,24 @@ namespace Inventory.Services
             _tenantContext = tenantContext;
         }
 
+        private async Task<CashSession?> GetActiveSessionEntityAsync()
+        {
+            var tenantId = _tenantContext.TenantId;
+
+            return await _repository.GetSingleAsync(
+                cs => cs.TenantId == tenantId &&
+                      cs.Status == CashSessionStatus.Open &&
+                      !cs.IsDeleted);
+        }
+
+
         // =========================
         // GET ACTIVE SESSION
         // =========================
         public async Task<CashSessionResult?> GetActiveSessionAsync()
         {
-            var tenantId = _tenantContext.GetTenantId();
-
-            var activeSession = await _repository.GetSingleAsync(
-                cs => cs.TenantId == tenantId &&
-                      cs.Status == CashSessionStatus.Open &&
-                      !cs.IsDeleted);
-
-            if (activeSession == null)
-                return null;
-
-            return _mapper.Map<CashSessionResult>(activeSession);
+            var entity = await GetActiveSessionEntityAsync();
+            return entity == null ? null : _mapper.Map<CashSessionResult>(entity);
         }
 
         // =========================
@@ -60,9 +62,9 @@ namespace Inventory.Services
         // =========================
         public async Task<Guid> EnsureActiveSessionAsync()
         {
-            var activeSession = await GetActiveSessionAsync();
+            var entity = await GetActiveSessionEntityAsync();
 
-            if (activeSession == null)
+            if (entity == null)
             {
                 throw new ValidationException(new Dictionary<string, string[]>
                 {
@@ -70,16 +72,17 @@ namespace Inventory.Services
                 });
             }
 
-            return activeSession.Id;
+            return entity.Id;
         }
+
 
         // =========================
         // CREATE (OPEN SESSION)
         // =========================
         public async Task<CashSessionResult> CreateAsync(CreateCashSessionRequest request)
         {
-            var tenantId = _tenantContext.GetTenantId();
-            var userId = _tenantContext.GetUserId();
+            var tenantId = _tenantContext.TenantId;
+            var userId = _tenantContext.UserId;
 
             // Vérifier qu'il n'y a pas déjà une session ouverte
             var existingOpenSession = await _repository.GetSingleAsync(
@@ -122,41 +125,38 @@ namespace Inventory.Services
         // =========================
         public async Task<CashSessionResult> CloseSessionAsync(Guid id, CloseCashSessionRequest request)
         {
-            var tenantId = _tenantContext.GetTenantId();
-            var userId = _tenantContext.GetUserId();
+            var tenantId = _tenantContext.TenantId;
+            var userId = _tenantContext.UserId;
 
             var cashSession = await _repository.GetByIdAsync(id);
 
-            if (cashSession is null || cashSession.IsDeleted || cashSession.TenantId != tenantId)
-            {
+            if (cashSession == null || cashSession.IsDeleted)
                 throw new NotFoundException("CashSession", id);
-            }
+
+            if (!_tenantContext.IsSuperAdmin && cashSession.TenantId != tenantId)
+                throw new NotFoundException("CashSession", id);
 
             if (cashSession.Status != CashSessionStatus.Open)
-            {
                 throw new ValidationException(new Dictionary<string, string[]>
                 {
                     { "Status", new[] { "Cash session is not open." } }
                 });
-            }
-
-            // Calculer les totaux de la session
-            var sales = (await _saleRepository.GetAllAsync())
-                .Where(s => s.CashSessionId == id && !s.IsDeleted)
-                .ToList();
 
             var cashMovements = (await _cashMovementRepository.GetAllAsync())
-                .Where(cm => cm.CashSessionId == id && !cm.IsDeleted)
+                .Where(cm =>
+                    cm.CashSessionId == id &&
+                    !cm.IsDeleted &&
+                    (_tenantContext.IsSuperAdmin || cm.TenantId == tenantId))
+                .OrderByDescending(cm => cm.MovementDate)
                 .ToList();
 
-            // Calculer le cash attendu
-            var salesTotal = sales.Sum(s => s.PaidAmount);
-            var cashIn = cashMovements.Where(cm => cm.Type == CashMovementType.Sale).Sum(cm => cm.Amount);
-            var cashOut = cashMovements.Where(cm => cm.Type == CashMovementType.Refund).Sum(cm => cm.Amount);
+            var expectedCash =
+                cashMovements.FirstOrDefault()?.BalanceAfter
+                ?? cashSession.OpeningAmount;
 
-            cashSession.ClosingAmountExpected = cashSession.OpeningAmount + salesTotal + cashIn - cashOut;
+            cashSession.ClosingAmountExpected = expectedCash;
             cashSession.ClosingAmountCounted = request.ActualCash;
-            cashSession.Difference = request.ActualCash - cashSession.ClosingAmountExpected;
+            cashSession.Difference = request.ActualCash - expectedCash;
             cashSession.ClosingNotes = request.ClosingNotes;
             cashSession.Status = CashSessionStatus.Closed;
             cashSession.ClosedAt = DateTime.UtcNow;
@@ -169,12 +169,13 @@ namespace Inventory.Services
             return _mapper.Map<CashSessionResult>(cashSession);
         }
 
+
         // =========================
         // GET BY ID
         // =========================
         public async Task<CashSessionResult> GetByIdAsync(Guid id)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
             var cashSession = await _repository.GetByIdAsync(id);
 
             if (cashSession is null || cashSession.IsDeleted || cashSession.TenantId != tenantId)
@@ -185,28 +186,55 @@ namespace Inventory.Services
             return _mapper.Map<CashSessionResult>(cashSession);
         }
 
+
+        private IQueryable<CashSession> ApplyTenantScope(IEnumerable<CashSession> source)
+        {
+            if (_tenantContext.IsSuperAdmin)
+                return source.AsQueryable();
+
+            var tenantId = _tenantContext.TenantId;
+            return source.Where(s => s.TenantId == tenantId).AsQueryable();
+        }
+
+        public async Task<CashSessionResult?> GetActiveAsync()
+        {
+            var tenantId = _tenantContext.TenantId;
+
+            var session = await _repository.GetSingleAsync(
+                s => s.TenantId == tenantId
+                  && s.Status == CashSessionStatus.Open
+                  && !s.IsDeleted
+            );
+
+            return session == null
+                ? null
+                : _mapper.Map<CashSessionResult>(session);
+        }
+
+
+
         // =========================
         // GET ALL
         // =========================
         public async Task<List<CashSessionResult>> GetAllAsync()
         {
-            var tenantId = _tenantContext.GetTenantId();
-            var cashSessions = await _repository.GetAllAsync();
+            var sessions = await _repository.GetAllAsync();
 
-            var activeCashSessions = cashSessions
-                .Where(p => !p.IsDeleted && p.TenantId == tenantId)
+            var scoped = ApplyTenantScope(sessions)
+                .Where(s => !s.IsDeleted)
                 .ToList();
 
-            return _mapper.Map<List<CashSessionResult>>(activeCashSessions);
+            return _mapper.Map<List<CashSessionResult>>(scoped);
         }
+
 
         // =========================
         // UPDATE
         // =========================
         public async Task<CashSessionResult> UpdateAsync(Guid id, UpdateCashSessionRequest request)
         {
-            var tenantId = _tenantContext.GetTenantId();
-            var userId = _tenantContext.GetUserId();
+            var tenantId = _tenantContext.TenantId;
+            var userId = _tenantContext.UserId;
 
             var cashSession = await _repository.GetByIdAsync(id);
 
@@ -238,8 +266,8 @@ namespace Inventory.Services
         // =========================
         public async Task<bool> DeleteAsync(Guid id)
         {
-            var tenantId = _tenantContext.GetTenantId();
-            var userId = _tenantContext.GetUserId();
+            var tenantId = _tenantContext.TenantId;
+            var userId = _tenantContext.UserId;
 
             var cashSession = await _repository.GetByIdAsync(id);
 
@@ -272,7 +300,7 @@ namespace Inventory.Services
         // =========================
         public async Task<PagedResult<CashSessionResult>> QueryAsync(CashSessionQuery query)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
 
             if (query.Page < 1 || query.PageSize < 1 || query.PageSize > 100)
                 throw new ValidationException(new Dictionary<string, string[]>
@@ -280,9 +308,9 @@ namespace Inventory.Services
                     { "Paging", new[] { "Invalid paging parameters." } }
                 });
 
-            var sessions = (await _repository.GetAllAsync())
-                .Where(s => !s.IsDeleted && s.TenantId == tenantId)
-                .AsQueryable();
+            var sessions = ApplyTenantScope(await _repository.GetAllAsync())
+                .Where(s => !s.IsDeleted);
+
 
             // FILTERS
             if (!string.IsNullOrWhiteSpace(query.Search))

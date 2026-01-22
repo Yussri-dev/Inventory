@@ -2,6 +2,7 @@
 
 @using Inventory.Dto.CashSessions.Requests
 @using Inventory.Dto.CashSessions.Results
+@using Inventory.Dto.Enums
 @using global::Inventory.Dto.CashSessions.Results
 @using global::Inventory.Ui.Interfaces
 
@@ -212,7 +213,7 @@
 
             <div class="modal-footer">
                 <button class="btn btn-secondary" @onclick="CloseCloseModal">Cancel</button>
-                <button class="btn btn-danger" @onclick="CloseSession" disabled="@(IsLoading || ActualCash <= 0)">
+                <button class="btn btn-danger" @onclick="CloseSession" disabled="@(IsLoading)">
                     @(IsLoading ? "Closing..." : "Close Session")
                 </button>
             </div>
@@ -255,9 +256,11 @@
             // Charger les sessions récentes
             var allSessions = await CashSessionApi.GetAll();
             RecentSessions = allSessions
+                .Where(s => s.Status == CashSessionStatus.Closed)
                 .OrderByDescending(s => s.OpenedAt)
                 .Take(5)
                 .ToList();
+
         }
         catch (Exception ex)
         {
@@ -377,6 +380,7 @@
 
     void ViewHistory()
     {
-        // TODO: Navigate to full history page
+        Navigation.NavigateTo("/cashmovements");
     }
+
 }

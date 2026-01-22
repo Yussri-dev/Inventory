@@ -33,7 +33,7 @@ namespace Inventory.Services
         // =========================
         public async Task<SalesSummaryDailyResult> GetByDateAsync(DateTime date)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
 
             var entity = (await _repository.GetAllAsync())
                 .FirstOrDefault(x =>
@@ -52,7 +52,7 @@ namespace Inventory.Services
         // =========================
         public async Task<List<SalesSummaryDailyResult>> GetAllAsync()
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
 
             var items = await _repository.GetAllAsync();
 
@@ -66,7 +66,7 @@ namespace Inventory.Services
         // =========================
         public async Task<PagedResult<SalesSummaryDailyResult>> QueryAsync(SalesSummaryDailyQuery query)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
 
             if (query.Page < 1 || query.PageSize < 1 || query.PageSize > 100)
             {

@@ -5,8 +5,8 @@ using Inventory.Dto.ProductCatalogs.Results;
 using Inventory.Dto.Pages.Results;
 using Inventory.Dto.Queries;
 using Inventory.Infrastructure.Repositories;
-using Inventory.Services.Exceptions;
 using Inventory.Services.Context;
+using Inventory.Services.Exceptions;
 
 namespace Inventory.Services
 {
@@ -30,12 +30,12 @@ namespace Inventory.Services
         }
 
         // =========================
-        // CREATE
+        // CREATE (SuperAdmin only)
         // =========================
         public async Task<ProductCatalogResult> CreateAsync(CreateProductCatalogRequest request)
         {
-            var tenantId = _tenantContext.GetTenantId();
-            var userId = _tenantContext.GetUserId();
+            if (!_tenantContext.IsSuperAdmin)
+                throw new ForbiddenException("Only system admin can create product catalogs.");
 
             if (string.IsNullOrWhiteSpace(request.Name))
             {
@@ -46,134 +46,112 @@ namespace Inventory.Services
             }
 
             var exists = await _repository.ExistsAsync(c =>
-                c.Name == request.Name &&
-                c.TenantId == tenantId &&
-                !c.IsDeleted);
+                c.Barcode == request.Barcode && !c.IsDeleted);
 
             if (exists)
-            {
-                throw new ConflictException(
-                    $"ProductCatalog with name '{request.Name}' already exists.");
-            }
+                throw new ConflictException("ProductCatalog with same barcode already exists.");
 
-            var customer = _mapper.Map<ProductCatalog>(request);
+            var entity = _mapper.Map<ProductCatalog>(request);
 
-            customer.Id = Guid.NewGuid();
-            customer.TenantId = tenantId;               // ✅ CRITICAL
-            customer.CreatedAt = DateTime.UtcNow;
-            customer.ModifiedAt = DateTime.UtcNow;
-            customer.CreatedByUserId = userId;
+            entity.Id = Guid.NewGuid();
+            entity.CreatedAt = DateTime.UtcNow;
+            entity.CreatedByUserId = _tenantContext.UserId;
 
-            await _repository.AddAsync(customer);
+            await _repository.AddAsync(entity);
             await _unitOfWork.SaveChangesAsync();
 
-            return _mapper.Map<ProductCatalogResult>(customer);
+            return _mapper.Map<ProductCatalogResult>(entity);
         }
 
         // =========================
-        // GET BY ID
+        // GET BY ID (GLOBAL)
         // =========================
         public async Task<ProductCatalogResult> GetByIdAsync(Guid id)
         {
-            var tenantId = _tenantContext.GetTenantId();
-            var customer = await _repository.GetByIdAsync(id);
+            var catalog = await _repository.GetByIdAsync(id);
 
-            if (customer == null || customer.IsDeleted || customer.TenantId != tenantId)
-            {
+            if (catalog == null || catalog.IsDeleted)
                 throw new NotFoundException("ProductCatalog", id);
-            }
 
-            return _mapper.Map<ProductCatalogResult>(customer);
+            return _mapper.Map<ProductCatalogResult>(catalog);
         }
 
         // =========================
-        // GET ALL
+        // GET ALL (GLOBAL)
         // =========================
         public async Task<List<ProductCatalogResult>> GetAllAsync()
         {
-            var tenantId = _tenantContext.GetTenantId();
-            var customers = await _repository.GetAllAsync();
+            var catalogs = await _repository.GetAllAsync();
 
-            var activeProductCatalogs = customers
-                .Where(c => !c.IsDeleted && c.TenantId == tenantId)
-                .ToList();
-
-            return _mapper.Map<List<ProductCatalogResult>>(activeProductCatalogs);
+            return _mapper.Map<List<ProductCatalogResult>>(
+                catalogs.Where(c => !c.IsDeleted)
+            );
         }
 
         // =========================
-        // UPDATE
+        // UPDATE (SuperAdmin only)
         // =========================
         public async Task<ProductCatalogResult> UpdateAsync(Guid id, UpdateProductCatalogRequest request)
         {
-            var tenantId = _tenantContext.GetTenantId();
-            var userId = _tenantContext.GetUserId();
+            if (!_tenantContext.IsSuperAdmin)
+                throw new ForbiddenException("Only system admin can update product catalogs.");
 
-            var customer = await _repository.GetByIdAsync(id);
+            var catalog = await _repository.GetByIdAsync(id);
 
-            if (customer == null || customer.IsDeleted || customer.TenantId != tenantId)
-            {
+            if (catalog == null || catalog.IsDeleted)
                 throw new NotFoundException("ProductCatalog", id);
-            }
 
-            if (!string.IsNullOrWhiteSpace(request.Name) && request.Name != customer.Name)
+            if (!string.IsNullOrWhiteSpace(request.Barcode) &&
+                request.Barcode != catalog.Barcode)
             {
-                var nameExists = await _repository.ExistsAsync(c =>
-                    c.Name == request.Name &&
+                var barcodeExists = await _repository.ExistsAsync(c =>
+                    c.Barcode == request.Barcode &&
                     c.Id != id &&
-                    c.TenantId == tenantId &&
                     !c.IsDeleted);
 
-                if (nameExists)
-                {
-                    throw new ConflictException(
-                        $"ProductCatalog with name '{request.Name}' already exists.");
-                }
+                if (barcodeExists)
+                    throw new ConflictException("Another ProductCatalog uses this barcode.");
             }
 
-            _mapper.Map(request, customer);
+            _mapper.Map(request, catalog);
 
-            customer.ModifiedAt = DateTime.UtcNow;
-            customer.ModifiedByUserId = userId;
+            catalog.ModifiedAt = DateTime.UtcNow;
+            catalog.ModifiedByUserId = _tenantContext.UserId;
 
-            _repository.Update(customer);
+            _repository.Update(catalog);
             await _unitOfWork.SaveChangesAsync();
 
-            return _mapper.Map<ProductCatalogResult>(customer);
+            return _mapper.Map<ProductCatalogResult>(catalog);
         }
 
         // =========================
-        // DELETE (SOFT)
+        // DELETE (SuperAdmin only)
         // =========================
         public async Task<bool> DeleteAsync(Guid id)
         {
-            var tenantId = _tenantContext.GetTenantId();
-            var userId = _tenantContext.GetUserId();
+            if (!_tenantContext.IsSuperAdmin)
+                throw new ForbiddenException("Only system admin can delete product catalogs.");
 
-            var customer = await _repository.GetByIdAsync(id);
+            var catalog = await _repository.GetByIdAsync(id);
 
-            if (customer == null || customer.IsDeleted || customer.TenantId != tenantId)
-            {
+            if (catalog == null || catalog.IsDeleted)
                 throw new NotFoundException("ProductCatalog", id);
-            }
 
-            customer.IsDeleted = true;
-            customer.DeletedAt = DateTime.UtcNow;
-            customer.DeletedByUserId = userId;
+            catalog.IsDeleted = true;
+            catalog.DeletedAt = DateTime.UtcNow;
+            catalog.DeletedByUserId = _tenantContext.UserId;
 
-            _repository.Update(customer);
+            _repository.Update(catalog);
             await _unitOfWork.SaveChangesAsync();
 
             return true;
         }
 
         // =========================
-        // QUERY
+        // QUERY (GLOBAL)
         // =========================
         public async Task<PagedResult<ProductCatalogResult>> QueryAsync(ProductCatalogQuery query)
         {
-            var tenantId = _tenantContext.GetTenantId();
-
             if (query.Page < 1 || query.PageSize < 1 || query.PageSize > 100)
             {
                 throw new ValidationException(new Dictionary<string, string[]>
@@ -183,13 +161,14 @@ namespace Inventory.Services
             }
 
             var filtered = (await _repository.GetAllAsync())
-                .Where(p => !p.IsDeleted && p.TenantId == tenantId)
+                .Where(p => !p.IsDeleted)
                 .AsQueryable();
 
             if (!string.IsNullOrWhiteSpace(query.Search))
             {
                 filtered = filtered.Where(p =>
-                    p.Name.Contains(query.Search, StringComparison.OrdinalIgnoreCase));
+                    p.Name.Contains(query.Search, StringComparison.OrdinalIgnoreCase) ||
+                    p.Barcode.Contains(query.Search, StringComparison.OrdinalIgnoreCase));
             }
 
             filtered = query.SortBy?.ToLower() switch

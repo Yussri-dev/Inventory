@@ -37,8 +37,8 @@ namespace Inventory.Services
         // =========================
         public async Task<LoyaltyTransactionResult> CreateAsync(CreateLoyaltyTransactionRequest request)
         {
-            var tenantId = _tenantContext.GetTenantId();
-            var userId = _tenantContext.GetUserId();
+            var tenantId = _tenantContext.TenantId;
+            var userId = _tenantContext.UserId;
 
             if (request.PointsChange == 0)
             {
@@ -95,7 +95,7 @@ namespace Inventory.Services
         // =========================
         public async Task<LoyaltyTransactionResult> GetByIdAsync(Guid id)
         {
-            var tenantId = _tenantContext.GetTenantId();
+            var tenantId = _tenantContext.TenantId;
 
             var entity = await _transactionRepository.GetByIdAsync(id);
 
@@ -122,8 +122,8 @@ namespace Inventory.Services
         // =========================
         public async Task<bool> DeleteAsync(Guid id)
         {
-            var tenantId = _tenantContext.GetTenantId();
-            var userId = _tenantContext.GetUserId();
+            var tenantId = _tenantContext.TenantId;
+            var userId = _tenantContext.UserId;
 
             var entity = await _transactionRepository.GetByIdAsync(id);
 
