@@ -57,7 +57,7 @@ namespace Inventory.Dto.Sales.Requests
         public decimal VatAmount => Lines.Sum(l => l.LineAmountInclVat - l.LineAmountExclVat);
         public decimal TotalAmount => SubtotalAmount + VatAmount - DiscountAmount;
         public decimal PaidAmount => Payment?.Amount ?? 0;
-        public decimal ChangeAmount => PaidAmount - TotalAmount;
+        public decimal ChangeAmount => Math.Max(0, PaidAmount - TotalAmount);
     }
 
     /// <summary>

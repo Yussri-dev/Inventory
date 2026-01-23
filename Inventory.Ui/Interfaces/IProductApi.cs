@@ -1,4 +1,6 @@
-﻿using Inventory.Dto.Pages.Results;
+﻿using Inventory.Dto.CustomerTransactions.Requests;
+using Inventory.Dto.CustomerTransactions.Results;
+using Inventory.Dto.Pages.Results;
 using Inventory.Dto.Products.Requests;
 using Inventory.Dto.Products.Results;
 using Inventory.Dto.Queries;

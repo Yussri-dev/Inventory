@@ -1,9 +1,12 @@
 ﻿using Inventory.Dto.CustomerTransactions.Requests;
 using Inventory.Dto.Queries;
+using Inventory.Services.Features.CustomerTransactions.Balance;
 using Inventory.Services.Features.CustomerTransactions.Create;
 using Inventory.Services.Features.CustomerTransactions.Delete;
 using Inventory.Services.Features.CustomerTransactions.GetAll;
 using Inventory.Services.Features.CustomerTransactions.GetById;
+using Inventory.Services.Features.CustomerTransactions.RegisterPayment;
+using Inventory.Services.Features.CustomerTransactions.RegisterRefund;
 using Inventory.Services.Features.CustomerTransactions.Search;
 using Inventory.Services.Features.CustomerTransactions.Update;
 using MediatR;
@@ -115,6 +118,61 @@ namespace Inventory.Api.Controllers
                 cancellationToken
             );
             return Ok(result);
+        }
+
+        [HttpPost("register-payment")]
+        [ProducesResponseType(typeof(object), StatusCodes.Status201Created)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        public async Task<IActionResult> RegisterPayment(
+                    [FromBody] RegisterCustomerPaymentRequest request,
+                    CancellationToken cancellationToken)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
+            var result = await _mediator.Send(
+                new RegisterCustomerPaymentCommand(request),
+                cancellationToken
+            );
+
+            return CreatedAtAction(
+                nameof(GetById),
+                new { version = "1.0", id = result.Id },
+                result
+            );
+        }
+
+        [HttpGet("customers-with-balance")]
+        [ProducesResponseType(typeof(List<CustomerCreditResult>), StatusCodes.Status200OK)]
+        public async Task<IActionResult> GetCustomersWithBalance(CancellationToken cancellationToken)
+        {
+            var result = await _mediator.Send(
+                new GetCustomersWithBalanceQuery(),
+                cancellationToken
+            );
+            return Ok(result);
+        }
+
+        [HttpPost("register-refund")]
+        [ProducesResponseType(typeof(object), StatusCodes.Status201Created)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        public async Task<IActionResult> RegisterRefund(
+            [FromBody] RegisterCustomerRefundRequest request,
+            CancellationToken cancellationToken)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
+            var result = await _mediator.Send(
+                new RegisterCustomerRefundCommand(request),
+                cancellationToken
+            );
+
+            return CreatedAtAction(
+                nameof(GetById),
+                new { version = "1.0", id = result.Id },
+                result
+            );
         }
     }
 }

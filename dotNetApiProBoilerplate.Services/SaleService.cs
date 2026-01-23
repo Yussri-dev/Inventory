@@ -127,6 +127,35 @@ namespace Inventory.Services
             }
 
             // =========================
+            // 🔢 TOTALS RECOMPUTATION (VAT INCLUDED PRICES)
+            // =========================
+            var totalAmount = request.Lines.Sum(l => l.UnitPrice * l.Quantity);
+
+            var vatAmount = request.Lines.Sum(l =>
+            {
+                var rate = l.VatRate / 100m;
+                var gross = l.UnitPrice * l.Quantity;
+                return gross - (gross / (1 + rate));
+            });
+
+            var subtotalAmount = totalAmount - vatAmount;
+
+            // =========================
+            // 🔒 MONETARY INVARIANTS
+            // =========================
+            if (request.PaidAmount < 0)
+                throw new ValidationException("Paid amount cannot be negative.");
+
+            if (request.ChangeAmount < 0)
+                throw new ValidationException("Change amount cannot be negative.");
+
+            if (request.PaidAmount > totalAmount)
+                throw new ValidationException("Paid amount cannot exceed total amount.");
+
+            if (request.PaidAmount - request.ChangeAmount > totalAmount)
+                throw new ValidationException("Invalid payment / change combination.");
+
+            // =========================
             // SALE
             // =========================
             var sale = new Sale
@@ -137,14 +166,13 @@ namespace Inventory.Services
                 CustomerId = request.CustomerId,
                 CashSessionId = activeCashSessionId,
                 SaleDate = request.SaleDate == default ? DateTime.UtcNow : request.SaleDate,
-                SubtotalAmount = request.SubtotalAmount,
-                DiscountAmount = request.DiscountAmount,
-                VatAmount = request.VatAmount,
-                TotalAmount = request.TotalAmount,
+                SubtotalAmount = subtotalAmount,
+                VatAmount = vatAmount,
+                TotalAmount = totalAmount,
                 PaidAmount = request.PaidAmount,
                 ChangeAmount = request.ChangeAmount,
                 Status = SaleStatus.Completed,
-                PaymentStatus = request.PaidAmount >= request.TotalAmount
+                PaymentStatus = request.PaidAmount >= totalAmount
                     ? PaymentStatus.Paid
                     : PaymentStatus.Pending,
                 Notes = request.Notes,
@@ -296,15 +324,15 @@ namespace Inventory.Services
             if (sale.CustomerId.HasValue)
             {
                 var lastTx = await _customerTransactionRepository.GetLastAsync(
-                    t => t.CustomerId == sale.CustomerId.Value
-                         && !t.IsDeleted
-                         && t.TenantId == tenantId,
+                    t => t.CustomerId == sale.CustomerId.Value &&
+                         !t.IsDeleted &&
+                         t.TenantId == tenantId,
                     t => t.TransactionDate);
 
                 var balance = lastTx?.BalanceAfter ?? 0m;
 
-                // CREDIT (UNPAID)
-                var creditAmount = sale.TotalAmount - sale.PaidAmount;
+                var creditAmount = Math.Max(0, sale.TotalAmount - sale.PaidAmount);
+
                 if (creditAmount > 0)
                 {
                     await _customerTransactionRepository.AddAsync(new CustomerTransaction
@@ -318,27 +346,6 @@ namespace Inventory.Services
                         BalanceBefore = balance,
                         BalanceAfter = balance + creditAmount,
                         Description = $"Credit from sale {sale.InvoiceNumber}",
-                        TransactionDate = DateTime.UtcNow,
-                        CreatedAt = DateTime.UtcNow
-                    });
-
-                    balance += creditAmount;
-                }
-
-                // PAYMENT
-                if (sale.PaidAmount > 0)
-                {
-                    await _customerTransactionRepository.AddAsync(new CustomerTransaction
-                    {
-                        Id = Guid.NewGuid(),
-                        TenantId = tenantId,
-                        CustomerId = sale.CustomerId.Value,
-                        SaleId = sale.Id,
-                        Type = "Payment",
-                        Amount = sale.PaidAmount,
-                        BalanceBefore = balance,
-                        BalanceAfter = balance - sale.PaidAmount,
-                        Description = $"Payment for sale {sale.InvoiceNumber}",
                         TransactionDate = DateTime.UtcNow,
                         CreatedAt = DateTime.UtcNow
                     });

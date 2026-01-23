@@ -1488,135 +1488,72 @@
     // COMPLETE PAYMENT - MODIFIED FOR CREDIT LOGIC
     async Task CompletePayment()
     {
-        bool isCreditSelected = currentPaymentType == PaymentType.Credit;
-        bool hasNoPayments = paymentEntries.Count == 0;
-
-        if (isCreditSelected && hasNoPayments)
+        // CREDIT MODE
+        if (currentPaymentType == PaymentType.Credit)
         {
             if (SelectedCustomer == null)
             {
-                await JS.InvokeVoidAsync("alert",
-                    "Credit payment requires a customer.");
+                await JS.InvokeVoidAsync("alert", "Credit requires a customer.");
                 return;
             }
 
-            paymentEntries.Add(new PaymentEntry
-            {
-                Type = PaymentType.Credit,
-                Amount = TotalAmount,
-                Timestamp = DateTime.Now
-            });
-
-            paidAmount = TotalAmount;
-            remainingAmount = 0;
+            paymentEntries.Clear();
+            paidAmount = 0;
+            remainingAmount = TotalAmount;
         }
 
-
-        if (paidAmount != TotalAmount)
-        {
-            await JS.InvokeVoidAsync("alert",
-                $"Payment mismatch!\n\nTotal: €{TotalAmount:F2}\nPaid: €{paidAmount:F2}");
-            return;
-        }
-        // Check if change needs validation for walk-in customers
-        if (SelectedCustomer == null && changeAmount > 0 && !isChangeValidated)
-        {
-            await JS.InvokeVoidAsync("alert", "Please validate the change given before completing the sale.");
-            return;
-        }
-
-        // NEW CHECK: For walk-in customers, ensure they've paid the FULL amount
+        // WALK-IN MUST PAY FULL
         if (SelectedCustomer == null && remainingAmount > 0)
         {
             await JS.InvokeVoidAsync("alert",
-                $"Cannot complete sale for walk-in customer with unpaid balance.\n\n" +
-                $"Total: €{TotalAmount:F2}\n" +
-                $"Paid: €{paidAmount:F2}\n" +
-                $"Remaining: €{remainingAmount:F2}\n\n" +
-                $"Please collect the full amount or select a customer to add remaining balance to credit.");
+                "Walk-in customer must pay the full amount.");
             return;
         }
 
-        // NEW LOGIC: If credit is selected and no payments added yet, add the full amount as credit
-        // BUT ONLY IF A CUSTOMER IS SELECTED
-        if (isCreditSelected && hasNoPayments && SelectedCustomer != null)
+        // SANITY CHECK
+        if (paidAmount + remainingAmount != TotalAmount)
         {
-            // Add the ENTIRE total as a credit payment
-            var creditEntry = new PaymentEntry
-            {
-                Type = PaymentType.Credit,
-                Amount = TotalAmount,
-                Timestamp = DateTime.Now
-            };
-            paymentEntries.Add(creditEntry);
-            paidAmount = TotalAmount;
-            remainingAmount = 0;
-
-            // Show feedback to user
-            await JS.InvokeVoidAsync("alert", $"Full amount of €{TotalAmount:F2} has been added to {SelectedCustomer.Name}'s credit account.");
-        }
-        // EXISTING LOGIC: If there's a remaining balance, add it to credit
-        // BUT ONLY IF A CUSTOMER IS SELECTED
-        else if (remainingAmount > 0 && SelectedCustomer != null)
-        {
-            // Auto-add remaining balance to credit
-            var creditEntry = new PaymentEntry
-            {
-                Type = PaymentType.Credit,
-                Amount = remainingAmount,
-                Timestamp = DateTime.Now
-            };
-            paymentEntries.Add(creditEntry);
-            paidAmount += remainingAmount;
-            remainingAmount = 0;
-
-            // Show feedback to user
-            await JS.InvokeVoidAsync("alert", $"Remaining balance of €{creditEntry.Amount:F2} has been added to {SelectedCustomer.Name}'s credit account.");
-        }
-        // If trying to use credit without a customer, show error
-        else if ((isCreditSelected || remainingAmount > 0) && SelectedCustomer == null)
-        {
-            await JS.InvokeVoidAsync("alert",
-                "Cannot use credit payment for walk-in customers.\n\n" +
-                "Please either:\n" +
-                "1. Collect the full amount in cash/card\n" +
-                "2. Select a customer to add remaining balance to credit\n" +
-                "3. Reset payments and try again");
-            IsSaving = false;
+            await JS.InvokeVoidAsync("alert", "Invalid payment state.");
             return;
         }
 
         IsSaving = true;
-        StateHasChanged();
 
         try
         {
-            // Grouper les paiements par type
-            var cashAmount = paymentEntries.Where(p => p.Type == PaymentType.Cash).Sum(p => p.Amount);
-            var cardAmount = paymentEntries.Where(p => p.Type == PaymentType.Card).Sum(p => p.Amount);
-            var creditAmount = paymentEntries.Where(p => p.Type == PaymentType.Credit).Sum(p => p.Amount);
+            var cashAmount = paymentEntries
+                .Where(p => p.Type == PaymentType.Cash)
+                .Sum(p => p.Amount);
 
-            // Déterminer la méthode de paiement principale
-            string mainPaymentMethod = "Cash";
-            if (cardAmount > cashAmount && cardAmount > creditAmount)
-                mainPaymentMethod = "Card";
-            else if (creditAmount > cashAmount && creditAmount > cardAmount)
-                mainPaymentMethod = "Credit";
-            else if (cashAmount == 0 && cardAmount == 0 && creditAmount > 0)
-                mainPaymentMethod = "Credit";
+            var cardAmount = paymentEntries
+                .Where(p => p.Type == PaymentType.Card)
+                .Sum(p => p.Amount);
 
-            // Create payment info
-            var paymentInfo = new PaymentInfo
-            {
-                Amount = paidAmount,
-                PaymentMethod = mainPaymentMethod,
-                Reference = GeneratePaymentReference(cashAmount, cardAmount, creditAmount, changeAmount)
-            };
+            string mainPaymentMethod =
+                cardAmount > cashAmount ? "Card" :
+                cashAmount > 0 ? "Cash" :
+                "Credit";
+
+            var paymentInfo =
+                paidAmount > 0
+                    ? new PaymentInfo
+                    {
+                        Amount = paidAmount,
+                        PaymentMethod = mainPaymentMethod,
+                        Reference = GeneratePaymentReference(
+                            cashAmount,
+                            cardAmount,
+                            0,
+                            changeAmount)
+                    }
+                    : null;
 
             var request = new CreateCompleteSaleRequest
             {
                 CustomerId = SelectedCustomer?.Id,
                 SaleDate = DateTime.UtcNow,
+                // PaidAmount = paidAmount,
+                // ChangeAmount = changeAmount,
                 Lines = Lines.Select(l => new SaleLineItem
                 {
                     ProductId = l.ProductId,
@@ -1625,52 +1562,207 @@
                     VatRate = l.TaxRate,
                     DiscountPercent = l.CalculateDiscountPercent()
                 }).ToList(),
-                Payment = paidAmount > 0 ? paymentInfo : null,
-                Notes = GeneratePaymentNotes(cashAmount, cardAmount, creditAmount, changeAmount)
+                Payment = paymentInfo,
+                Notes = GeneratePaymentNotes(cashAmount, cardAmount, 0, changeAmount)
             };
 
-            var result = await SaleApi.CreateComplete(request);
 
-            // Create receipt
-            var receiptData = new ReceiptModel
-            {
-                SaleNumber = result.InvoiceNumber,
-                Date = result.SaleDate,
-                Customer = SelectedCustomer?.Name,
-                Total = TotalAmount,
-                Tax = TotalTax,
-                Lines = Lines.Select(l => new ReceiptLine
-                {
-                    Name = l.ProductName,
-                    Quantity = l.Quantity,
-                    UnitPrice = l.EffectiveUnitPrice,
-                    Amount = l.Amount
-                }).ToList(),
-                Payments = paymentEntries.Select(p => new ReceiptPayment
-                {
-                    Type = GetPaymentTypeName(p.Type),
-                    Amount = p.Amount
-                }).ToList()
-            };
-
-            await PrintReceipt(receiptData);
-            Console.WriteLine($"Sale completed with {paymentEntries.Count} payment(s)");
+            await SaleApi.CreateComplete(request);
 
             Reset();
             ClosePaymentModal();
         }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Error completing payment: {ex.Message}");
-            await JS.InvokeVoidAsync("alert", $"Error: {ex.Message}");
-        }
         finally
         {
             IsSaving = false;
-            StateHasChanged();
-            await FocusBarcodeInput();
         }
     }
+
+    // async Task CompletePayment()
+    // {
+    //     bool isCreditSelected = currentPaymentType == PaymentType.Credit;
+    //     bool hasNoPayments = paymentEntries.Count == 0;
+
+    //     if (isCreditSelected && hasNoPayments)
+    //     {
+    //         if (SelectedCustomer == null)
+    //         {
+    //             await JS.InvokeVoidAsync("alert",
+    //                 "Credit payment requires a customer.");
+    //             return;
+    //         }
+
+    //         paymentEntries.Add(new PaymentEntry
+    //         {
+    //             Type = PaymentType.Credit,
+    //             Amount = TotalAmount,
+    //             Timestamp = DateTime.Now
+    //         });
+
+    //         paidAmount = TotalAmount;
+    //         remainingAmount = 0;
+    //     }
+
+
+    //     if (paidAmount != TotalAmount)
+    //     {
+    //         await JS.InvokeVoidAsync("alert",
+    //             $"Payment mismatch!\n\nTotal: €{TotalAmount:F2}\nPaid: €{paidAmount:F2}");
+    //         return;
+    //     }
+    //     // Check if change needs validation for walk-in customers
+    //     if (SelectedCustomer == null && changeAmount > 0 && !isChangeValidated)
+    //     {
+    //         await JS.InvokeVoidAsync("alert", "Please validate the change given before completing the sale.");
+    //         return;
+    //     }
+
+    //     // NEW CHECK: For walk-in customers, ensure they've paid the FULL amount
+    //     if (SelectedCustomer == null && remainingAmount > 0)
+    //     {
+    //         await JS.InvokeVoidAsync("alert",
+    //             $"Cannot complete sale for walk-in customer with unpaid balance.\n\n" +
+    //             $"Total: €{TotalAmount:F2}\n" +
+    //             $"Paid: €{paidAmount:F2}\n" +
+    //             $"Remaining: €{remainingAmount:F2}\n\n" +
+    //             $"Please collect the full amount or select a customer to add remaining balance to credit.");
+    //         return;
+    //     }
+
+    //     // NEW LOGIC: If credit is selected and no payments added yet, add the full amount as credit
+    //     // BUT ONLY IF A CUSTOMER IS SELECTED
+    //     if (isCreditSelected && hasNoPayments && SelectedCustomer != null)
+    //     {
+    //         // Add the ENTIRE total as a credit payment
+    //         var creditEntry = new PaymentEntry
+    //         {
+    //             Type = PaymentType.Credit,
+    //             Amount = TotalAmount,
+    //             Timestamp = DateTime.Now
+    //         };
+    //         paymentEntries.Add(creditEntry);
+    //         paidAmount = TotalAmount;
+    //         remainingAmount = 0;
+
+    //         // Show feedback to user
+    //         await JS.InvokeVoidAsync("alert", $"Full amount of €{TotalAmount:F2} has been added to {SelectedCustomer.Name}'s credit account.");
+    //     }
+    //     // EXISTING LOGIC: If there's a remaining balance, add it to credit
+    //     // BUT ONLY IF A CUSTOMER IS SELECTED
+    //     else if (remainingAmount > 0 && SelectedCustomer != null)
+    //     {
+    //         // Auto-add remaining balance to credit
+    //         var creditEntry = new PaymentEntry
+    //         {
+    //             Type = PaymentType.Credit,
+    //             Amount = remainingAmount,
+    //             Timestamp = DateTime.Now
+    //         };
+    //         paymentEntries.Add(creditEntry);
+    //         paidAmount += remainingAmount;
+    //         remainingAmount = 0;
+
+    //         // Show feedback to user
+    //         await JS.InvokeVoidAsync("alert", $"Remaining balance of €{creditEntry.Amount:F2} has been added to {SelectedCustomer.Name}'s credit account.");
+    //     }
+    //     // If trying to use credit without a customer, show error
+    //     else if ((isCreditSelected || remainingAmount > 0) && SelectedCustomer == null)
+    //     {
+    //         await JS.InvokeVoidAsync("alert",
+    //             "Cannot use credit payment for walk-in customers.\n\n" +
+    //             "Please either:\n" +
+    //             "1. Collect the full amount in cash/card\n" +
+    //             "2. Select a customer to add remaining balance to credit\n" +
+    //             "3. Reset payments and try again");
+    //         IsSaving = false;
+    //         return;
+    //     }
+
+    //     IsSaving = true;
+    //     StateHasChanged();
+
+    //     try
+    //     {
+    //         // Grouper les paiements par type
+    //         var cashAmount = paymentEntries.Where(p => p.Type == PaymentType.Cash).Sum(p => p.Amount);
+    //         var cardAmount = paymentEntries.Where(p => p.Type == PaymentType.Card).Sum(p => p.Amount);
+    //         var creditAmount = paymentEntries.Where(p => p.Type == PaymentType.Credit).Sum(p => p.Amount);
+
+    //         // Déterminer la méthode de paiement principale
+    //         string mainPaymentMethod = "Cash";
+    //         if (cardAmount > cashAmount && cardAmount > creditAmount)
+    //             mainPaymentMethod = "Card";
+    //         else if (creditAmount > cashAmount && creditAmount > cardAmount)
+    //             mainPaymentMethod = "Credit";
+    //         else if (cashAmount == 0 && cardAmount == 0 && creditAmount > 0)
+    //             mainPaymentMethod = "Credit";
+
+    //         // Create payment info
+    //         var paymentInfo = new PaymentInfo
+    //         {
+    //             Amount = paidAmount,
+    //             PaymentMethod = mainPaymentMethod,
+    //             Reference = GeneratePaymentReference(cashAmount, cardAmount, creditAmount, changeAmount)
+    //         };
+
+    //         var request = new CreateCompleteSaleRequest
+    //         {
+    //             CustomerId = SelectedCustomer?.Id,
+    //             SaleDate = DateTime.UtcNow,
+    //             Lines = Lines.Select(l => new SaleLineItem
+    //             {
+    //                 ProductId = l.ProductId,
+    //                 Quantity = l.Quantity,
+    //                 UnitPrice = l.BaseSalePrice,
+    //                 VatRate = l.TaxRate,
+    //                 DiscountPercent = l.CalculateDiscountPercent()
+    //             }).ToList(),
+    //             Payment = paidAmount > 0 ? paymentInfo : null,
+    //             Notes = GeneratePaymentNotes(cashAmount, cardAmount, creditAmount, changeAmount)
+    //         };
+
+    //         var result = await SaleApi.CreateComplete(request);
+
+    //         // Create receipt
+    //         var receiptData = new ReceiptModel
+    //         {
+    //             SaleNumber = result.InvoiceNumber,
+    //             Date = result.SaleDate,
+    //             Customer = SelectedCustomer?.Name,
+    //             Total = TotalAmount,
+    //             Tax = TotalTax,
+    //             Lines = Lines.Select(l => new ReceiptLine
+    //             {
+    //                 Name = l.ProductName,
+    //                 Quantity = l.Quantity,
+    //                 UnitPrice = l.EffectiveUnitPrice,
+    //                 Amount = l.Amount
+    //             }).ToList(),
+    //             Payments = paymentEntries.Select(p => new ReceiptPayment
+    //             {
+    //                 Type = GetPaymentTypeName(p.Type),
+    //                 Amount = p.Amount
+    //             }).ToList()
+    //         };
+
+    //         await PrintReceipt(receiptData);
+    //         Console.WriteLine($"Sale completed with {paymentEntries.Count} payment(s)");
+
+    //         Reset();
+    //         ClosePaymentModal();
+    //     }
+    //     catch (Exception ex)
+    //     {
+    //         Console.WriteLine($"Error completing payment: {ex.Message}");
+    //         await JS.InvokeVoidAsync("alert", $"Error: {ex.Message}");
+    //     }
+    //     finally
+    //     {
+    //         IsSaving = false;
+    //         StateHasChanged();
+    //         await FocusBarcodeInput();
+    //     }
+    // }
 
     private void RecalculateChange()
     {

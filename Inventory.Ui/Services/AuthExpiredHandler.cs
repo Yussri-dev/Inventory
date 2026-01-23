@@ -1,22 +1,15 @@
-﻿using Inventory.Dto.Auth.Requests;
-using Inventory.Ui.Interfaces;
-using Microsoft.AspNetCore.Components;
+﻿using Inventory.Ui.Authentification;
 using System.Net;
-using System.Net.Http.Headers;
 
 namespace Inventory.Ui.Services
 {
     public sealed class AuthExpiredHandler : DelegatingHandler
     {
-        private readonly ISecureStorageService _storage;
-        private readonly NavigationManager _navigation;
+        private readonly JwtAuthStateProvider _auth;
 
-        public AuthExpiredHandler(
-            ISecureStorageService storage,
-            NavigationManager navigation)
+        public AuthExpiredHandler(JwtAuthStateProvider auth)
         {
-            _storage = storage;
-            _navigation = navigation;
+            _auth = auth;
         }
 
         protected override async Task<HttpResponseMessage> SendAsync(
@@ -27,9 +20,7 @@ namespace Inventory.Ui.Services
 
             if (response.StatusCode == HttpStatusCode.Unauthorized)
             {
-                await _storage.RemoveTokenAsync();
-
-                _navigation.NavigateTo("/login", replace: true);
+                await _auth.LogoutAsync();
             }
 
             return response;
