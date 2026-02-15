@@ -1,4 +1,5 @@
-﻿using Inventory.Dto.Pages.Results;
+﻿using Inventory.Dto.GlobalRequests.Results;
+using Inventory.Dto.Pages.Results;
 using Inventory.Dto.Queries;
 using Inventory.Dto.Suppliers.Requests;
 using Inventory.Dto.Suppliers.Results;

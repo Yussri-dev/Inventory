@@ -22,5 +22,7 @@ namespace Inventory.Dto.Auth.Results
         public string Email { get; set; } = null!;
         public string? FullName { get; set; }
         public string Role { get; set; } = null!;
+        public DateTime? TrialEndDate { get; set; }
+        public bool IsTrialActive { get; set; }
     }
 }

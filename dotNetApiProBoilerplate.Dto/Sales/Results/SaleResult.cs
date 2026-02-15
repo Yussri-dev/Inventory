@@ -10,6 +10,7 @@ namespace Inventory.Dto.Sales.Results
         public Guid Id { get; set; }
 
         public string InvoiceNumber { get; set; } = null!;
+        public string? CustomerName { get; set; }
 
         public decimal SubtotalAmount { get; set; }
 

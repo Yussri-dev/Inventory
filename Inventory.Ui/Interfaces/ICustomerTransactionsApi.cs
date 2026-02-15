@@ -25,5 +25,8 @@ namespace Inventory.Ui.Interfaces
         Task<CustomerTransactionResult> RegisterRefund(
             [Body] RegisterCustomerRefundRequest request
         );
+
+        [Get("/api/v1/customertransactions/customer-detail/{customerId}")]
+        Task<CustomerDetailResult> GetCustomerDetail(Guid customerId);
     }
 }

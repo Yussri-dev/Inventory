@@ -14,24 +14,44 @@ namespace Inventory.Services
     {
         private readonly IRepository<SaleLine> _repository;
         private readonly IRepository<Sale> _saleRepository;
+        private readonly IRepository<ReturnLine> _returnLineRepository;
         private readonly IUnitOfWork _unitOfWork;
         private readonly IMapper _mapper;
         private readonly ITenantContext _tenantContext;
 
         public SaleLineService(
             IRepository<SaleLine> repository,
+            IRepository<ReturnLine> returnLineRepository,
             IRepository<Sale> saleRepository,
             IUnitOfWork unitOfWork,
             IMapper mapper,
             ITenantContext tenantContext)
         {
             _repository = repository;
+            _returnLineRepository = returnLineRepository;
             _saleRepository = saleRepository;
             _unitOfWork = unitOfWork;
             _mapper = mapper;
             _tenantContext = tenantContext;
         }
 
+        public async Task<List<SaleLineResult>> GetBySaleIdAsync(Guid saleId)
+        {
+            var tenantId = _tenantContext.TenantId;
+
+            // Verify parent sale
+            var sale = await _saleRepository.GetByIdAsync(saleId);
+            if (sale == null || sale.TenantId != tenantId)
+                throw new NotFoundException("Sale", saleId);
+
+            var saleLines = await _repository.GetAllAsync();
+
+            var filtered = saleLines
+                .Where(sl => sl.SaleId == saleId)
+                .ToList();
+
+            return _mapper.Map<List<SaleLineResult>>(filtered);
+        }
         // CREATE
         public async Task<SaleLineResult> CreateAsync(CreateSaleLineRequest request)
         {
@@ -83,6 +103,7 @@ namespace Inventory.Services
         public async Task<SaleLineResult> GetByIdAsync(Guid id)
         {
             var tenantId = _tenantContext.TenantId;
+
             var saleLine = await _repository.GetByIdAsync(id);
 
             if (saleLine == null)
@@ -92,6 +113,7 @@ namespace Inventory.Services
 
             // Verify through parent Sale
             var sale = await _saleRepository.GetByIdAsync(saleLine.SaleId);
+
             if (sale == null || sale.TenantId != tenantId)
             {
                 throw new NotFoundException("SaleLine", id);
@@ -242,5 +264,49 @@ namespace Inventory.Services
                 PageSize = query.PageSize
             };
         }
+
+        public async Task<List<SaleLineWithReturnsResult>> GetBySaleIdWithReturnsAsync(Guid saleId)
+        {
+            var tenantId = _tenantContext.TenantId;
+
+            var sale = await _saleRepository.GetByIdAsync(saleId);
+            if (sale == null || sale.IsDeleted || sale.TenantId != tenantId)
+                throw new NotFoundException("Sale", saleId);
+
+            var saleLines = (await _repository.GetAllAsync())
+                .Where(sl => sl.SaleId == saleId)
+                .ToList();
+
+            var returnLines = await _returnLineRepository.GetAllAsync();
+
+            var results = saleLines.Select(sl =>
+            {
+                var returnedQty = returnLines
+                    .Where(rl =>
+                        rl.ProductId == sl.ProductId &&
+                        rl.Return!.SaleId == saleId &&
+                        !rl.IsDeleted)
+                    .Sum(rl => rl.Quantity);
+
+                var available = sl.Quantity - returnedQty;
+                if (available < 0) available = 0;
+
+                return new SaleLineWithReturnsResult
+                {
+                    Id = sl.Id,
+                    SaleId = sl.SaleId,
+                    ProductId = sl.ProductId,
+                    Quantity = sl.Quantity,
+                    UnitPrice = sl.UnitPrice,
+                    VatRate = sl.VatRate,
+                    ReturnedQuantity = returnedQty,
+                    AvailableQuantity = available,
+                    LineAmountInclVat = sl.Quantity * sl.UnitPrice
+                };
+            }).ToList();
+
+            return results;
+        }
+
     }
 }

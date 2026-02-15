@@ -22,7 +22,14 @@ namespace Inventory.Services.Mapping
                 .ForMember(dest => dest.Lines, opt => opt.Ignore());
 
             CreateMap<CreateCompleteReturnRequest, Return>()
-                .IncludeBase<CreateReturnRequest, Return>();
+                .ForMember(dest => dest.Id, opt => opt.Ignore())
+                .ForMember(dest => dest.ReturnNumber, opt => opt.Ignore())
+                .ForMember(dest => dest.TotalAmount, opt => opt.Ignore())
+                .ForMember(dest => dest.CreatedAt, opt => opt.Ignore())
+                .ForMember(dest => dest.ModifiedAt, opt => opt.Ignore())
+                .ForMember(dest => dest.Sale, opt => opt.Ignore())
+                .ForMember(dest => dest.Lines, opt => opt.Ignore());
+
 
             // =========================
             // UPDATE

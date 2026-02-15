@@ -6,6 +6,9 @@ using Inventory.Ui.Services;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.Extensions.Logging;
 using Refit;
+#if WINDOWS
+using Inventory.Ui.Platforms.Windows.Printing;
+#endif
 
 public static class MauiProgram
 {
@@ -56,20 +59,35 @@ public static class MauiProgram
         // =========================
         builder.Services.AddSecuredApi<IAuthApi>(apiBaseUrl);
         builder.Services.AddSecuredApi<ICashSessionApi>(apiBaseUrl);
+
         builder.Services.AddSecuredApi<IProductApi>(apiBaseUrl);
         builder.Services.AddSecuredApi<IProductCatalogApi>(apiBaseUrl);
+
         builder.Services.AddSecuredApi<ISupplierApi>(apiBaseUrl);
         builder.Services.AddSecuredApi<ICustomerApi>(apiBaseUrl);
+
         builder.Services.AddSecuredApi<IPurchaseApi>(apiBaseUrl);
+
         builder.Services.AddSecuredApi<ISaleApi>(apiBaseUrl);
+        builder.Services.AddSecuredApi<ISaleLineApi>(apiBaseUrl);
+
         builder.Services.AddSecuredApi<IInventorySessionApi>(apiBaseUrl);
         builder.Services.AddSecuredApi<IInventoryLineApi>(apiBaseUrl);
+
         builder.Services.AddSecuredApi<IStockApi>(apiBaseUrl);
         builder.Services.AddSecuredApi<IStockMovementApi>(apiBaseUrl);
+
         builder.Services.AddSecuredApi<IReturnApi>(apiBaseUrl);
         builder.Services.AddSecuredApi<IReturnLineApi>(apiBaseUrl);
-        builder.Services.AddSecuredApi<ICustomerTransactionsApi>(apiBaseUrl);
 
+        builder.Services.AddSecuredApi<ICustomerTransactionsApi>(apiBaseUrl);
+        builder.Services.AddSecuredApi<IAnalyticsApi>(apiBaseUrl);
+        builder.Services.AddSecuredApi<IDamageApi>(apiBaseUrl);
+        builder.Services.AddSecuredApi<IPosApi>(apiBaseUrl);
+
+        //#if WINDOWS
+        //builder.Services.AddSingleton<ITicketPrinter, WindowsTicketPrinter>();
+        //#endif
 
         return builder.Build();
     }

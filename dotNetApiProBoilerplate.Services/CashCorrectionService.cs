@@ -49,7 +49,7 @@ namespace Inventory.Services
 
             if (session == null ||
                 session.TenantId != tenantId ||
-                session.Status != Domain.Enums.CashSessionStatus.Closed)
+                session.Status != CashSessionStatus.Closed)
                 throw new ConflictException("Cash session must be closed to apply a correction.");
 
             var entity = _mapper.Map<CashCorrection>(request);

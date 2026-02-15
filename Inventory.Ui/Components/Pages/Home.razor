@@ -1,5 +1,271 @@
 ﻿@page "/"
 
-<h1>Hello, world!</h1>
+@using Inventory.Dto.Analytics.Results
+@using System.Globalization
+@using Microsoft.Extensions.Logging
+@using System.Net
 
-Welcome to your new app.
+@inject NavigationManager Nav
+@inject ILogger<Home> Logger
+@inject IAnalyticsApi AnalyticsApi
+
+<div class="analytics-page">
+
+    <h1>📊 Analytics Dashboard</h1>
+
+    <!-- PERIOD SELECTOR -->
+    <div class="period-selector">
+        <button @onclick="() => SelectPeriod(Period.Today)">Today</button>
+        <button @onclick="() => SelectPeriod(Period.Week)">This Week</button>
+        <button @onclick="() => SelectPeriod(Period.Month)">This Month</button>
+        <button @onclick="() => SelectPeriod(Period.Year)">This Year</button>
+    </div>
+
+    <!-- KPI SUMMARY -->
+    <div class="kpi-grid">
+        <div class="kpi-card">
+            <div class="kpi-label">Revenue</div>
+            <div class="kpi-value positive">
+                €@Profit.TotalRevenue.ToString("N2")
+            </div>
+        </div>
+
+        <div class="kpi-card">
+            <div class="kpi-label">Refunds</div>
+            <div class="kpi-value negative">
+                €@Profit.TotalRefunds.ToString("N2")
+            </div>
+        </div>
+
+        <div class="kpi-card">
+            <div class="kpi-label">Cost</div>
+            <div class="kpi-value">
+                €@Profit.TotalCost.ToString("N2")
+            </div>
+        </div>
+
+        <div class="kpi-card">
+            <div class="kpi-label">Profit</div>
+            <div class="kpi-value @(Profit.GrossProfit >= 0 ? "positive" : "negative")">
+                €@Profit.GrossProfit.ToString("N2")
+            </div>
+        </div>
+
+        <div class="kpi-card">
+            <div class="kpi-label">Margin</div>
+            <div class="kpi-value">
+                @Profit.ProfitMargin.ToString("N2")%
+            </div>
+        </div>
+    </div>
+
+    <!-- LOSS PRODUCTS -->
+    <h2>⚠️ Loss Products</h2>
+
+    @if (LossProducts.Any())
+    {
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Product</th>
+                    <th>Returned Qty</th>
+                    <th>Lost Revenue</th>
+                    <th>Reason</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var p in LossProducts)
+                {
+                    <tr>
+                        <td>@p.ProductName</td>
+                        <td>@p.ReturnedQuantity</td>
+                        <td class="negative">€@p.LostRevenue.ToString("N2")</td>
+                        <td>@p.LossReason</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+    else
+    {
+        <p>No loss products for this period.</p>
+    }
+
+    <!-- WEEKLY REPORT -->
+    <h2>📈 Weekly Report (@Weekly.Week)</h2>
+
+    <div class="kpi-grid">
+        <div class="kpi-card">
+            <div class="kpi-label">Revenue</div>
+            <div class="kpi-value">
+                €@Weekly.Revenue.ToString("N2")
+            </div>
+        </div>
+
+        <div class="kpi-card">
+            <div class="kpi-label">Expenses</div>
+            <div class="kpi-value">
+                €@Weekly.Expenses.ToString("N2")
+            </div>
+        </div>
+
+        <div class="kpi-card">
+            <div class="kpi-label">Profit</div>
+            <div class="kpi-value @(Weekly.Profit >= 0 ? "positive" : "negative")">
+                €@Weekly.Profit.ToString("N2")
+            </div>
+        </div>
+
+        <div class="kpi-card">
+            <div class="kpi-label">Sales</div>
+            <div class="kpi-value">
+                @Weekly.SalesCount
+            </div>
+        </div>
+
+        <div class="kpi-card">
+            <div class="kpi-label">Returns</div>
+            <div class="kpi-value">
+                @Weekly.ReturnsCount
+            </div>
+        </div>
+
+        <div class="kpi-card">
+            <div class="kpi-label">Cash Opening</div>
+            <div class="kpi-value">
+                €@Weekly.CashOpening.ToString("N2")
+            </div>
+        </div>
+
+        <div class="kpi-card">
+            <div class="kpi-label">Cash Closing</div>
+            <div class="kpi-value">
+                €@Weekly.CashClosing.ToString("N2")
+            </div>
+        </div>
+    </div>
+
+</div>
+
+@code {
+
+    // =========================
+    // STATE
+    // =========================
+
+    ProfitAnalyticsResult Profit = new();
+    List<LossProductResult> LossProducts = new();
+    WeeklyReportResult Weekly = new();
+
+    Period SelectedPeriod = Period.Today;
+    DateOnly From;
+    DateOnly To;
+
+    // redirect guard (CRITICAL)
+    static bool _redirectingToLogin = false;
+
+    // =========================
+    // INIT
+    // =========================
+
+    protected override async Task OnInitializedAsync()
+    {
+        ComputePeriod();
+        await LoadAnalytics();
+    }
+
+    // =========================
+    // PERIOD HANDLING
+    // =========================
+
+    void SelectPeriod(Period period)
+    {
+        SelectedPeriod = period;
+        ComputePeriod();
+        _ = LoadAnalytics();
+    }
+
+    void ComputePeriod()
+    {
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+
+        switch (SelectedPeriod)
+        {
+            case Period.Today:
+                From = today;
+                To = today;
+                break;
+
+            case Period.Week:
+                From = today.AddDays(-(int)today.DayOfWeek + 1);
+                To = From.AddDays(6);
+                break;
+
+            case Period.Month:
+                From = new DateOnly(today.Year, today.Month, 1);
+                To = From.AddMonths(1).AddDays(-1);
+                break;
+
+            case Period.Year:
+                From = new DateOnly(today.Year, 1, 1);
+                To = new DateOnly(today.Year, 12, 31);
+                break;
+        }
+    }
+
+    // =========================
+    // LOAD ANALYTICS (SAFE)
+    // =========================
+
+    async Task LoadAnalytics()
+    {
+        try
+        {
+            Profit = await AnalyticsApi.GetProfitAsync(From, To);
+
+            var loss = await AnalyticsApi.GetLossProductsAsync(From, To, 10);
+            LossProducts = loss.Items.ToList();
+
+            var now = DateTime.UtcNow;
+            var week = ISOWeek.GetWeekOfYear(now);
+            var year = now.Year;
+
+            Weekly = await AnalyticsApi.GetWeeklyAsync(year, week);
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            HandleUnauthorized();
+        }
+    }
+
+    // =========================
+    // AUTH REDIRECT (NO LOOP)
+    // =========================
+
+    void HandleUnauthorized()
+    {
+        if (_redirectingToLogin)
+            return;
+
+        if (Nav.Uri.Contains("/login"))
+            return;
+
+        _redirectingToLogin = true;
+
+        Logger.LogWarning("Unauthorized → redirecting to login");
+
+        Nav.NavigateTo("/login", replace: true);
+    }
+
+    // =========================
+    // MODELS
+    // =========================
+
+    enum Period
+    {
+        Today,
+        Week,
+        Month,
+        Year
+    }
+}

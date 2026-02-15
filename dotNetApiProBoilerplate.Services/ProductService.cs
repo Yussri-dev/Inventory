@@ -52,7 +52,9 @@ namespace Inventory.Services
             if (exists)
                 throw new ConflictException($"Product '{catalogProduct.Name}' already exists for this store.");
 
-            if (request.PurchasePrice > request.SalePrice)
+            if (request.PurchasePrice > request.SalePrice && 
+                request.PurchasePrice > request.SalePrice2 && 
+                request.PurchasePrice > request.SalePrice3)
                 throw new ValidationException(new Dictionary<string, string[]>
                 {
                     { "Price", new[] { "Purchase price cannot be greater than sale price." } }
@@ -60,7 +62,6 @@ namespace Inventory.Services
 
             var product = _mapper.Map<Product>(request);
 
-            // ✅ REQUIRED SNAPSHOT
             product.Name = catalogProduct.Name;
             product.Barcode = catalogProduct.Barcode;
             product.Brand = catalogProduct.Brand;
@@ -122,7 +123,7 @@ namespace Inventory.Services
             }
 
             // Validate prices
-            if (request.SalePrice < 0)
+            if (request.SalePrice < 0 && request.SalePrice2 < 0 && request.SalePrice3 < 0)
             {
                 throw new ValidationException(new Dictionary<string, string[]>
                 {
@@ -138,7 +139,9 @@ namespace Inventory.Services
                 });
             }
 
-            if (request.PurchasePrice > request.SalePrice)
+            if (request.PurchasePrice > request.SalePrice && 
+                request.PurchasePrice > request.SalePrice2 && 
+                request.PurchasePrice > request.SalePrice3)
             {
                 throw new ValidationException(new Dictionary<string, string[]>
                 {

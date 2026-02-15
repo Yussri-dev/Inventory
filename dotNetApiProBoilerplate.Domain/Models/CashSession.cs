@@ -1,7 +1,7 @@
 ﻿
 using Inventory.Domain.Abstraction;
-using Inventory.Domain.Enums;
 using Inventory.Domain.Models;
+using Inventory.Dto.Enums;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 

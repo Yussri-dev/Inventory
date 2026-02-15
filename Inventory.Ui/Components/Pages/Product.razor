@@ -76,6 +76,20 @@
                         <ValidationMessage For="@(() => form.SalePrice)" />
                     </div>
                     <div class="form-field">
+                        <label>Sale Price 2 *</label>
+                        <InputNumber placeholder="0.00"
+                                     @bind-Value="form.SalePrice2"
+                                     disabled="@isLoading" />
+                        <ValidationMessage For="@(() => form.SalePrice2)" />
+                    </div>
+                    <div class="form-field">
+                        <label>Sale Price 3 *</label>
+                        <InputNumber placeholder="0.00"
+                                     @bind-Value="form.SalePrice3"
+                                     disabled="@isLoading" />
+                        <ValidationMessage For="@(() => form.SalePrice3)" />
+                    </div>
+                    <div class="form-field">
                         <label>Purchase Price *</label>
                         <InputNumber placeholder="0.00"
                                      @bind-Value="form.PurchasePrice"
@@ -417,6 +431,8 @@
             {
                 CatalogProductId = form.CatalogProductId,
                 SalePrice = form.SalePrice,
+                SalePrice2 = form.SalePrice2,
+                SalePrice3 = form.SalePrice3,
                 PurchasePrice = form.PurchasePrice,
                 VatRate = form.VatRate,
                 MinStockLevel = form.MinStockLevel,
@@ -464,6 +480,8 @@
             var request = new UpdateProductRequest
             {
                 SalePrice = form.SalePrice,
+                SalePrice2 = form.SalePrice2,
+                SalePrice3 = form.SalePrice3,
                 PurchasePrice = form.PurchasePrice,
                 VatRate = form.VatRate,
                 MinStockLevel = form.MinStockLevel,
@@ -552,6 +570,8 @@
         editingId = p.Id;
         form.CatalogProductId = p.CatalogProductId;
         form.SalePrice = p.SalePrice;
+        form.SalePrice2 = p.SalePrice2;
+        form.SalePrice3 = p.SalePrice3;
         form.PurchasePrice = p.PurchasePrice;
         form.VatRate = p.VatRate;
         form.MinStockLevel = p.MinStockLevel;
@@ -607,6 +627,12 @@
         [Range(0, double.MaxValue, ErrorMessage = "Sale price must be positive")]
         public decimal SalePrice { get; set; }
 
+        [Range(0, double.MaxValue, ErrorMessage = "Sale2 price must be positive")]
+        public decimal SalePrice2 { get; set; }
+
+        [Range(0, double.MaxValue, ErrorMessage = "Sale3 price must be positive")]
+        public decimal SalePrice3 { get; set;
+        }
         [Range(0, double.MaxValue, ErrorMessage = "Purchase price must be positive")]
         public decimal PurchasePrice { get; set; }
 

@@ -539,7 +539,7 @@ namespace Inventory.Infrastructure.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
-                    b.Property<Guid?>("CatalogProductId")
+                    b.Property<Guid>("CatalogProductId")
                         .HasColumnType("uuid");
 
                     b.Property<string>("Category")
@@ -596,6 +596,12 @@ namespace Inventory.Infrastructure.Migrations
                         .HasColumnType("decimal(18,2)");
 
                     b.Property<decimal>("SalePrice")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("SalePrice2")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("SalePrice3")
                         .HasColumnType("decimal(18,2)");
 
                     b.Property<string>("Sku")
@@ -1706,15 +1712,8 @@ namespace Inventory.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
-                    b.Property<DateTime?>("ApprovedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid?>("ApprovedByUserId")
-                        .HasColumnType("uuid");
-
                     b.Property<string>("Category")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
+                        .HasColumnType("text");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -1727,8 +1726,7 @@ namespace Inventory.Infrastructure.Migrations
 
                     b.Property<string>("DamageNumber")
                         .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
+                        .HasColumnType("text");
 
                     b.Property<DateTime?>("DeletedAt")
                         .HasColumnType("timestamp with time zone");
@@ -1737,10 +1735,7 @@ namespace Inventory.Infrastructure.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<decimal>("EstimatedValue")
-                        .HasColumnType("decimal(18,2)");
-
-                    b.Property<bool>("IsApproved")
-                        .HasColumnType("boolean");
+                        .HasColumnType("numeric");
 
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("boolean");
@@ -1751,26 +1746,26 @@ namespace Inventory.Infrastructure.Migrations
                     b.Property<Guid?>("ModifiedByUserId")
                         .HasColumnType("uuid");
 
-                    b.Property<string>("Notes")
-                        .HasMaxLength(1000)
-                        .HasColumnType("character varying(1000)");
-
-                    b.Property<string>("Photos")
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)");
-
                     b.Property<Guid>("ProductId")
                         .HasColumnType("uuid");
 
                     b.Property<decimal>("Quantity")
-                        .HasColumnType("decimal(18,3)");
+                        .HasColumnType("numeric");
 
                     b.Property<string>("Reason")
                         .IsRequired()
-                        .HasMaxLength(1000)
-                        .HasColumnType("character varying(1000)");
+                        .HasColumnType("text");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
 
                     b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("ValidatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ValidatedByUserId")
                         .HasColumnType("uuid");
 
                     b.HasKey("Id");
@@ -3168,7 +3163,8 @@ namespace Inventory.Infrastructure.Migrations
                     b.HasOne("Inventory.Domain.Entities.ProductCatalog", "CatalogProduct")
                         .WithMany("TenantProducts")
                         .HasForeignKey("CatalogProductId")
-                        .OnDelete(DeleteBehavior.SetNull);
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .IsRequired();
 
                     b.HasOne("Inventory.Domain.Models.Tenant", "Tenant")
                         .WithMany("Products")

@@ -5,6 +5,7 @@
         Cash,
         Card,
         Credit,
-        Original
+        Original,
+        Exchange
     }
 }

@@ -13,6 +13,12 @@ namespace Inventory.Dto.Products.Requests
         public decimal SalePrice { get; set; }
 
         [Range(0, double.MaxValue)]
+        public decimal SalePrice2 { get; set; }
+
+        [Range(0, double.MaxValue)]
+        public decimal SalePrice3 { get; set; }
+
+        [Range(0, double.MaxValue)]
         public decimal PurchasePrice { get; set; }
 
         [Range(0, 100)]

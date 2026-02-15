@@ -90,7 +90,7 @@ namespace Inventory.Services
                 parts.Add(config.Suffix);
 
             await _unitOfWork.SaveChangesAsync();
-            return string.Join("-", parts);
+            return string.Join("0", parts);
         }
     }
 }

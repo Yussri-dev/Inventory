@@ -42,9 +42,14 @@ namespace Inventory.Services.Mapping
     .ForMember(d => d.ModifiedByUserId, o => o.Ignore())
     .ForMember(d => d.DeletedByUserId, o => o.Ignore())
 
-    // ✅ Tenant-owned fields (CORRECT)
+    // Tenant-owned fields (CORRECT)
     .ForMember(d => d.CatalogProductId, o => o.MapFrom(s => s.CatalogProductId))
+
     .ForMember(d => d.SalePrice, o => o.MapFrom(s => s.SalePrice))
+    .ForMember(d => d.SalePrice2, o => o.MapFrom(s=> s.SalePrice2))
+    .ForMember(d => d.SalePrice3, o => o.MapFrom(s=> s.SalePrice3))
+
+
     .ForMember(d => d.PurchasePrice, o => o.MapFrom(s => s.PurchasePrice))
     .ForMember(d => d.VatRate, o => o.MapFrom(s => s.VatRate))
     .ForMember(d => d.MinStockLevel, o => o.MapFrom(s => s.MinStockLevel))
@@ -82,6 +87,9 @@ namespace Inventory.Services.Mapping
                 .ForMember(d => d.DeletedByUserId, o => o.Ignore())
                 // Map only tenant-specific fields that can be updated
                 .ForMember(d => d.SalePrice, o => o.MapFrom(s => s.SalePrice))
+                .ForMember(d => d.SalePrice2, o => o.MapFrom(s => s.SalePrice2))
+                .ForMember(d => d.SalePrice3, o => o.MapFrom(s => s.SalePrice3))
+
                 .ForMember(d => d.PurchasePrice, o => o.MapFrom(s => s.PurchasePrice))
                 .ForMember(d => d.VatRate, o => o.MapFrom(s => s.VatRate))
                 .ForMember(d => d.MinStockLevel, o => o.MapFrom(s => s.MinStockLevel))
@@ -101,6 +109,8 @@ namespace Inventory.Services.Mapping
                 .ForMember(d => d.CatalogBarcode, o => o.MapFrom(s => s.CatalogProduct != null ? s.CatalogProduct.Barcode : s.Barcode))
                 // Tenant-specific fields
                 .ForMember(d => d.SalePrice, o => o.MapFrom(s => s.SalePrice))
+                .ForMember(d => d.SalePrice2, o => o.MapFrom(s => s.SalePrice2))
+                .ForMember(d => d.SalePrice3, o => o.MapFrom(s => s.SalePrice3))
                 .ForMember(d => d.PurchasePrice, o => o.MapFrom(s => s.PurchasePrice))
                 .ForMember(d => d.VatRate, o => o.MapFrom(s => s.VatRate))
                 .ForMember(d => d.MinStockLevel, o => o.MapFrom(s => s.MinStockLevel))

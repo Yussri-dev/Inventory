@@ -1,12 +1,13 @@
 ﻿using AutoMapper;
 using Inventory.Domain.Entities;
 using Inventory.Dto.Pages.Results;
+using Inventory.Dto.Queries;
 using Inventory.Dto.Stock.Requests;
 using Inventory.Dto.Stock.Results;
-using Inventory.Dto.Queries;
 using Inventory.Infrastructure.Repositories;
 using Inventory.Services.Context;
 using Inventory.Services.Exceptions;
+using Microsoft.EntityFrameworkCore;
 
 namespace Inventory.Services
 {
@@ -16,14 +17,18 @@ namespace Inventory.Services
         private readonly IUnitOfWork _unitOfWork;
         private readonly IMapper _mapper;
         private readonly ITenantContext _tenantContext;
+        private readonly IReadRepository<Stock> _readRepo;
 
         public StockService(
             IRepository<Stock> repository,
+                IReadRepository<Stock> readRepo,
+
             IUnitOfWork unitOfWork,
             IMapper mapper,
             ITenantContext tenantContext)
         {
             _repository = repository;
+            _readRepo = readRepo;
             _unitOfWork = unitOfWork;
             _mapper = mapper;
             _tenantContext = tenantContext;
@@ -188,21 +193,38 @@ namespace Inventory.Services
                 });
             }
 
-            var all = (await _repository.GetAllAsync())
-                .Where(s => !s.IsDeleted && s.TenantId == tenantId)
-                .AsQueryable();
+            var queryable = _readRepo
+                            .Query()
+                            .Include(s => s.Product)
+                            .ThenInclude(p => p.CatalogProduct)
+                            .Where(s => !s.IsDeleted && s.TenantId == tenantId);
+
+
+            if (!string.IsNullOrWhiteSpace(query.Search))
+            {
+                var search = query.Search.Trim().ToLower();
+
+                queryable = queryable.Where(s =>
+                    s.Product.Name.ToLower().Contains(search) ||
+                    s.Product.CatalogProduct.Name.ToLower().Contains(search)
+                );
+            }
+
 
             if (query.ProductId.HasValue)
             {
-                all = all.Where(s => s.ProductId == query.ProductId.Value);
+                queryable = queryable.Where(s => s.ProductId == query.ProductId.Value);
             }
 
-            var total = all.Count();
+            queryable = queryable.OrderBy(s => s.ProductId);
 
-            var items = all
+            var total = await queryable.CountAsync();
+
+            var items = await queryable
                 .Skip((query.Page - 1) * query.PageSize)
                 .Take(query.PageSize)
-                .ToList();
+                .ToListAsync();
+
 
             return new PagedResult<StockResult>
             {

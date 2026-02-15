@@ -1,6 +1,6 @@
 ﻿using AutoMapper;
 using Inventory.Domain.Entities;
-using Inventory.Domain.Enums;
+using Inventory.Dto.Enums;
 using Inventory.Dto.Pages.Results;
 using Inventory.Dto.Purchases.Requests;
 using Inventory.Dto.Purchases.Results;

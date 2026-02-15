@@ -4,6 +4,7 @@ using Inventory.Services;
 using Inventory.Services.Abstractions;
 using Inventory.Services.Behaviors;
 using Inventory.Services.Context;
+using Inventory.Services.Ticket;
 using MediatR;
 
 namespace Inventory.Api.Installers
@@ -13,6 +14,8 @@ namespace Inventory.Api.Installers
         public static WebApplicationBuilder InstallServices(this WebApplicationBuilder builder)
         {
             builder.Services.AddScoped(typeof(IRepository<>), typeof(Repository<>));
+            builder.Services.AddScoped(typeof(IReadRepository<>), typeof(ReadRepository<>));
+
 
             builder.Services.AddScoped(typeof(IPipelineBehavior<,>), typeof(UnitOfWorkBehavior<,>));
 
@@ -60,6 +63,7 @@ namespace Inventory.Api.Installers
             builder.Services.AddScoped<InventorySessionService>();
             builder.Services.AddScoped<IDocumentNumberService, DocumentNumberService>();
             builder.Services.AddScoped<ICashSessionService, CashSessionService>();
+            builder.Services.AddScoped<ITicketFormatter, PdfTicketFormatter>();
 
 
             builder.Services.AddHttpContextAccessor();

@@ -1,8 +1,8 @@
 ﻿using AutoMapper;
 using Inventory.Domain.Entities;
-using Inventory.Domain.Enums;
 using Inventory.Dto.CustomerTransactions.Requests;
 using Inventory.Dto.CustomerTransactions.Results;
+using Inventory.Dto.Enums;
 using Inventory.Dto.Pages.Results;
 using Inventory.Dto.Queries;
 using Inventory.Infrastructure.Repositories;
@@ -16,6 +16,7 @@ namespace Inventory.Services
     {
         private readonly IRepository<CustomerTransaction> _customerTransactionRepository;
         private readonly IRepository<Customer> _customerRepository;
+        private readonly IRepository<Sale> _saleRepository;
         private readonly IRepository<CashMovement> _cashMovementRepository;
         private readonly ICashSessionService _cashSessionService;
 
@@ -26,6 +27,7 @@ namespace Inventory.Services
         public CustomerTransactionService(
             IRepository<CustomerTransaction> customerTransactionRepository,
             IRepository<Customer> customerRepository,
+            IRepository<Sale> saleRepository,
             IRepository<CashMovement> cashMovementRepository,
             ICashSessionService cashSessionService,
             IUnitOfWork unitOfWork,
@@ -34,6 +36,7 @@ namespace Inventory.Services
         {
             _customerTransactionRepository = customerTransactionRepository;
             _customerRepository = customerRepository;
+            _saleRepository = saleRepository;
             _unitOfWork = unitOfWork;
             _mapper = mapper;
             _tenantContext = tenantContext;
@@ -305,113 +308,149 @@ namespace Inventory.Services
         }
 
         public async Task<CustomerTransactionResult> RegisterCustomerRefundAsync(
-    Guid customerId,
-    decimal amount,
-    string? description = null,
-    bool isCash = true)
+            Guid customerId,
+            decimal amount,
+            string? description = null,
+            bool isCash = true)
+                {
+                    var tenantId = _tenantContext.TenantId;
+                    var userId = _tenantContext.UserId;
+                    var customer = await _customerRepository.GetByIdAsync(customerId);
+
+                    amount = Math.Round(amount, 2, MidpointRounding.AwayFromZero);
+
+                    if (customer == null || customer.IsDeleted || customer.TenantId != tenantId)
+                        throw new NotFoundException("Customer", customerId);
+
+                    if (amount <= 0)
+                        throw new ValidationException(new Dictionary<string, string[]>
+                {
+                    { "Amount", new[] { "Refund amount must be greater than 0." } }
+                });
+
+                    // Get customer balance
+                    var lastTx = await _customerTransactionRepository.GetLastAsync(
+                        t => t.CustomerId == customerId
+                             && !t.IsDeleted
+                             && t.TenantId == tenantId,
+                        t => t.TransactionDate
+                    );
+
+                    var customerBalanceBefore = lastTx?.BalanceAfter ?? 0m;
+
+                    // Customer balance must be negative (we owe them)
+                    if (customerBalanceBefore >= 0)
+                        throw new ValidationException(new Dictionary<string, string[]>
+                {
+                    { "Balance", new[] { "Customer has no credit balance to refund." } }
+                });
+
+                    // Cannot refund more than we owe (balance is negative, so use absolute value)
+                    if (amount > Math.Abs(customerBalanceBefore))
+                        throw new ValidationException(new Dictionary<string, string[]>
+                {
+                    { "Amount", new[] { "Refund amount exceeds credit balance." } }
+                });
+
+                    // Refund increases the balance (makes it less negative, towards zero)
+                    var customerBalanceAfter = customerBalanceBefore + amount;
+
+                    // Create refund transaction
+                    var refundTx = new CustomerTransaction
+                    {
+                        Id = Guid.NewGuid(),
+                        TenantId = tenantId,
+                        CustomerId = customerId,
+                        Type = "Refund",
+                        Amount = amount,
+                        BalanceBefore = customerBalanceBefore,
+                        BalanceAfter = customerBalanceAfter,
+                        Description = description ?? "Customer refund",
+                        TransactionDate = DateTime.UtcNow,
+                        CreatedAt = DateTime.UtcNow,
+                        CreatedByUserId = userId
+                    };
+
+                    await _customerTransactionRepository.AddAsync(refundTx);
+
+                    // Create cash movement (withdrawal if cash)
+                    if (isCash)
+                    {
+                        var cashSessionId = await _cashSessionService.EnsureActiveSessionAsync();
+
+                        var lastCash = await _cashMovementRepository.GetLastAsync(
+                            m => m.CashSessionId == cashSessionId
+                                 && !m.IsDeleted
+                                 && m.TenantId == tenantId,
+                            m => m.MovementDate
+                        );
+
+                        var cashBalanceBefore = lastCash?.BalanceAfter ?? 0m;
+                        var cashBalanceAfter = cashBalanceBefore - amount;
+
+                        if (cashBalanceAfter < 0)
+                            throw new ValidationException(new Dictionary<string, string[]>
+                            {
+                                { "Cash", new[] { "Insufficient cash in session for refund." } }
+                            });
+
+                        await _cashMovementRepository.AddAsync(new CashMovement
+                        {
+                            Id = Guid.NewGuid(),
+                            TenantId = tenantId,
+                            CashSessionId = cashSessionId,
+                            Type = CashMovementType.Withdrawal,
+                            Amount = amount,
+                            BalanceBefore = cashBalanceBefore,
+                            BalanceAfter = cashBalanceAfter,
+                            Reason = $"Customer refund (customerId={customerId})",
+                            MovementDate = DateTime.UtcNow,
+                            CreatedAt = DateTime.UtcNow,
+                            CreatedByUserId = userId
+                        });
+                    }
+
+                    await _unitOfWork.SaveChangesAsync();
+
+                    return _mapper.Map<CustomerTransactionResult>(refundTx);
+                }
+
+        public async Task<CustomerDetailResult> GetCustomerDetailAsync(Guid customerId)
         {
             var tenantId = _tenantContext.TenantId;
-            var userId = _tenantContext.UserId;
+
             var customer = await _customerRepository.GetByIdAsync(customerId);
-
-            amount = Math.Round(amount, 2, MidpointRounding.AwayFromZero);
-
             if (customer == null || customer.IsDeleted || customer.TenantId != tenantId)
                 throw new NotFoundException("Customer", customerId);
 
-            if (amount <= 0)
-                throw new ValidationException(new Dictionary<string, string[]>
-        {
-            { "Amount", new[] { "Refund amount must be greater than 0." } }
-        });
+            // Get all transactions
+            var transactions = (await _customerTransactionRepository.GetAllAsync())
+                .Where(t => t.CustomerId == customerId && !t.IsDeleted && t.TenantId == tenantId)
+                .OrderByDescending(t => t.TransactionDate)
+                .ToList();
 
-            // Get customer balance
-            var lastTx = await _customerTransactionRepository.GetLastAsync(
-                t => t.CustomerId == customerId
-                     && !t.IsDeleted
-                     && t.TenantId == tenantId,
-                t => t.TransactionDate
-            );
+            // Get sales for this customer
+            var sales = (await _saleRepository.GetAllAsync())
+                .Where(s => s.CustomerId == customerId && !s.IsDeleted && s.TenantId == tenantId)
+                .OrderByDescending(s => s.SaleDate)
+                .ToList();
 
-            var customerBalanceBefore = lastTx?.BalanceAfter ?? 0m;
+            var currentBalance = transactions.FirstOrDefault()?.BalanceAfter ?? 0m;
 
-            // Customer balance must be negative (we owe them)
-            if (customerBalanceBefore >= 0)
-                throw new ValidationException(new Dictionary<string, string[]>
-        {
-            { "Balance", new[] { "Customer has no credit balance to refund." } }
-        });
-
-            // Cannot refund more than we owe (balance is negative, so use absolute value)
-            if (amount > Math.Abs(customerBalanceBefore))
-                throw new ValidationException(new Dictionary<string, string[]>
-        {
-            { "Amount", new[] { "Refund amount exceeds credit balance." } }
-        });
-
-            // Refund increases the balance (makes it less negative, towards zero)
-            var customerBalanceAfter = customerBalanceBefore + amount;
-
-            // Create refund transaction
-            var refundTx = new CustomerTransaction
+            return new CustomerDetailResult
             {
-                Id = Guid.NewGuid(),
-                TenantId = tenantId,
-                CustomerId = customerId,
-                Type = "Refund",
-                Amount = amount,
-                BalanceBefore = customerBalanceBefore,
-                BalanceAfter = customerBalanceAfter,
-                Description = description ?? "Customer refund",
-                TransactionDate = DateTime.UtcNow,
-                CreatedAt = DateTime.UtcNow,
-                CreatedByUserId = userId
+                CustomerId = customer.Id,
+                Name = customer.Name,
+                Email = customer.Email,
+                Phone = customer.Phone,
+                CurrentBalance = currentBalance,
+                Transactions = _mapper.Map<List<CustomerTransactionResult>>(transactions),
+                Sales = _mapper.Map<List<SaleSummaryResult>>(sales),
+                TotalSales = sales.Sum(s => s.TotalAmount),
+                TotalPaid = sales.Sum(s => s.PaidAmount),
+                CreatedAt = customer.CreatedAt
             };
-
-            await _customerTransactionRepository.AddAsync(refundTx);
-
-            // Create cash movement (withdrawal if cash)
-            if (isCash)
-            {
-                var cashSessionId = await _cashSessionService.EnsureActiveSessionAsync();
-
-                var lastCash = await _cashMovementRepository.GetLastAsync(
-                    m => m.CashSessionId == cashSessionId
-                         && !m.IsDeleted
-                         && m.TenantId == tenantId,
-                    m => m.MovementDate
-                );
-
-                var cashBalanceBefore = lastCash?.BalanceAfter ?? 0m;
-                var cashBalanceAfter = cashBalanceBefore - amount;
-
-                if (cashBalanceAfter < 0)
-                    throw new ValidationException(new Dictionary<string, string[]>
-                    {
-                        { "Cash", new[] { "Insufficient cash in session for refund." } }
-                    });
-
-                await _cashMovementRepository.AddAsync(new CashMovement
-                {
-                    Id = Guid.NewGuid(),
-                    TenantId = tenantId,
-                    CashSessionId = cashSessionId,
-                    Type = CashMovementType.Withdrawal,
-                    Amount = amount,
-                    BalanceBefore = cashBalanceBefore,
-                    BalanceAfter = cashBalanceAfter,
-                    Reason = $"Customer refund (customerId={customerId})",
-                    MovementDate = DateTime.UtcNow,
-                    CreatedAt = DateTime.UtcNow,
-                    CreatedByUserId = userId
-                });
-            }
-
-            await _unitOfWork.SaveChangesAsync();
-
-            return _mapper.Map<CustomerTransactionResult>(refundTx);
         }
-
 
     }
 }

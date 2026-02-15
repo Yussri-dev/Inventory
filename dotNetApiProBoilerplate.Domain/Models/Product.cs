@@ -37,6 +37,12 @@ namespace Inventory.Domain.Entities
         public decimal SalePrice { get; set; }
 
         [Column(TypeName = "decimal(18,2)")]
+        public decimal SalePrice2 { get; set; }
+
+        [Column(TypeName = "decimal(18,2)")]
+        public decimal SalePrice3 { get; set; }
+
+        [Column(TypeName = "decimal(18,2)")]
         public decimal PurchasePrice { get; set; }
 
         [Column(TypeName = "decimal(5,2)")]

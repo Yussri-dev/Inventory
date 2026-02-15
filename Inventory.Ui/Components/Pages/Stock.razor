@@ -2,11 +2,29 @@
 @using Inventory.Dto.Stock.Results
 @using Inventory.Dto.StockMouvements.Requests
 @using Inventory.Dto.Enums
+@using Inventory.Dto.StockMouvements.Results
 
 @inject IStockApi StockApi
 @inject IStockMovementApi StockMovementApi
 
 <h2>Stock</h2>
+
+<div class="pager">
+    <button class="btn ghost" disabled="@(Page == 1)"
+            @onclick="() => ChangePage(Page - 1)">
+        Prev
+    </button>
+
+    <span class="muted">
+        Page @Page / @(Math.Ceiling((double)TotalCount / PageSize))
+    </span>
+
+    <button class="btn ghost"
+            disabled="@(Page* PageSize >= TotalCount)"
+            @onclick="() => ChangePage(Page + 1)">
+        Next
+    </button>
+</div>
 
 <div class="card stock-card">
 
@@ -29,18 +47,25 @@
                 <tr class="@(SelectedStock?.Id == stock.Id ? "selected" : "")"
                     @onclick="() => Select(stock)">
 
-                    <td>@stock.ProductId</td>
+                    <td class="mono muted">@stock.ProductId</td>
                     <td>@stock.Name</td>
                     <td>@stock.Quantity</td>
                     <td>@stock.ReservedQuantity</td>
-                    <td class="available">@stock.AvailableQuantity</td>
+                    <td class="available @(stock.AvailableQuantity <= 0 ? "danger" : stock.AvailableQuantity < 10 ? "warning" : "ok")">
+                        @stock.AvailableQuantity
+                    </td>
                     <td>@stock.LastUpdated.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</td>
                     <td>
-                        <button class="btn small"
-                                @onclick="() => OpenAdjust(stock)"
+                        <button class="btn small ghost"
+                            @onclick="() => OpenAdjust(stock)"
                                 @onclick:stopPropagation="true">
                             Adjust
                         </button>
+                       @*  <button class="btn small ghost"
+                                @onclick="() => OpenHistory(stock)"
+                                @onclick:stopPropagation="true">
+                            History
+                        </button> *@
                     </td>
                 </tr>
             }
@@ -48,6 +73,45 @@
     </table>
 
 </div>
+
+@if (ShowHistory && SelectedStock != null)
+{
+    <div class="side-drawer">
+        <div class="drawer-header">
+            <h3>Stock history</h3>
+            <button class="btn ghost" @onclick="CloseHistory">✕</button>
+        </div>
+
+        <p class="muted">@SelectedStock.Name</p>
+
+        <table class="table history-table">
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Type</th>
+                    <th>Δ</th>
+                    <th>Before</th>
+                    <th>After</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var m in Movements)
+                {
+                    <tr>
+                        <td>@m.MovementDate.ToLocalTime().ToString("dd/MM HH:mm")</td>
+                        <td>@m.Type</td>
+                        <td class="@(m.QuantityChange > 0 ? "ok" : "danger")">
+                            @m.QuantityChange
+                        </td>
+                        <td>@m.QuantityBefore</td>
+                        <td>@m.QuantityAfter</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
 
 <!-- ADJUSTMENT MODAL -->
 @if (ShowAdjustModal && SelectedStock != null)
@@ -57,7 +121,7 @@
 
             <h3>Adjust stock</h3>
 
-            <p><strong>Product: @SelectedStock.ProductId</strong></p>
+            <p><strong>Product: @SelectedStock.Name</strong></p>
 
             <div class="form-group">
                 <label>Current quantity</label>
@@ -88,7 +152,12 @@
 }
 
 @code {
+    int Page = 1;
+    int PageSize = 25;
+    int TotalCount;
 
+    bool ShowHistory;
+    List<StockMouvementResult> Movements = new();
     List<StockResult> Stocks = new();
     StockResult? SelectedStock;
 
@@ -103,8 +172,16 @@
 
     async Task LoadStock()
     {
-        Stocks = await StockApi.GetAll();
+        var result = await StockApi.Search(new StockQuery
+        {
+            Page = Page,
+            PageSize = PageSize
+        });
+
+        Stocks = result.Items;
+        TotalCount = result.TotalCount;
     }
+
 
     void Select(StockResult stock)
     {
@@ -125,6 +202,12 @@
         SelectedStock = null;
     }
 
+    async Task ChangePage(int newPage)
+    {
+        Page = newPage;
+        await LoadStock();
+    }
+
     async Task ConfirmAdjust()
     {
         if (SelectedStock == null)
@@ -139,18 +222,48 @@
         }
 
         // FULLY VALID REQUEST — matches DTO exactly
+        // await StockMovementApi.Create(new CreateStockMouvementRequest
+        // {
+        //     ProductId = SelectedStock.ProductId,
+        //     QuantityChange = delta,
+        //     QuantityBefore = SelectedStock.Quantity,
+        //     QuantityAfter = NewQuantity,
+        //     Type = StockMovementType.Adjustment,
+        //     Notes = Notes,
+        //     MovementDate = DateTime.UtcNow
+        // });
         await StockMovementApi.Create(new CreateStockMouvementRequest
         {
             ProductId = SelectedStock.ProductId,
             QuantityChange = delta,
-            QuantityBefore = SelectedStock.Quantity,
-            QuantityAfter = NewQuantity,
             Type = StockMovementType.Adjustment,
-            Notes = Notes,
-            MovementDate = DateTime.UtcNow
+            Notes = Notes
         });
+
 
         await LoadStock();
         CloseAdjust();
+    }
+
+    // async Task OpenHistory(StockResult stock)
+    // {
+    //     SelectedStock = stock;
+
+    //     var result = await StockMovementApi.Search(new StockMouvementQuery
+    //     {
+    //         ProductId = stock.ProductId,
+    //         Page = 1,
+    //         PageSize = 50
+    //     });
+
+    //     Movements = result.Items;
+    //     ShowHistory = true;
+    // }
+
+
+    void CloseHistory()
+    {
+        ShowHistory = false;
+        Movements.Clear();
     }
 }

@@ -10,6 +10,7 @@ using Inventory.Services.Features.Damages.CreateComplete;
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
+using Inventory.Services.Features.Damages.ValidateAll;
 
 namespace Inventory.Api.Controllers
 {
@@ -48,6 +49,14 @@ namespace Inventory.Api.Controllers
                 result
             );
         }
+
+        [HttpPost("validate")]
+        public async Task<IActionResult> ValidateAll(CancellationToken ct)
+        {
+            await _mediator.Send(new ValidateAllDamagesCommand(), ct);
+            return Ok();
+        }
+
 
         [HttpPost("complete")]
         [ProducesResponseType(typeof(object), StatusCodes.Status201Created)]

@@ -1,37 +1,254 @@
-﻿.stock-card {
-    padding: 1rem;
+﻿/* ===============================
+   STOCK PAGE
+   =============================== */
+
+.stock-card {
+    background: linear-gradient( 180deg, rgba(255,255,255,.04), rgba(255,255,255,.015) );
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 0;
+    overflow: hidden;
 }
 
-.stock-table tr.selected {
-    background: #eef6ff;
+/* ===============================
+   TABLE
+   =============================== */
+
+
+/* Table Styles */
+.table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
 }
 
-.stock-table .available {
-    font-weight: bold;
-    color: #2c7;
+    .table thead {
+        background: rgba(79, 70, 229, 0.1);
+    }
+
+    .table th {
+        padding: 12px 16px;
+        text-align: left;
+        font-weight: 600;
+        color: var(--text);
+        border-bottom: 1px solid var(--border);
+        font-size: 13px;
+    }
+
+    .table td {
+        padding: 12px 16px;
+        color: var(--text);
+        border-bottom: 1px solid var(--border);
+        font-size: 14px;
+    }
+
+        .table td code {
+            background: var(--bg);
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 13px;
+            color: var(--primary);
+        }
+
+    .table tbody tr:last-child td {
+        border-bottom: none;
+    }
+
+    .table tbody tr:hover {
+        background: rgba(255, 255, 255, 0.02);
+    }
+
+
+/* ===============================
+   COLUMN HELPERS
+   =============================== */
+
+.mono {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 12px;
 }
+
+.muted {
+    color: var(--muted);
+}
+
+/* ===============================
+   AVAILABLE STATUS
+   =============================== */
+
+.available {
+    font-weight: 700;
+}
+
+    .available.ok {
+        color: #22c55e;
+    }
+
+    .available.warning {
+        color: #f59e0b;
+    }
+
+    .available.danger {
+        color: var(--danger);
+    }
+
+/* ===============================
+   BUTTONS
+   =============================== */
+
+.btn {
+    border-radius: 10px;
+    padding: 8px 14px;
+    font-size: 13px;
+    cursor: pointer;
+    border: 1px solid transparent;
+    transition: all .15s ease;
+}
+
+    .btn.small {
+        padding: 6px 12px;
+        font-size: 12px;
+    }
+
+    .btn.ghost {
+        background: transparent;
+        border-color: var(--border);
+        color: var(--muted);
+    }
+
+        .btn.ghost:hover {
+            border-color: var(--primary);
+            color: #fff;
+        }
+
+    .btn.primary {
+        background: var(--primary);
+        color: #fff;
+        border-color: var(--primary);
+    }
+
+        .btn.primary:hover {
+            filter: brightness(1.1);
+        }
+
+    .btn.secondary {
+        background: transparent;
+        border-color: var(--border);
+        color: var(--muted);
+    }
+
+        .btn.secondary:hover {
+            color: #fff;
+            border-color: rgba(255,255,255,.3);
+        }
+
+/* ===============================
+   MODAL
+   =============================== */
 
 .modal-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(0,0,0,.4);
+    background: rgba(0,0,0,.65);
     display: flex;
     align-items: center;
     justify-content: center;
+    z-index: 1000;
 }
 
 .modal-content {
-    background: #fff;
-    padding: 1.5rem;
-    width: 400px;
-    border-radius: 6px;
+    background: linear-gradient( 180deg, rgba(17,24,39,.95), rgba(17,24,39,.9) );
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    width: 100%;
+    max-width: 420px;
+    padding: 22px 24px;
+    box-shadow: 0 25px 60px rgba(0,0,0,.5);
+    animation: modalIn .15s ease-out;
 }
+
+@keyframes modalIn {
+    from {
+        transform: translateY(10px) scale(.98);
+        opacity: 0;
+    }
+
+    to {
+        transform: translateY(0) scale(1);
+        opacity: 1;
+    }
+}
+
+.modal-content h3 {
+    margin: 0 0 10px;
+    font-size: 18px;
+    font-weight: 700;
+}
+
+.modal-content p {
+    font-size: 13px;
+    color: var(--muted);
+    margin-bottom: 18px;
+}
+
+/* ===============================
+   FORMS
+   =============================== */
 
 .form-group {
-    margin-bottom: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 14px;
 }
 
+    .form-group label {
+        font-size: 12px;
+        color: var(--muted);
+    }
+
 .form-input {
-    width: 100%;
-    padding: .5rem;
+    background: rgba(255,255,255,.04);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 12px;
+    font-size: 13px;
+    color: var(--text);
+}
+
+    .form-input:focus {
+        outline: none;
+        border-color: var(--primary);
+    }
+
+    .form-input[disabled] {
+        opacity: .6;
+    }
+
+/* ===============================
+   MODAL FOOTER
+   =============================== */
+
+.modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 18px;
+}
+
+/* ===============================
+   RESPONSIVE
+   =============================== */
+
+@media (max-width: 900px) {
+    .stock-table {
+        font-size: 12px;
+    }
+
+    .modal-content {
+        margin: 0 16px;
+    }
 }

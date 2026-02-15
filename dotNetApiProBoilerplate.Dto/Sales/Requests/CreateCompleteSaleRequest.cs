@@ -12,7 +12,7 @@ namespace Inventory.Dto.Sales.Requests
         /// Optional customer ID for the sale
         /// </summary>
         public Guid? CustomerId { get; set; }
-        
+
         /// <summary>
         /// Optional Loyalty Card ID to accumulate points
         /// </summary>
@@ -43,9 +43,10 @@ namespace Inventory.Dto.Sales.Requests
         public List<SaleLineItem> Lines { get; set; } = new();
 
         /// <summary>
-        /// Payment information (optional - if not provided, sale is marked as unpaid)
+        /// Multiple payment methods (optional - if not provided, sale is marked as unpaid)
+        /// Supports mixed payments like Cash + Card, or Cash + Credit
         /// </summary>
-        public PaymentInfo? Payment { get; set; }
+        public List<PaymentInfo>? Payments { get; set; }
 
         /// <summary>
         /// Discount amount applied to the entire sale
@@ -56,8 +57,16 @@ namespace Inventory.Dto.Sales.Requests
         public decimal SubtotalAmount => Lines.Sum(l => l.LineAmountExclVat);
         public decimal VatAmount => Lines.Sum(l => l.LineAmountInclVat - l.LineAmountExclVat);
         public decimal TotalAmount => SubtotalAmount + VatAmount - DiscountAmount;
-        public decimal PaidAmount => Payment?.Amount ?? 0;
-        public decimal ChangeAmount => Math.Max(0, PaidAmount - TotalAmount);
+
+        /// <summary>
+        /// Total amount paid across all payment methods
+        /// </summary>
+        public decimal PaidAmount => Payments?.Sum(p => p.Amount) ?? 0;
+
+        /// <summary>
+        /// Change amount to return to customer
+        /// </summary>
+        public decimal ChangeAmount { get; set; }
     }
 
     /// <summary>
@@ -117,7 +126,7 @@ namespace Inventory.Dto.Sales.Requests
         public decimal Amount { get; set; }
 
         /// <summary>
-        /// Payment method (e.g., "Cash", "Card", "Mobile")
+        /// Payment method (e.g., "Cash", "Card", "Credit")
         /// </summary>
         [Required]
         [MaxLength(50)]

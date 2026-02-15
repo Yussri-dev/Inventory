@@ -1,17 +1,11 @@
-// Import all installer extension methods
-// Each installer encapsulates a specific infrastructure concern
 using Inventory.Api.Installers;
 
-// Import custom middleware explicitly
-// Used here to register middleware in the request pipeline
 using Inventory.Api.Middleware;
+using QuestPDF.Infrastructure;
 
-// Create the WebApplicationBuilder
-// This is the entry point for configuring services and middleware
 var builder = WebApplication.CreateBuilder(args);
+QuestPDF.Settings.License = LicenseType.Community;
 
-// Apply installer pattern to keep Program.cs clean and readable
-// Each call configures a specific part of the application
 builder
     // Registers controllers and API explorer
     .InstallRestApi()
@@ -49,9 +43,6 @@ builder.Services.AddAuthorization();
 // At this point, the DI container is finalized
 var app = builder.Build();
 
-// Register global exception handling middleware
-// This should be one of the first middlewares in the pipeline
-// It catches all unhandled exceptions and returns standardized JSON errors
 app.UseMiddleware<ExceptionHandlingMiddleware>();
 
 // Development-only configuration
@@ -82,6 +73,15 @@ app.UseAuthorization();
 // Map controller endpoints
 // Activates attribute-based routing
 app.MapControllers();
+
+app.Use(async (context, next) =>
+{
+    Console.WriteLine(
+        $"HTTP {context.Request.Method} {context.Request.Path}"
+    );
+
+    await next();
+});
 
 // Start the HTTP server and begin listening for requests
 app.Run();

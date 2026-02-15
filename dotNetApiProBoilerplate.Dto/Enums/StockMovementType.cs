@@ -9,6 +9,8 @@
         Damage,
         Adjustment,
         Transfer,
-        InitialStock
+        InitialStock,
+        Reserve,
+        Release
     }
 }

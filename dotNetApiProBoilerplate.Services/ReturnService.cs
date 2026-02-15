@@ -1,6 +1,7 @@
 ﻿using AutoMapper;
 using Inventory.Domain.Entities;
 using Inventory.Domain.Models;
+using Inventory.Dto.Enums;
 using Inventory.Dto.Pages.Results;
 using Inventory.Dto.Queries;
 using Inventory.Dto.Returns.Requests;
@@ -9,7 +10,7 @@ using Inventory.Infrastructure.Repositories;
 using Inventory.Services.Abstractions;
 using Inventory.Services.Context;
 using Inventory.Services.Exceptions;
-using Inventory.Domain.Enums;
+using RefundMethodDto = Inventory.Dto.Enums.RefundMethod;
 
 namespace Inventory.Services
 {
@@ -108,14 +109,30 @@ namespace Inventory.Services
             if (request.Lines == null || !request.Lines.Any())
             {
                 throw new ValidationException(new Dictionary<string, string[]>
-        {
-            { "Lines", new[] { "At least one return line is required." } }
-        });
+                {
+                    { "Lines", new[] { "At least one return line is required." } }
+                });
+            }
+
+            if (request.RefundType == RefundMethodDto.Original)
+            {
+                throw new ValidationException(new Dictionary<string, string[]>
+                {
+                    { "RefundType", new[] {
+                        "Original refund method is not supported. Please select Cash, Card, Credit, or Exchange."
+                    }}
+                });
             }
 
             var sale = await _saleRepository.GetByIdAsync(request.SaleId);
             if (sale == null || sale.IsDeleted || sale.TenantId != tenantId)
                 throw new NotFoundException("Sale", request.SaleId);
+
+            if (request.RefundType == RefundMethodDto.Credit && !sale.CustomerId.HasValue)
+                throw new ValidationException("Credit refund requires a customer.");
+
+            if (request.RefundType == RefundMethodDto.Original)
+                throw new ValidationException("Original refund method is not supported.");
 
             // =========================
             // CREATE RETURN HEADER
@@ -207,16 +224,41 @@ namespace Inventory.Services
             }
 
             // =========================
-            // CUSTOMER REFUND (ACCOUNT)
+            // REFUND CALCULATION (CRITICAL)
             // =========================
-            if (sale.CustomerId.HasValue)
+            var refundAmount = entity.TotalAmount;
+
+            decimal cashRefund = 0m;
+            decimal creditRefund = 0m;
+
+            switch (request.RefundType)
+            {
+                case RefundMethodDto.Cash:
+                    cashRefund = refundAmount;
+                    break;
+
+                case RefundMethodDto.Credit:
+                    creditRefund = refundAmount;
+                    break;
+
+                case RefundMethodDto.Card:
+                    break;
+
+                case RefundMethodDto.Exchange:
+                    break;
+            }
+
+            // =========================
+            // CUSTOMER REFUND (CREDIT PART)
+            // =========================
+            if (sale.CustomerId.HasValue && creditRefund > 0)
             {
                 var customer = await _customerRepository.GetByIdAsync(sale.CustomerId.Value);
 
                 if (customer != null && !customer.IsDeleted)
                 {
                     var balanceBefore = customer.CurrentBalance;
-                    var balanceAfter = balanceBefore - entity.TotalAmount;
+                    var balanceAfter = balanceBefore - creditRefund;
 
                     customer.CurrentBalance = balanceAfter;
                     customer.ModifiedAt = DateTime.UtcNow;
@@ -229,12 +271,12 @@ namespace Inventory.Services
                         TenantId = tenantId,
                         CustomerId = customer.Id,
                         Type = "Refund",
-                        Amount = entity.TotalAmount,
+                        Amount = creditRefund,
                         BalanceBefore = balanceBefore,
                         BalanceAfter = balanceAfter,
                         TransactionDate = entity.ReturnDate,
                         SaleId = sale.Id,
-                        Description = $"Return {entity.ReturnNumber} for Sale {sale.InvoiceNumber}"
+                        Description = $"Return {entity.ReturnNumber} (credit part)"
                     });
                 }
             }
@@ -252,22 +294,23 @@ namespace Inventory.Services
             {
                 var totalVat = request.Lines.Sum(l => l.Quantity * l.UnitPrice * (l.VatRate / 100));
 
-                summary.TotalRevenue -= entity.TotalAmount;
-                summary.TotalVat -= totalVat;
-                summary.CreditSales -= entity.TotalAmount;
+                if (request.RefundType != RefundMethodDto.Exchange)
+                {
+                    summary.TotalRevenue -= entity.TotalAmount;
+                    summary.TotalVat -= totalVat;
+                }
+
+                summary.CashSales -= cashRefund;
+                summary.CreditSales -= creditRefund;
                 summary.ModifiedAt = DateTime.UtcNow;
 
                 _salesSummaryRepository.Update(summary);
             }
 
             // =========================
-            // CASH MOVEMENT — CASH REFUND
+            // CASH MOVEMENT — CASH PART ONLY
             // =========================
-            bool isCashRefund =
-                sale.Payments != null &&
-                sale.Payments.Any(p => p.Method == PaymentMethod.Cash);
-
-            if (isCashRefund && entity.TotalAmount > 0)
+            if (cashRefund > 0)
             {
                 var last = await _cashMovementRepository.GetLastAsync(
                     m => m.CashSessionId == activeCashSessionId &&
@@ -277,7 +320,7 @@ namespace Inventory.Services
                 );
 
                 var balanceBefore = last?.BalanceAfter ?? 0m;
-                var balanceAfter = balanceBefore - entity.TotalAmount;
+                var balanceAfter = balanceBefore - cashRefund;
 
                 if (balanceAfter < 0)
                     throw new ValidationException("Cash drawer cannot go negative.");
@@ -288,11 +331,11 @@ namespace Inventory.Services
                     TenantId = tenantId,
                     CashSessionId = activeCashSessionId,
                     Type = CashMovementType.Refund,
-                    Amount = entity.TotalAmount,
+                    Amount = cashRefund,
                     BalanceBefore = balanceBefore,
                     BalanceAfter = balanceAfter,
                     SaleId = sale.Id,
-                    Reason = $"Refund {entity.ReturnNumber} for Sale {sale.InvoiceNumber}",
+                    Reason = $"Refund {entity.ReturnNumber} (cash part)",
                     MovementDate = DateTime.UtcNow,
                     CreatedAt = DateTime.UtcNow
                 });

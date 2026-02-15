@@ -65,7 +65,7 @@ namespace Inventory.Services
                 Id = Guid.NewGuid(),
                 TenantId = tenantId,
                 CashSessionId = request.CashSessionId,
-                Type = (Domain.Enums.CashMovementType)request.Type,
+                Type = request.Type,
                 Amount = request.Amount,
                 BalanceBefore = balanceBefore,
                 BalanceAfter = balanceAfter,
@@ -183,7 +183,7 @@ namespace Inventory.Services
 
             if (query.Type.HasValue)
             {
-                var type = (Domain.Enums.CashMovementType)query.Type.Value;
+                var type = query.Type.Value;
                 movements = movements.Where(m => m.Type == type);
             }
 

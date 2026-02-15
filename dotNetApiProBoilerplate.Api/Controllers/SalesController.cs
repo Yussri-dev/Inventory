@@ -3,6 +3,7 @@ using Inventory.Dto.Queries;
 using Inventory.Dto.Sales.Requests;
 using Inventory.Dto.Sales.Results;
 using Inventory.Services;
+using Inventory.Services.Abstractions;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -17,10 +18,11 @@ namespace Inventory.Api.Controllers
     public class SalesController : ControllerBase
     {
         private readonly SaleService _saleService;
-
-        public SalesController(SaleService saleService)
+        private readonly ITicketFormatter _ticketFormatter;
+        public SalesController(SaleService saleService, ITicketFormatter ticketFormatter)
         {
             _saleService = saleService;
+            _ticketFormatter = ticketFormatter;
         }
 
         // =========================
@@ -46,6 +48,16 @@ namespace Inventory.Api.Controllers
             );
         }
 
+        //[HttpGet("{id:guid}/ticket")]
+        //public async Task<IActionResult> PrintTicket(Guid id)
+        //{
+        //    var ticket = await _saleService.BuildTicketAsync(id);
+        //    var pdf = _ticketFormatter.Format(ticket);
+
+        //    return File(pdf, "application/pdf", $"{ticket.InvoiceNumber}.pdf");
+        //}
+
+
         // =========================
         // CREATE COMPLETE
         // =========================
@@ -53,19 +65,21 @@ namespace Inventory.Api.Controllers
         [ProducesResponseType(typeof(SaleResult), StatusCodes.Status201Created)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
-        public async Task<IActionResult> CreateComplete(
-            [FromBody] CreateCompleteSaleRequest request)
+        public async Task<IActionResult> CreateComplete(    [FromBody] CreateCompleteSaleRequest request)
         {
             if (!ModelState.IsValid)
                 return BadRequest(ModelState);
 
-            var result = await _saleService.CreateCompleteAsync(request);
+            var sale = await _saleService.CreateCompleteAsync(request);
+            var ticket = await _saleService.BuildTicketAsync(sale.Id);
+            var pdf = _ticketFormatter.Format(ticket);
 
-            return CreatedAtAction(
-                nameof(GetById),
-                new { version = "1.0", id = result.Id },
-                result
-            );
+            return Ok(new CreateCompleteSaleResult
+            {
+                Sale = sale,
+                Ticket = ticket,
+                PdfBase64 = Convert.ToBase64String(pdf)
+            });
         }
 
         // =========================

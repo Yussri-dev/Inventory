@@ -17,6 +17,8 @@ namespace Inventory.Dto.Products.Results
 
         // Pricing (tenant-specific)
         public decimal SalePrice { get; init; }
+        public decimal SalePrice2 { get; init; }
+        public decimal SalePrice3 { get; init; }
         public decimal PurchasePrice { get; init; }
         public decimal VatRate { get; init; }
 

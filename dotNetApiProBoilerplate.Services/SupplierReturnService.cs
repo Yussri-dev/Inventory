@@ -1,5 +1,4 @@
 ﻿using AutoMapper;
-using Inventory.Domain.Enums;
 using Inventory.Domain.Models;
 using Inventory.Dto.Pages.Results;
 using Inventory.Dto.Queries;
@@ -11,6 +10,7 @@ using Inventory.Services.Exceptions;
 using Inventory.Domain.Entities;
 using Inventory.Services.Abstractions;
 using Inventory.Services.Context;
+using Inventory.Dto.Enums;
 
 namespace Inventory.Services
 {

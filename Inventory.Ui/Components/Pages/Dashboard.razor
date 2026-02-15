@@ -1,0 +1,234 @@
+﻿@page "/dashboard"
+
+@using Inventory.Dto.Analytics.Results
+@inject IAnalyticsApi AnalyticsApi
+
+<div class="analytics-page">
+
+    <!-- HEADER -->
+    <div class="analytics-header">
+        <h1 class="analytics-title">Analytics & Reports</h1>
+        <p class="analytics-subtitle">Business performance overview</p>
+    </div>
+
+    <!-- PERIOD SELECTOR -->
+    <div class="period-selector">
+        <button class="period-btn @(period == Period.Today ? "active" : "")"
+                @onclick="() => SelectPeriod(Period.Today)">
+            Today
+        </button>
+        <button class="period-btn @(period == Period.Week ? "active" : "")"
+                @onclick="() => SelectPeriod(Period.Week)">
+            This Week
+        </button>
+        <button class="period-btn @(period == Period.Month ? "active" : "")"
+                @onclick="() => SelectPeriod(Period.Month)">
+            This Month
+        </button>
+        <button class="period-btn @(period == Period.Year ? "active" : "")"
+                @onclick="() => SelectPeriod(Period.Year)">
+            This Year
+        </button>
+    </div>
+
+    <!-- KPI SUMMARY -->
+    @if (profit != null)
+    {
+        <div class="analytics-summary">
+            <h2>Financial Overview</h2>
+
+            <div class="kpi-grid">
+                <div class="kpi-card">
+                    <div class="kpi-label">Revenue</div>
+                    <div class="kpi-value positive">
+                        €@profit.TotalRevenue.ToString("N2")
+                    </div>
+                </div>
+
+                <div class="kpi-card">
+                    <div class="kpi-label">Cost</div>
+                    <div class="kpi-value">
+                        €@profit.TotalCost.ToString("N2")
+                    </div>
+                </div>
+
+                <div class="kpi-card">
+                    <div class="kpi-label">Refunds</div>
+                    <div class="kpi-value negative">
+                        €@profit.TotalRefunds.ToString("N2")
+                    </div>
+                </div>
+
+                <div class="kpi-card">
+                    <div class="kpi-label">Gross Profit</div>
+                    <div class="kpi-value @(profit.GrossProfit >= 0 ? "positive" : "negative")">
+                        €@profit.GrossProfit.ToString("N2")
+                    </div>
+                </div>
+
+                <div class="kpi-card">
+                    <div class="kpi-label">Profit Margin</div>
+                    <div class="kpi-value">
+                        @profit.ProfitMargin.ToString("N2")%
+                    </div>
+                </div>
+            </div>
+
+            <div class="period-info">
+                Period: @profit.From.ToString("dd/MM/yyyy") → @profit.To.ToString("dd/MM/yyyy")
+            </div>
+        </div>
+    }
+
+    <!-- LOSS PRODUCTS -->
+    <div class="loss-products-section">
+        <div class="section-header">
+            <h2>Loss Products</h2>
+        </div>
+
+        @if (lossProducts?.Any() == true)
+        {
+            <table class="products-table">
+                <thead>
+                    <tr>
+                        <th>Product</th>
+                        <th style="text-align:center;">Returned Qty</th>
+                        <th style="text-align:right;">Lost Revenue</th>
+                        <th>Reason</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var p in lossProducts)
+                    {
+                        <tr>
+                            <td>@p.ProductName</td>
+                            <td style="text-align:center;">
+                                @p.ReturnedQuantity
+                            </td>
+                            <td style="text-align:right;">
+                                €@p.LostRevenue.ToString("N2")
+                            </td>
+                            <td>
+                                @p.LossReason
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+        else
+        {
+            <div class="empty-state">
+                No loss products for this period
+            </div>
+        }
+    </div>
+
+    <!-- WEEKLY REPORT -->
+    @if (weekly != null)
+    {
+        <div class="weekly-report-section">
+            <h2>Weekly Performance</h2>
+
+            <div class="report-stats">
+                <div class="report-stat">
+                    <div class="stat-label">Revenue</div>
+                    <div class="stat-value">
+                        €@weekly.Revenue.ToString("N2")
+                    </div>
+                </div>
+
+                <div class="report-stat">
+                    <div class="stat-label">Expenses</div>
+                    <div class="stat-value">
+                        €@weekly.Expenses.ToString("N2")
+                    </div>
+                </div>
+
+                <div class="report-stat">
+                    <div class="stat-label">Profit</div>
+                    <div class="stat-value">
+                        €@weekly.Profit.ToString("N2")
+                    </div>
+                </div>
+
+                <div class="report-stat">
+                    <div class="stat-label">Sales</div>
+                    <div class="stat-value">
+                        @weekly.SalesCount
+                    </div>
+                </div>
+
+                <div class="report-stat">
+                    <div class="stat-label">Returns</div>
+                    <div class="stat-value">
+                        @weekly.ReturnsCount
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+
+    // ======================
+    // STATE
+    // ======================
+    Period period = Period.Today;
+
+    ProfitAnalyticsResult? profit;
+    List<LossProductResult>? lossProducts;
+    WeeklyReportResult? weekly;
+
+    // ======================
+    // INIT
+    // ======================
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAnalytics();
+    }
+
+    // ======================
+    // LOAD ANALYTICS (REAL)
+    // ======================
+    async Task LoadAnalytics()
+    {
+        var (from, to) = GetPeriod();
+
+        profit = await AnalyticsApi.GetProfitAsync(from, to);
+        lossProducts = (await AnalyticsApi.GetLossProductsAsync(from, to)).Items;
+        weekly = await AnalyticsApi.GetWeeklyAsync();
+    }
+
+    // ======================
+    // PERIOD HANDLING
+    // ======================
+    void SelectPeriod(Period p)
+    {
+        period = p;
+        _ = LoadAnalytics();
+    }
+
+    (DateOnly? from, DateOnly? to) GetPeriod()
+    {
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+
+        return period switch
+        {
+            Period.Today => (today, today),
+            Period.Week => (today.AddDays(-7), today),
+            Period.Month => (new DateOnly(today.Year, today.Month, 1), today),
+            Period.Year => (new DateOnly(today.Year, 1, 1), today),
+            _ => (null, null)
+        };
+    }
+
+    enum Period
+    {
+        Today,
+        Week,
+        Month,
+        Year
+    }
+}

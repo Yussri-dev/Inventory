@@ -1,0 +1,248 @@
+﻿@page "/damages"
+@using Inventory.Dto.Damages.Requests
+@using Inventory.Dto.Damages.Results
+@using Inventory.Dto.Enums
+@using Inventory.Dto.Products.Results
+@using Inventory.Dto.Queries
+@inject IDamageApi DamageApi
+@inject IProductApi ProductApi
+@inject IStockApi StockApi
+@inject IJSRuntime JS
+
+<h3>Damages</h3>
+
+<div class="card">
+    <h4>Scan damaged products (Draft)</h4>
+
+    <div class="form-grid">
+
+        <!-- BARCODE / SEARCH -->
+        <label>Scan or Search Product</label>
+        <input class="input"
+               placeholder="Scan barcode or type product name…"
+               @bind="productSearch"
+               @bind:event="oninput"
+               @onkeydown="OnProductSearchKeyDown"
+               @ref="barcodeInputRef"
+               autofocus />
+
+        @if (searchingProducts)
+        {
+            <div class="muted">Searching…</div>
+        }
+
+        @if (searchResults.Any())
+        {
+            <ul class="product-search-results">
+                @foreach (var p in searchResults)
+                {
+                    <li @onclick="() => SelectProduct(p)">
+                        <strong>@p.CatalogName</strong><br />
+                        <span class="muted">@p.CatalogBarcode</span>
+                    </li>
+                }
+            </ul>
+        }
+
+        @if (selectedProduct != null)
+        {
+            <div class="selected-product">
+                <strong>@selectedProduct.CatalogName</strong><br />
+                <span class="muted">
+                    Stock: @currentStock | Cost: €@selectedProduct.PurchasePrice
+                </span>
+            </div>
+
+            <div class="damage-row">
+                <div class="damage-field">
+                    <label>Quantity</label>
+                    <input type="number" step="0.01" min="0.01" @bind="create.Quantity" />
+                </div>
+
+                <div class="damage-field">
+                    <label>Estimated</label>
+                    <input type="number" value="@EstimatedValue" readonly class="readonly-input" />
+                </div>
+
+                <div class="damage-field reason-wide">
+                    <label>Reason</label>
+                    <input type="text" @bind="create.Reason" placeholder="Describe the damage…" />
+                </div>
+            </div>
+
+            <button class="btn btn-danger"
+                    @onclick="AddDraft"
+                    disabled="@(!CanSubmit)">
+                Add to draft list
+            </button>
+        }
+    </div>
+</div>
+
+<hr />
+
+<div class="card">
+    <h4>Draft Damages</h4>
+
+    @if (loading)
+    {
+        <p>Loading…</p>
+    }
+    else if (!drafts.Any())
+    {
+        <p class="muted">No draft damages yet.</p>
+    }
+    else
+    {
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Product</th>
+                    <th>Qty</th>
+                    <th>Reason</th>
+                    <th>Date</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var d in drafts)
+                {
+                    <tr>
+                        <td>@d.DamageNumber</td>
+                        <td>@d.ProductName</td>
+                        <td>@d.Quantity</td>
+                        <td>@d.Reason</td>
+                        <td>@d.DamageDate.ToString("dd/MM/yyyy")</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+
+        <div class="actions-end">
+            <button class="btn btn-primary" @onclick="ValidateAll">
+                Validate all damages
+            </button>
+        </div>
+    }
+</div>
+
+@code {
+
+    List<ProductResult> searchResults = new();
+    List<DamageResult> drafts = new();
+
+    ProductResult? selectedProduct;
+    decimal currentStock;
+
+    bool loading;
+    bool searchingProducts;
+    string productSearch = string.Empty;
+
+    ElementReference barcodeInputRef;
+    CreateDamageRequest create = new();
+
+    bool CanSubmit =>
+        selectedProduct != null &&
+        create.Quantity > 0 &&
+        create.Quantity <= currentStock;
+    // &&
+        // !string.IsNullOrWhiteSpace(create.Reason);
+
+    decimal EstimatedValue =>
+        selectedProduct == null
+            ? 0
+            : Math.Round(create.Quantity * selectedProduct.PurchasePrice, 2);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDrafts();
+        await FocusBarcode();
+    }
+
+    async Task FocusBarcode()
+    {
+        await Task.Delay(150);
+        await barcodeInputRef.FocusAsync();
+    }
+
+    async Task OnProductSearchKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !string.IsNullOrWhiteSpace(productSearch))
+            await SearchProduct();
+    }
+
+    async Task SearchProduct()
+    {
+        searchingProducts = true;
+        searchResults.Clear();
+
+        var result = await ProductApi.Search(new ProductQuery
+        {
+            Search = productSearch.Trim(),
+            PageSize = 10
+        });
+
+        if (result.Items.Count == 1)
+        {
+            await SelectProduct(result.Items.First());
+        }
+        else
+        {
+            searchResults = result.Items.ToList();
+        }
+
+        searchingProducts = false;
+    }
+
+    async Task SelectProduct(ProductResult product)
+    {
+        selectedProduct = product;
+        create = new CreateDamageRequest
+        {
+            ProductId = product.Id,
+            Quantity = 1
+        };
+
+        productSearch = product.CatalogName;
+        searchResults.Clear();
+
+        var stock = await StockApi.Search(new StockQuery
+        {
+            ProductId = product.Id,
+            PageSize = 1
+        });
+
+        currentStock = stock.Items.FirstOrDefault()?.Quantity ?? 0;
+        await FocusBarcode();
+    }
+
+    async Task AddDraft()
+    {
+        create.EstimatedValue = EstimatedValue;
+        await DamageApi.Create(create);
+
+        create = new CreateDamageRequest();
+        selectedProduct = null;
+        productSearch = string.Empty;
+        currentStock = 0;
+
+        await LoadDrafts();
+        await FocusBarcode();
+    }
+
+    async Task LoadDrafts()
+    {
+        loading = true;
+        drafts = (await DamageApi.GetAll())
+            .Where(d => d.Status == DamageStatus.Draft)
+            .ToList();
+        loading = false;
+    }
+
+    async Task ValidateAll()
+    {
+        await DamageApi.ValidateAll();
+        await LoadDrafts();
+        await JS.InvokeVoidAsync("alert", "All damages validated and stock updated.");
+    }
+}

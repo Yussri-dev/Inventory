@@ -1,14 +1,19 @@
 ﻿@page "/sales"
 @using Inventory.Dto.Enums
-@using Inventory.Dto.Receipts
 @using Inventory.Dto.Stock.Results
+@using Microsoft.Extensions.Logging
+@using System.Net
 @inject IJSRuntime JS
-@inject IProductApi ProductApi
+
 @inject ISaleApi SaleApi
-@inject ICustomerApi CustomerApi
+@inject IPosApi PosApi
+@inject NavigationManager Nav
+@inject ILogger<Sales> Logger
+
 @inject ICashSessionApi CashSessionApi
 @inject NavigationManager Navigation
 @inject IStockApi StockApi
+@* @inject ITicketPrinter TicketPrinter *@
 
 <div class="sale-container">
     <!-- LEFT COLUMN: Cart & Totals -->
@@ -533,12 +538,12 @@
                             </button>
 
                             <!-- ADD PAYMENT BUTTON -->
-                            <button class="btn btn-primary btn-add-payment"
+                          @*   <button class="btn btn-primary btn-add-payment"
                                     @onclick="AddPayment"
                                     disabled="@(string.IsNullOrEmpty(currentPaymentInput) || remainingAmount <= 0)">
                                 <span class="btn-icon">+</span>
                                 Add Payment
-                            </button>
+                            </button> *@
                         </div>
                     </div>
                 </div>
@@ -597,91 +602,6 @@
         </div>
     </div>
 }
-
-<div id="receipt" style="display:none">
-    <div style="text-align: center; margin-bottom: 15px;">
-        <h2 style="margin: 0; font-size: 18px; font-weight: bold;">STORE NAME</h2>
-        <p style="margin: 5px 0; font-size: 11px;">123 Main Street</p>
-        <p style="margin: 0; font-size: 11px;">Phone: (123) 456-7890</p>
-    </div>
-
-    <div style="border-top: 2px dashed #000; border-bottom: 2px dashed #000; padding: 8px 0; margin: 10px 0;">
-        <div style="display: flex; justify-content: space-between; margin-bottom: 3px;">
-            <span style="font-weight: bold;">Invoice:</span>
-            <span>@receipt.SaleNumber</span>
-        </div>
-        <div style="display: flex; justify-content: space-between; margin-bottom: 3px;">
-            <span style="font-weight: bold;">Date:</span>
-            <span>@receipt.Date.ToString("dd/MM/yyyy HH:mm")</span>
-        </div>
-        @if (!string.IsNullOrEmpty(receipt.Customer))
-        {
-            <div style="display: flex; justify-content: space-between;">
-                <span style="font-weight: bold;">Customer:</span>
-                <span>@receipt.Customer</span>
-            </div>
-        }
-    </div>
-
-    <div style="margin: 15px 0;">
-        <table style="width: 100%; font-size: 11px;">
-            <thead>
-                <tr style="border-bottom: 1px solid #000;">
-                    <th style="text-align: left; padding: 5px 0;">Item</th>
-                    <th style="text-align: right; padding: 5px 0;">Qty</th>
-                    <th style="text-align: right; padding: 5px 0;">Price</th>
-                    <th style="text-align: right; padding: 5px 0;">Total</th>
-                </tr>
-            </thead>
-            <tbody>
-                @foreach (var line in receipt.Lines)
-                {
-                    <tr>
-                        <td style="padding: 5px 0;">@line.Name</td>
-                        <td style="text-align: right; padding: 5px 0;">@line.Quantity</td>
-                        <td style="text-align: right; padding: 5px 0;">€@line.UnitPrice.ToString("F2")</td>
-                        <td style="text-align: right; padding: 5px 0; font-weight: bold;">€@line.Amount.ToString("F2")</td>
-                    </tr>
-                }
-            </tbody>
-        </table>
-    </div>
-
-    <div style="border-top: 1px dashed #000; padding-top: 10px; margin-top: 10px;">
-        <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
-            <span>Subtotal:</span>
-            <span>€@((receipt.Total - receipt.Tax).ToString("F2"))</span>
-        </div>
-        <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
-            <span>Tax:</span>
-            <span>€@receipt.Tax.ToString("F2")</span>
-        </div>
-        <div style="display: flex; justify-content: space-between; font-size: 16px; font-weight: bold; margin-top: 8px; padding-top: 8px; border-top: 2px solid #000;">
-            <span>TOTAL:</span>
-            <span>€@receipt.Total.ToString("F2")</span>
-        </div>
-    </div>
-
-    @if (receipt.Payments != null && receipt.Payments.Any())
-    {
-        <div style="border-top: 1px dashed #000; padding-top: 10px; margin-top: 10px;">
-            <div style="font-weight: bold; margin-bottom: 5px;">Payments:</div>
-            @foreach (var payment in receipt.Payments)
-            {
-                <div style="display: flex; justify-content: space-between; margin-bottom: 3px;">
-                    <span>@payment.Type:</span>
-                    <span>€@payment.Amount.ToString("F2")</span>
-                </div>
-            }
-        </div>
-    }
-
-    <div style="text-align: center; margin-top: 20px; padding-top: 15px; border-top: 2px dashed #000;">
-        <p style="margin: 5px 0; font-weight: bold;">Thank you for your purchase!</p>
-        <p style="margin: 5px 0; font-size: 10px;">Please keep this receipt for your records</p>
-    </div>
-</div>
-
 @code {
     // STATE
     List<CartLine> Lines = new();
@@ -701,8 +621,6 @@
     bool IsLoadingProducts;
     bool ShowCustomerModal;
 
-    private ReceiptModel receipt = new();
-
     // Payment Modal State
     bool ShowPaymentModal;
     private List<PaymentEntry> paymentEntries = new();
@@ -712,6 +630,7 @@
     private decimal changeAmount = 0;
     private PaymentType currentPaymentType = PaymentType.Cash;
     private bool isChangeValidated = false;
+    static bool _redirectingToLogin = false;
 
     // private bool CanCompletePayment =>
     //     !IsSaving &&
@@ -778,6 +697,33 @@
         await LoadInitialData();
     }
 
+    async Task LoadInitialData()
+    {
+        IsLoadingProducts = true;
+
+        try
+        {
+            var bootstrap = await PosApi.Bootstrap();
+
+            Products = bootstrap.Products;
+            Customers = bootstrap.Customers;
+            Stocks = bootstrap.Stocks;
+
+            // optional: server time sync
+            // ServerTime = bootstrap.ServerTime;
+
+            await FocusBarcodeInput();
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            HandleUnauthorized();
+        }
+        finally
+        {
+            IsLoadingProducts = false;
+            StateHasChanged();
+        }
+    }
 
     // async Task LoadInitialData()
     // {
@@ -812,50 +758,50 @@
     //     }
     // }
 
-    async Task LoadInitialData()
-    {
-        IsLoadingProducts = true;
+    // async Task LoadInitialData()
+    // {
+    //     IsLoadingProducts = true;
 
-        try
-        {
-            // Load customers
-            try
-            {
-                Customers = await CustomerApi.GetAll();
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Customer API failed: {ex.Message}");
-            }
+    //     try
+    //     {
+    //         // Load customers
+    //         try
+    //         {
+    //             Customers = await CustomerApi.GetAll();
+    //         }
+    //         catch (Exception ex)
+    //         {
+    //             Console.WriteLine($"Customer API failed: {ex.Message}");
+    //         }
 
-            // Load products
-            try
-            {
-                Products = await ProductApi.GetAll();
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Product API failed: {ex.Message}");
-            }
+    //         // Load products
+    //         try
+    //         {
+    //             Products = await ProductApi.GetAll();
+    //         }
+    //         catch (Exception ex)
+    //         {
+    //             Console.WriteLine($"Product API failed: {ex.Message}");
+    //         }
 
-            // Load stock - ADD THIS
-            try
-            {
-                Stocks = await StockApi.GetAll();
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Stock API failed: {ex.Message}");
-            }
+    //         // Load stock - ADD THIS
+    //         try
+    //         {
+    //             Stocks = await StockApi.GetAll();
+    //         }
+    //         catch (Exception ex)
+    //         {
+    //             Console.WriteLine($"Stock API failed: {ex.Message}");
+    //         }
 
-            await FocusBarcodeInput();
-        }
-        finally
-        {
-            IsLoadingProducts = false;
-            StateHasChanged();
-        }
-    }
+    //         await FocusBarcodeInput();
+    //     }
+    //     finally
+    //     {
+    //         IsLoadingProducts = false;
+    //         StateHasChanged();
+    //     }
+    // }
 
     private StockResult? GetStockForProduct(Guid productId)
     {
@@ -891,6 +837,49 @@
     }
 
     // BARCODE SCANNING
+    // async Task OnBarcodeKeyDown(KeyboardEventArgs e)
+    // {
+    //     if (e.Key == "Enter" && !string.IsNullOrWhiteSpace(BarcodeInput))
+    //     {
+    //         var code = BarcodeInput.Trim();
+    //         BarcodeInput = "";
+
+    //         var product = Products.FirstOrDefault(p =>
+    //             p.CatalogBarcode == code ||
+    //             p.CatalogBarcode?.Contains(code) == true);
+
+    //         if (product != null)
+    //         {
+    //             AddProduct(product, GetQuantityFromNumpad());
+    //             await FocusBarcodeInput();
+    //             NumpadValue = "";
+    //             return;
+    //         }
+
+    //         await SearchAndAddByBarcode(code);
+    //     }
+    // }
+
+    async Task OnBarcodeScanned(string code)
+    {
+        var product = Products.FirstOrDefault(p =>
+            p.CatalogBarcode == code ||
+            p.CatalogBarcode?.Contains(code) == true);
+
+        if (product == null)
+        {
+            await JS.InvokeVoidAsync(
+                "alert",
+                $"Unknown barcode: {code}"
+            );
+            return;
+        }
+
+        AddProduct(product, GetQuantityFromNumpad());
+        NumpadValue = "";
+        await FocusBarcodeInput();
+    }
+
     async Task OnBarcodeKeyDown(KeyboardEventArgs e)
     {
         if (e.Key == "Enter" && !string.IsNullOrWhiteSpace(BarcodeInput))
@@ -898,46 +887,35 @@
             var code = BarcodeInput.Trim();
             BarcodeInput = "";
 
-            var product = Products.FirstOrDefault(p =>
-                p.CatalogBarcode == code ||
-                p.CatalogBarcode?.Contains(code) == true);
-
-            if (product != null)
-            {
-                AddProduct(product, GetQuantityFromNumpad());
-                await FocusBarcodeInput();
-                NumpadValue = "";
-                return;
-            }
-
-            await SearchAndAddByBarcode(code);
+            await OnBarcodeScanned(code);
         }
     }
 
-    async Task SearchAndAddByBarcode(string searchTerm)
-    {
-        try
-        {
-            var result = await ProductApi.Search(new ProductQuery
-            {
-                Search = searchTerm,
-                PageSize = 10
-            });
 
-            var product = result.Items.FirstOrDefault();
+    // async Task SearchAndAddByBarcode(string searchTerm)
+    // {
+    //     try
+    //     {
+    //         var result = await ProductApi.Search(new ProductQuery
+    //         {
+    //             Search = searchTerm,
+    //             PageSize = 10
+    //         });
 
-            if (product != null)
-            {
-                AddProduct(product, 1);
-            }
+    //         var product = result.Items.FirstOrDefault();
 
-            await FocusBarcodeInput();
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Search error: {ex.Message}");
-        }
-    }
+    //         if (product != null)
+    //         {
+    //             AddProduct(product, 1);
+    //         }
+
+    //         await FocusBarcodeInput();
+    //     }
+    //     catch (Exception ex)
+    //     {
+    //         Console.WriteLine($"Search error: {ex.Message}");
+    //     }
+    // }
 
     // async Task SearchAndAddByBarcode(string searchTerm)
     // {
@@ -1488,6 +1466,7 @@
     // COMPLETE PAYMENT - MODIFIED FOR CREDIT LOGIC
     async Task CompletePayment()
     {
+        AddPayment();
         // CREDIT MODE
         if (currentPaymentType == PaymentType.Credit)
         {
@@ -1496,12 +1475,10 @@
                 await JS.InvokeVoidAsync("alert", "Credit requires a customer.");
                 return;
             }
-
             paymentEntries.Clear();
             paidAmount = 0;
             remainingAmount = TotalAmount;
         }
-
         // WALK-IN MUST PAY FULL
         if (SelectedCustomer == null && remainingAmount > 0)
         {
@@ -1509,51 +1486,27 @@
                 "Walk-in customer must pay the full amount.");
             return;
         }
-
         // SANITY CHECK
         if (paidAmount + remainingAmount != TotalAmount)
         {
             await JS.InvokeVoidAsync("alert", "Invalid payment state.");
             return;
         }
-
         IsSaving = true;
-
         try
         {
             var cashAmount = paymentEntries
                 .Where(p => p.Type == PaymentType.Cash)
                 .Sum(p => p.Amount);
-
             var cardAmount = paymentEntries
                 .Where(p => p.Type == PaymentType.Card)
                 .Sum(p => p.Amount);
-
-            string mainPaymentMethod =
-                cardAmount > cashAmount ? "Card" :
-                cashAmount > 0 ? "Cash" :
-                "Credit";
-
-            var paymentInfo =
-                paidAmount > 0
-                    ? new PaymentInfo
-                    {
-                        Amount = paidAmount,
-                        PaymentMethod = mainPaymentMethod,
-                        Reference = GeneratePaymentReference(
-                            cashAmount,
-                            cardAmount,
-                            0,
-                            changeAmount)
-                    }
-                    : null;
 
             var request = new CreateCompleteSaleRequest
             {
                 CustomerId = SelectedCustomer?.Id,
                 SaleDate = DateTime.UtcNow,
-                // PaidAmount = paidAmount,
-                // ChangeAmount = changeAmount,
+                ChangeAmount = changeAmount,
                 Lines = Lines.Select(l => new SaleLineItem
                 {
                     ProductId = l.ProductId,
@@ -1562,12 +1515,25 @@
                     VatRate = l.TaxRate,
                     DiscountPercent = l.CalculateDiscountPercent()
                 }).ToList(),
-                Payment = paymentInfo,
-                Notes = GeneratePaymentNotes(cashAmount, cardAmount, 0, changeAmount)
+
+                Payments = paymentEntries.Count > 0
+                    ? paymentEntries.Select(entry => new PaymentInfo
+                    {
+                        Amount = entry.Amount,
+                        PaymentMethod = entry.Type.ToString(), // "Cash", "Card", ou "Credit"
+                        Reference = $"{GetPaymentTypeName(entry.Type)} - {entry.Timestamp:HH:mm:ss}"
+                    }).ToList()
+                    : null
             };
 
+            var result = await SaleApi.CreateComplete(request);
 
-            await SaleApi.CreateComplete(request);
+            await JS.InvokeVoidAsync(
+                     "downloadFile",
+                     $"{result.Sale.InvoiceNumber}.pdf",
+                     "application/pdf",
+                     result.PdfBase64
+                 );
 
             Reset();
             ClosePaymentModal();
@@ -1577,8 +1543,7 @@
             IsSaving = false;
         }
     }
-
-    // async Task CompletePayment()
+// async Task CompletePayment()
     // {
     //     bool isCreditSelected = currentPaymentType == PaymentType.Credit;
     //     bool hasNoPayments = paymentEntries.Count == 0;
@@ -1828,17 +1793,25 @@
         await JS.InvokeVoidAsync("focusElement", barcodeInputRef);
     }
 
-    async Task PrintReceipt(ReceiptModel receipt)
-    {
-        this.receipt = receipt;
-        await JS.InvokeVoidAsync("printReceipt");
-    }
-
     public void Dispose()
     {
         feedbackTimer?.Dispose();
     }
 
+    void HandleUnauthorized()
+    {
+        if (_redirectingToLogin)
+            return;
+
+        if (Nav.Uri.Contains("/login"))
+            return;
+
+        _redirectingToLogin = true;
+
+        Logger.LogWarning("Unauthorized → redirecting to login");
+
+        Nav.NavigateTo("/login", replace: true);
+    }
     // ENUMS
     enum PaymentType
     {

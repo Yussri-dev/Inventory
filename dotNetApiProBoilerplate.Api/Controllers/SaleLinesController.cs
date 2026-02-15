@@ -1,14 +1,16 @@
-﻿using Inventory.Dto.SaleLines.Requests;
-using Inventory.Dto.Queries;
+﻿using Inventory.Dto.Queries;
+using Inventory.Dto.SaleLines.Requests;
+using Inventory.Dto.SaleLines.Results;
 using Inventory.Services.Features.SaleLines.Create;
 using Inventory.Services.Features.SaleLines.Delete;
 using Inventory.Services.Features.SaleLines.GetAll;
 using Inventory.Services.Features.SaleLines.GetById;
+using Inventory.Services.Features.SaleLines.GetBySaleId;
 using Inventory.Services.Features.SaleLines.Search;
 using Inventory.Services.Features.SaleLines.Update;
 using MediatR;
-using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 
 namespace Inventory.Api.Controllers
 {
@@ -102,6 +104,22 @@ namespace Inventory.Api.Controllers
             return NoContent();
         }
 
+        //[HttpGet("by-sale/{saleId:guid}")]
+        //[ProducesResponseType(typeof(List<SaleLineResult>), StatusCodes.Status200OK)]
+        //[ProducesResponseType(StatusCodes.Status404NotFound)]
+        //public async Task<IActionResult> GetBySaleId(
+        //    Guid saleId,
+        //    CancellationToken cancellationToken)
+        //{
+        //    var result = await _mediator.Send(
+        //        new GetSaleLinesBySaleIdQuery(saleId),
+        //        cancellationToken
+        //    );
+
+        //    return Ok(result);
+        //}
+
+
         [HttpGet("search")]
         [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -116,5 +134,23 @@ namespace Inventory.Api.Controllers
             );
             return Ok(result);
         }
+
+
+        [HttpGet("by-sale/{saleId:guid}")]
+        [ProducesResponseType(typeof(List<SaleLineWithReturnsResult>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> GetBySaleWithReturns(
+             Guid saleId,
+             CancellationToken cancellationToken)
+        {
+            var result = await _mediator.Send(
+                new GetSaleLinesWithReturnsQuery(saleId),
+                cancellationToken
+            );
+
+            return Ok(result);
+        }
+
+
     }
 }

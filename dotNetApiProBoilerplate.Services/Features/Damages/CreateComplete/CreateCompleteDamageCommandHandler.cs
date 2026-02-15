@@ -3,7 +3,7 @@ using MediatR;
 
 namespace Inventory.Services.Features.Damages.CreateComplete
 {
-    public class CreateCompleteDamageCommandHandler : IRequestHandler<CreateCompleteDamageCommand, DamageResult>
+    public class CreateCompleteDamageCommandHandler /*: IRequestHandler<CreateCompleteDamageCommand, DamageResult>*/
     {
         private readonly DamageService _service;
 
@@ -12,9 +12,9 @@ namespace Inventory.Services.Features.Damages.CreateComplete
             _service = service;
         }
 
-        public async Task<DamageResult> Handle(CreateCompleteDamageCommand command, CancellationToken cancellationToken)
-        {
-            return await _service.CreateCompleteAsync(command.Request);
-        }
+        //public async Task<DamageResult> Handle(CreateCompleteDamageCommand command, CancellationToken cancellationToken)
+        //{
+        //    return await _service.CreateCompleteAsync(command.Request);
+        //}
     }
 }

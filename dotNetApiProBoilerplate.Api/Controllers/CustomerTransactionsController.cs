@@ -1,7 +1,9 @@
 ﻿using Inventory.Dto.CustomerTransactions.Requests;
+using Inventory.Dto.CustomerTransactions.Results;
 using Inventory.Dto.Queries;
 using Inventory.Services.Features.CustomerTransactions.Balance;
 using Inventory.Services.Features.CustomerTransactions.Create;
+using Inventory.Services.Features.CustomerTransactions.CustomerDetails;
 using Inventory.Services.Features.CustomerTransactions.Delete;
 using Inventory.Services.Features.CustomerTransactions.GetAll;
 using Inventory.Services.Features.CustomerTransactions.GetById;
@@ -173,6 +175,20 @@ namespace Inventory.Api.Controllers
                 new { version = "1.0", id = result.Id },
                 result
             );
+        }
+
+        [HttpGet("customer-detail/{customerId:guid}")]
+        [ProducesResponseType(typeof(CustomerDetailResult), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> GetCustomerDetail(
+    Guid customerId,
+    CancellationToken cancellationToken)
+        {
+            var result = await _mediator.Send(
+                new GetCustomerDetailQuery(customerId),
+                cancellationToken
+            );
+            return Ok(result);
         }
     }
 }

@@ -1,187 +1,189 @@
 ﻿@page "/productCatalogs"
-@using global::Inventory.Dto.ProductCatalogs.Results
 @inject IProductCatalogApi Api
 
 <h3>Product Catalogs</h3>
+<div class="page-container">
 
-@if (!string.IsNullOrEmpty(errorMessage))
-{
-    <div class="alert error">
-        <span>@errorMessage</span>
-        <button @onclick="ClearError">×</button>
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert error">
+            <span>@errorMessage</span>
+            <button @onclick="ClearError">×</button>
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(successMessage))
+    {
+        <div class="alert success">
+            <span>@successMessage</span>
+            <button @onclick="ClearSuccess">×</button>
+        </div>
+    }
+
+    <div class="card">
+        <h4>@(editingId == null ? "Create product" : "Edit product")</h4>
+        <EditForm Model="form" OnValidSubmit="HandleSubmit">
+            <DataAnnotationsValidator />
+            <div class="form-grid">
+                <div class="form-row">
+                    <div class="form-field">
+                        <label>Name *</label>
+                        <InputText placeholder="Product name"
+                                   @bind-Value="form.Name"
+                                   disabled="@isLoading" />
+                        <ValidationMessage For="@(() => form.Name)" />
+                    </div>
+                    <div class="form-field">
+                        <label>Barcode *</label>
+                        <InputText placeholder="Barcode"
+                                   @bind-Value="form.Barcode"
+                                   disabled="@isLoading" />
+                        <ValidationMessage For="@(() => form.Barcode)" />
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-field">
+                        <label>Brand</label>
+                        <InputText placeholder="Brand (optional)"
+                                   @bind-Value="form.Brand"
+                                   disabled="@isLoading" />
+                        <ValidationMessage For="@(() => form.Brand)" />
+                    </div>
+                    <div class="form-field">
+                        <label>Manufacturer</label>
+                        <InputText placeholder="Manufacturer (optional)"
+                                   @bind-Value="form.Manufacturer"
+                                   disabled="@isLoading" />
+                        <ValidationMessage For="@(() => form.Manufacturer)" />
+                    </div>
+                </div>
+                <div class="form-field">
+                    <label>Description</label>
+                    <InputTextArea placeholder="Product description (optional)"
+                                   rows="3"
+                                   @bind-Value="form.Description"
+                                   disabled="@isLoading" />
+                    <ValidationMessage For="@(() => form.Description)" />
+                </div>
+                <div class="actions-end">
+                    @if (editingId == null)
+                    {
+                        <button type="submit" class="btn primary" disabled="@isLoading">
+                            @(isLoading ? "Creating..." : "Create")
+                        </button>
+                    }
+                    else
+                    {
+                        <button type="submit" class="btn primary" disabled="@isLoading">
+                            @(isLoading ? "Updating..." : "Update")
+                        </button>
+                        <button type="button" class="btn ghost" @onclick="CancelEdit" disabled="@isLoading">
+                            Cancel
+                        </button>
+                    }
+                </div>
+            </div>
+        </EditForm>
     </div>
-}
 
-@if (!string.IsNullOrEmpty(successMessage))
-{
-    <div class="alert success">
-        <span>@successMessage</span>
-        <button @onclick="ClearSuccess">×</button>
-    </div>
-}
-
-<div class="card">
-    <h4>@(editingId == null ? "Create product" : "Edit product")</h4>
-    <EditForm Model="form" OnValidSubmit="HandleSubmit">
-        <DataAnnotationsValidator />
-        <div class="form-grid">
-            <div class="form-row">
-                <div class="form-field">
-                    <label>Name *</label>
-                    <InputText placeholder="Product name"
-                               @bind-Value="form.Name"
-                               disabled="@isLoading" />
-                    <ValidationMessage For="@(() => form.Name)" />
-                </div>
-                <div class="form-field">
-                    <label>Barcode *</label>
-                    <InputText placeholder="Barcode"
-                               @bind-Value="form.Barcode"
-                               disabled="@isLoading" />
-                    <ValidationMessage For="@(() => form.Barcode)" />
-                </div>
-            </div>
-            <div class="form-row">
-                <div class="form-field">
-                    <label>Brand</label>
-                    <InputText placeholder="Brand (optional)"
-                               @bind-Value="form.Brand"
-                               disabled="@isLoading" />
-                    <ValidationMessage For="@(() => form.Brand)" />
-                </div>
-                <div class="form-field">
-                    <label>Manufacturer</label>
-                    <InputText placeholder="Manufacturer (optional)"
-                               @bind-Value="form.Manufacturer"
-                               disabled="@isLoading" />
-                    <ValidationMessage For="@(() => form.Manufacturer)" />
-                </div>
-            </div>
-            <div class="form-field">
-                <label>Description</label>
-                <InputTextArea placeholder="Product description (optional)"
-                               rows="3"
-                               @bind-Value="form.Description"
-                               disabled="@isLoading" />
-                <ValidationMessage For="@(() => form.Description)" />
-            </div>
-            <div class="actions-end">
-                @if (editingId == null)
-                {
-                    <button type="submit" class="btn primary" disabled="@isLoading">
-                        @(isLoading ? "Creating..." : "Create")
-                    </button>
-                }
-                else
-                {
-                    <button type="submit" class="btn primary" disabled="@isLoading">
-                        @(isLoading ? "Updating..." : "Update")
-                    </button>
-                    <button type="button" class="btn ghost" @onclick="CancelEdit" disabled="@isLoading">
-                        Cancel
-                    </button>
-                }
+    <div class="card">
+        <h4>Search Products</h4>
+        <div class="search-grid">
+            <input type="text"
+                   placeholder="Search by name or barcode..."
+                   @bind="searchTerm"
+                   @bind:event="oninput"
+                   @onkeyup="OnSearchKeyUp"
+                   disabled="@isLoading" />
+            <div class="search-actions">
+                <button class="btn primary" @onclick="Search" disabled="@isLoading">
+                    Search
+                </button>
+                <button class="btn ghost" @onclick="ClearSearch" disabled="@isLoading">
+                    Clear
+                </button>
             </div>
         </div>
-    </EditForm>
-</div>
+    </div>
 
-<div class="card">
-    <h4>Search Products</h4>
-    <div class="search-grid">
-        <input type="text"
-               placeholder="Search by name or barcode..."
-               @bind="searchTerm"
-               @bind:event="oninput"
-               @onkeyup="OnSearchKeyUp"
-               disabled="@isLoading" />
-        <div class="search-actions">
-            <button class="btn primary" @onclick="Search" disabled="@isLoading">
-                Search
-            </button>
-            <button class="btn ghost" @onclick="ClearSearch" disabled="@isLoading">
-                Clear
-            </button>
+    @if (isLoadingData)
+    {
+        <div class="loading-container">
+            <p>Loading products...</p>
         </div>
-    </div>
-</div>
-
-@if (isLoadingData)
-{
-    <div class="loading-container">
-        <p>Loading products...</p>
-    </div>
-}
-else if (items == null || items.Count == 0)
-{
-    <p>@(isSearching ? "No products found matching your search." : "No products.")</p>
-}
-else
-{
-    <div class="results-header">
-        <span>@items.Count product(s) found</span>
-        @if (isSearching)
-        {
-            <button class="btn small ghost" @onclick="ClearSearch">Show All</button>
-        }
-    </div>
-
-    <table class="table">
-        <thead>
-            <tr>
-                <th>Name</th>
-                <th>Barcode</th>
-                <th>Brand</th>
-                <th>Manufacturer</th>
-                <th style="width:160px"></th>
-            </tr>
-        </thead>
-        <tbody>
-            @foreach (var p in items)
+    }
+    else if (items == null || items.Count == 0)
+    {
+        <p>@(isSearching ? "No products found matching your search." : "No products.")</p>
+    }
+    else
+    {
+        <div class="results-header">
+            <span>@items.Count product(s) found</span>
+            @if (isSearching)
             {
-                <tr>
-                    <td>
-                        <div class="product-name">@p.Name</div>
-                        @if (!string.IsNullOrEmpty(p.Description))
-                        {
-                            <div class="product-desc">@p.Description</div>
-                        }
-                    </td>
-                    <td><code>@p.Barcode</code></td>
-                    <td>@(p.Brand ?? "-")</td>
-                    <td>@(p.Manufacturer ?? "-")</td>
-                    <td class="actions-end">
-                        <button class="btn small ghost"
-                                @onclick="() => StartEdit(p)"
-                                disabled="@isLoading">
-                            Edit
-                        </button>
-                        <button class="btn small danger"
-                                @onclick="() => ConfirmDelete(p)"
-                                disabled="@isLoading">
-                            Delete
-                        </button>
-                    </td>
-                </tr>
+                <button class="btn small ghost" @onclick="ClearSearch">Show All</button>
             }
-        </tbody>
-    </table>
-}
+        </div>
 
-@if (showDeleteConfirm && productToDelete != null)
-{
-    <div class="modal-overlay" @onclick="CancelDelete">
-        <div class="modal-content" @onclick:stopPropagation="true">
-            <h4>Confirm Delete</h4>
-            <p>Are you sure you want to delete <strong>@productToDelete.Name</strong>?</p>
-            <p class="text-muted">This action cannot be undone.</p>
-            <div class="modal-actions">
-                <button class="btn ghost" @onclick="CancelDelete">Cancel</button>
-                <button class="btn danger" @onclick="ConfirmDeleteAction">Delete</button>
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Barcode</th>
+                    <th>Brand</th>
+                    <th>Manufacturer</th>
+                    <th style="width:160px"></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var p in items)
+                {
+                    <tr>
+                        <td>
+                            <div class="product-name">@p.Name</div>
+                            @if (!string.IsNullOrEmpty(p.Description))
+                            {
+                                <div class="product-desc">@p.Description</div>
+                            }
+                        </td>
+                        <td><code>@p.Barcode</code></td>
+                        <td>@(p.Brand ?? "-")</td>
+                        <td>@(p.Manufacturer ?? "-")</td>
+                        <td class="actions-end">
+                            <button class="btn small ghost"
+                                    @onclick="() => StartEdit(p)"
+                                    disabled="@isLoading">
+                                Edit
+                            </button>
+                            <button class="btn small danger"
+                                    @onclick="() => ConfirmDelete(p)"
+                                    disabled="@isLoading">
+                                Delete
+                            </button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+
+    @if (showDeleteConfirm && productToDelete != null)
+    {
+        <div class="modal-overlay" @onclick="CancelDelete">
+            <div class="modal-content" @onclick:stopPropagation="true">
+                <h4>Confirm Delete</h4>
+                <p>Are you sure you want to delete <strong>@productToDelete.Name</strong>?</p>
+                <p class="text-muted">This action cannot be undone.</p>
+                <div class="modal-actions">
+                    <button class="btn ghost" @onclick="CancelDelete">Cancel</button>
+                    <button class="btn danger" @onclick="ConfirmDeleteAction">Delete</button>
+                </div>
             </div>
         </div>
-    </div>
-}
+    }
+
+</div>
 
 @code
 {

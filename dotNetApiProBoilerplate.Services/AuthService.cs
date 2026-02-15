@@ -211,7 +211,10 @@ namespace Inventory.Services
             var user = await _userManager.FindByEmailAsync(request.Email);
 
             if (user == null)
+            {
                 throw new UnauthorizedAccessException("Invalid email or password.");
+            }
+
 
             // HARD INVARIANT
             if (user.Role != UserRole.SuperAdmin && user.TenantId == null)
@@ -312,6 +315,9 @@ namespace Inventory.Services
 
         private AuthResult GenerateResult(ApplicationUser user)
         {
+            var tenant = user.TenantId != null
+                ? _context.Tenants.FirstOrDefault(t => t.Id == user.TenantId)
+                : null;
             return new AuthResult
             {
                 AccessToken = _jwt.Generate(
@@ -325,7 +331,10 @@ namespace Inventory.Services
                 Email = user.Email!,
                 TenantId = user.TenantId,
                 FullName = user.FullName,
-                Role = user.Role.ToString()
+                Role = user.Role.ToString(),
+
+                TrialEndDate = tenant?.TrialEndDate,
+                IsTrialActive = tenant?.IsTrialActive ?? false
             };
         }
 

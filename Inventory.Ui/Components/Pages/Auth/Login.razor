@@ -68,10 +68,21 @@
                     <span class="btn-arrow">→</span>
                 }
             </button>
+
+
+
         </form>
 
         <!-- Footer -->
         <div class="login-footer">
+            <div>
+                @if (DaysLeft != null)
+                {
+                    <div class="trial-info">
+                        Trial ends in <strong>@DaysLeft</strong> days
+                    </div>
+                }
+            </div>
             <p class="footer-text">Forgot your password? <a href="/forgot-password">Reset it</a></p>
         </div>
     </div>
@@ -81,6 +92,7 @@
     private LoginRequest Model = new();
     private bool IsLoading;
     private string Error = string.Empty;
+    private int? DaysLeft;
 
     protected override async Task OnInitializedAsync()
     {
@@ -102,6 +114,13 @@
             {
                 Error = "Invalid login response.";
                 return;
+            }
+
+            if (result.TrialEndDate != null)
+            {
+                DaysLeft = (int)Math.Ceiling(
+                    (result.TrialEndDate.Value - DateTime.UtcNow).TotalDays
+                );
             }
 
             var token = result.AccessToken.StartsWith("Bearer ")

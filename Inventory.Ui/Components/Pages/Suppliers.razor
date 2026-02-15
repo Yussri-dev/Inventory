@@ -1,237 +1,238 @@
 ﻿@page "/suppliers"
-@using global::Inventory.Dto.Suppliers.Results
-@using global::Inventory.Ui.Interfaces
-
 @inject ISupplierApi Api
 
 <h3>Suppliers</h3>
 
-@if (!string.IsNullOrEmpty(errorMessage))
-{
-    <div class="alert error">
-        <span>@errorMessage</span>
-        <button @onclick="ClearError">×</button>
+<div class="page-container">
+
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert error">
+            <span>@errorMessage</span>
+            <button @onclick="ClearError">×</button>
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(successMessage))
+    {
+        <div class="alert success">
+            <span>@successMessage</span>
+            <button @onclick="ClearSuccess">×</button>
+        </div>
+    }
+
+    <!-- CREATE / EDIT -->
+    <div class="card">
+        <h4>@(editingId == null ? "Create supplier" : "Edit supplier")</h4>
+
+        <EditForm Model="form" OnValidSubmit="HandleSubmit">
+            <DataAnnotationsValidator />
+
+            <div class="form-grid">
+                <div class="form-row">
+                    <div class="form-field">
+                        <label>Name *</label>
+                        <InputText placeholder="Supplier name"
+                                   @bind-Value="form.Name"
+                                   disabled="@isLoading" />
+                        <ValidationMessage For="@(() => form.Name)" />
+                    </div>
+
+                    <div class="form-field">
+                        <label>Email</label>
+                        <InputText placeholder="email@example.com"
+                                   type="email"
+                                   @bind-Value="form.Email"
+                                   disabled="@isLoading" />
+                        <ValidationMessage For="@(() => form.Email)" />
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-field">
+                        <label>Phone</label>
+                        <InputText placeholder="+1 234 567 8900"
+                                   @bind-Value="form.Phone"
+                                   disabled="@isLoading" />
+                        <ValidationMessage For="@(() => form.Phone)" />
+                    </div>
+
+                    <div class="form-field">
+                        <label>Tax Number</label>
+                        <InputText placeholder="Tax identification number"
+                                   @bind-Value="form.TaxNumber"
+                                   disabled="@isLoading" />
+                        <ValidationMessage For="@(() => form.TaxNumber)" />
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-field">
+                        <label>Country</label>
+                        <InputText placeholder="Country"
+                                   @bind-Value="form.Country"
+                                   disabled="@isLoading" />
+                        <ValidationMessage For="@(() => form.Country)" />
+                    </div>
+
+                    <div class="form-field">
+                        <label>City</label>
+                        <InputText placeholder="City"
+                                   @bind-Value="form.City"
+                                   disabled="@isLoading" />
+                        <ValidationMessage For="@(() => form.City)" />
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-field">
+                        <label>Bank Account</label>
+                        <InputText placeholder="Bank account number"
+                                   @bind-Value="form.BankAccount"
+                                   disabled="@isLoading" />
+                        <ValidationMessage For="@(() => form.BankAccount)" />
+                    </div>
+
+                    <div class="form-field">
+                        <label class="checkbox-label">
+                            <InputCheckbox @bind-Value="form.IsActive" disabled="@isLoading" />
+                            <span>Active</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="actions-end">
+                    @if (editingId == null)
+                    {
+                        <button type="submit" class="btn primary" disabled="@isLoading">
+                            @(isLoading ? "Creating..." : "Create")
+                        </button>
+                    }
+                    else
+                    {
+                        <button type="submit" class="btn primary" disabled="@isLoading">
+                            @(isLoading ? "Updating..." : "Update")
+                        </button>
+                        <button type="button" class="btn ghost" @onclick="CancelEdit" disabled="@isLoading">
+                            Cancel
+                        </button>
+                    }
+                </div>
+            </div>
+        </EditForm>
     </div>
-}
 
-@if (!string.IsNullOrEmpty(successMessage))
-{
-    <div class="alert success">
-        <span>@successMessage</span>
-        <button @onclick="ClearSuccess">×</button>
-    </div>
-}
+    <!-- SEARCH -->
+    <div class="card">
+        <h4>Search Suppliers</h4>
 
-<!-- CREATE / EDIT -->
-<div class="card">
-    <h4>@(editingId == null ? "Create supplier" : "Edit supplier")</h4>
+        <div class="search-grid">
+            <input type="text"
+                   placeholder="Search name, email, phone, tax number…"
+                   @bind="searchTerm"
+                   @bind:event="oninput"
+                   @onkeyup="OnSearchKeyUp"
+                   disabled="@isLoading" />
 
-    <EditForm Model="form" OnValidSubmit="HandleSubmit">
-        <DataAnnotationsValidator />
-
-        <div class="form-grid">
-            <div class="form-row">
-                <div class="form-field">
-                    <label>Name *</label>
-                    <InputText placeholder="Supplier name"
-                               @bind-Value="form.Name" 
-                               disabled="@isLoading" />
-                    <ValidationMessage For="@(() => form.Name)" />
-                </div>
-
-                <div class="form-field">
-                    <label>Email</label>
-                    <InputText placeholder="email@example.com"
-                               type="email"
-                               @bind-Value="form.Email" 
-                               disabled="@isLoading" />
-                    <ValidationMessage For="@(() => form.Email)" />
-                </div>
-            </div>
-
-            <div class="form-row">
-                <div class="form-field">
-                    <label>Phone</label>
-                    <InputText placeholder="+1 234 567 8900"
-                               @bind-Value="form.Phone" 
-                               disabled="@isLoading" />
-                    <ValidationMessage For="@(() => form.Phone)" />
-                </div>
-
-                <div class="form-field">
-                    <label>Tax Number</label>
-                    <InputText placeholder="Tax identification number"
-                               @bind-Value="form.TaxNumber" 
-                               disabled="@isLoading" />
-                    <ValidationMessage For="@(() => form.TaxNumber)" />
-                </div>
-            </div>
-
-            <div class="form-row">
-                <div class="form-field">
-                    <label>Country</label>
-                    <InputText placeholder="Country"
-                               @bind-Value="form.Country" 
-                               disabled="@isLoading" />
-                    <ValidationMessage For="@(() => form.Country)" />
-                </div>
-
-                <div class="form-field">
-                    <label>City</label>
-                    <InputText placeholder="City"
-                               @bind-Value="form.City" 
-                               disabled="@isLoading" />
-                    <ValidationMessage For="@(() => form.City)" />
-                </div>
-            </div>
-
-            <div class="form-row">
-                <div class="form-field">
-                    <label>Bank Account</label>
-                    <InputText placeholder="Bank account number"
-                               @bind-Value="form.BankAccount" 
-                               disabled="@isLoading" />
-                    <ValidationMessage For="@(() => form.BankAccount)" />
-                </div>
-
-                <div class="form-field">
-                    <label class="checkbox-label">
-                        <InputCheckbox @bind-Value="form.IsActive" disabled="@isLoading" />
-                        <span>Active</span>
-                    </label>
-                </div>
-            </div>
-
-            <div class="actions-end">
-                @if (editingId == null)
-                {
-                    <button type="submit" class="btn primary" disabled="@isLoading">
-                        @(isLoading ? "Creating..." : "Create")
-                    </button>
-                }
-                else
-                {
-                    <button type="submit" class="btn primary" disabled="@isLoading">
-                        @(isLoading ? "Updating..." : "Update")
-                    </button>
-                    <button type="button" class="btn ghost" @onclick="CancelEdit" disabled="@isLoading">
-                        Cancel
-                    </button>
-                }
+            <div class="search-actions">
+                <button class="btn primary" @onclick="Search" disabled="@isLoading">
+                    Search
+                </button>
+                <button class="btn ghost" @onclick="ClearSearch" disabled="@isLoading">
+                    Clear
+                </button>
             </div>
         </div>
-    </EditForm>
-</div>
+    </div>
 
-<!-- SEARCH -->
-<div class="card">
-    <h4>Search Suppliers</h4>
-
-    <div class="search-grid">
-        <input type="text"
-               placeholder="Search name, email, phone, tax number…"
-               @bind="searchTerm"
-               @bind:event="oninput"
-               @onkeyup="OnSearchKeyUp"
-               disabled="@isLoading" />
-
-        <div class="search-actions">
-            <button class="btn primary" @onclick="Search" disabled="@isLoading">
-                Search
-            </button>
-            <button class="btn ghost" @onclick="ClearSearch" disabled="@isLoading">
-                Clear
-            </button>
+    @if (isLoadingData)
+    {
+        <div class="loading-container">
+            <p>Loading suppliers...</p>
         </div>
-    </div>
-</div>
-
-@if (isLoadingData)
-{
-    <div class="loading-container">
-        <p>Loading suppliers...</p>
-    </div>
-}
-else if (items is null || items.Count == 0)
-{
-    <p>@(isSearching ? "No suppliers found matching your search." : "No suppliers.")</p>
-}
-else
-{
-    <div class="results-header">
-        <span>@items.Count supplier(s) found</span>
-        @if (isSearching)
-        {
-            <button class="btn small ghost" @onclick="ClearSearch">Show All</button>
-        }
-    </div>
-
-    <table class="table">
-        <thead>
-            <tr>
-                <th>Name</th>
-                <th>Email</th>
-                <th>Phone</th>
-                <th>Tax Number</th>
-                <th>Country</th>
-                <th>City</th>
-                <th>Status</th>
-                <th style="width:160px"></th>
-            </tr>
-        </thead>
-        <tbody>
-            @foreach (var s in items)
+    }
+    else if (items is null || items.Count == 0)
+    {
+        <p>@(isSearching ? "No suppliers found matching your search." : "No suppliers.")</p>
+    }
+    else
+    {
+        <div class="results-header">
+            <span>@items.Count supplier(s) found</span>
+            @if (isSearching)
             {
-                <tr>
-                    <td>
-                        <div class="product-name">@s.Name</div>
-                        @if (!string.IsNullOrEmpty(s.BankAccount))
-                        {
-                            <div class="product-desc">Account: @s.BankAccount</div>
-                        }
-                    </td>
-                    <td>@(s.Email ?? "-")</td>
-                    <td>@(s.Phone ?? "-")</td>
-                    <td>@(s.TaxNumber ?? "-")</td>
-                    <td>@(s.Country ?? "-")</td>
-                    <td>@(s.City ?? "-")</td>
-                    <td>
-                        <span class="badge @(s.IsActive ? "badge-success" : "badge-inactive")">
-                            @(s.IsActive ? "Active" : "Inactive")
-                        </span>
-                    </td>
-                    <td class="actions-end">
-                        <button class="btn small ghost" 
-                                @onclick="() => StartEdit(s)"
-                                disabled="@isLoading">
-                            Edit
-                        </button>
-                        <button class="btn small danger" 
-                                @onclick="() => AskDelete(s)"
-                                disabled="@isLoading">
-                            Delete
-                        </button>
-                    </td>
-                </tr>
+                <button class="btn small ghost" @onclick="ClearSearch">Show All</button>
             }
-        </tbody>
-    </table>
-}
+        </div>
 
-@if (showDelete && supplierToDelete != null)
-{
-    <div class="modal-overlay" @onclick="CancelDelete">
-        <div class="modal-content" @onclick:stopPropagation="true">
-            <h4>Confirm Delete</h4>
-            <p>Are you sure you want to delete <strong>@supplierToDelete.Name</strong>?</p>
-            <p class="text-muted">This action cannot be undone.</p>
-            <div class="modal-actions">
-                <button class="btn ghost" @onclick="CancelDelete">Cancel</button>
-                <button class="btn danger" @onclick="ConfirmDelete">Delete</button>
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Email</th>
+                    <th>Phone</th>
+                    <th>Tax Number</th>
+                    <th>Country</th>
+                    <th>City</th>
+                    <th>Status</th>
+                    <th style="width:160px"></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var s in items)
+                {
+                    <tr>
+                        <td>
+                            <div class="product-name">@s.Name</div>
+                            @if (!string.IsNullOrEmpty(s.BankAccount))
+                            {
+                                <div class="product-desc">Account: @s.BankAccount</div>
+                            }
+                        </td>
+                        <td>@(s.Email ?? "-")</td>
+                        <td>@(s.Phone ?? "-")</td>
+                        <td>@(s.TaxNumber ?? "-")</td>
+                        <td>@(s.Country ?? "-")</td>
+                        <td>@(s.City ?? "-")</td>
+                        <td>
+                            <span class="badge @(s.IsActive ? "badge-success" : "badge-inactive")">
+                                @(s.IsActive ? "Active" : "Inactive")
+                            </span>
+                        </td>
+                        <td class="actions-end">
+                            <button class="btn small ghost"
+                                    @onclick="() => StartEdit(s)"
+                                    disabled="@isLoading">
+                                Edit
+                            </button>
+                            <button class="btn small danger"
+                                    @onclick="() => AskDelete(s)"
+                                    disabled="@isLoading">
+                                Delete
+                            </button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+
+    @if (showDelete && supplierToDelete != null)
+    {
+        <div class="modal-overlay" @onclick="CancelDelete">
+            <div class="modal-content" @onclick:stopPropagation="true">
+                <h4>Confirm Delete</h4>
+                <p>Are you sure you want to delete <strong>@supplierToDelete.Name</strong>?</p>
+                <p class="text-muted">This action cannot be undone.</p>
+                <div class="modal-actions">
+                    <button class="btn ghost" @onclick="CancelDelete">Cancel</button>
+                    <button class="btn danger" @onclick="ConfirmDelete">Delete</button>
+                </div>
             </div>
         </div>
-    </div>
-}
+    }
+
+</div>
 
 @code {
     private List<SupplierResult>? items;

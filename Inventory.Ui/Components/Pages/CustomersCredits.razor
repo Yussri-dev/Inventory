@@ -3,278 +3,500 @@
 @using Inventory.Dto.CustomerTransactions.Results
 @using Inventory.Ui.Interfaces
 
-<div class="page-container">
-    <div class="header">
-        <h1>Customer Credit Management</h1>
-        <button class="btn-refresh" @onclick="LoadCustomersAsync">
-            <span class="icon">🔄</span> Refresh
-        </button>
+<div class="credits-page">
+    <div class="page-header">
+        <div class="header-content">
+            <h1>💳 Customer Credit Management</h1>
+            <p class="subtitle">Manage customer balances, payments, and purchase history</p>
+        </div>
+        <div class="header-actions">
+            <button class="btn-icon" @onclick="LoadCustomersAsync" disabled="@isLoading">
+                <span class="icon">@(isLoading ? "⏳" : "🔄")</span>
+                <span>Refresh</span>
+            </button>
+        </div>
     </div>
 
-    @if (isLoading)
+    @if (isLoading && customers == null)
     {
-        <div class="loading">
-            <div class="spinner"></div>
-            <p>Loading customers...</p>
+        <div class="loading-overlay">
+            <div class="spinner-large"></div>
+            <p>Loading customer data...</p>
         </div>
     }
     else if (!string.IsNullOrEmpty(errorMessage))
     {
         <div class="alert alert-error">
-            <strong>Error:</strong> @errorMessage
+            <span class="alert-icon">⚠️</span>
+            <div class="alert-content">
+                <strong>Error</strong>
+                <p>@errorMessage</p>
+            </div>
         </div>
     }
     else if (customers == null || !customers.Any())
     {
         <div class="empty-state">
-            <p>No customer transactions found.</p>
+            <span class="empty-icon">📋</span>
+            <h3>No Customers Found</h3>
+            <p>There are no customer transactions to display.</p>
         </div>
     }
     else
     {
-        <div class="summary-cards">
-            <div class="summary-card debt">
-                <div class="summary-header">
-                    <span class="icon">💰</span>
-                    <h3>Customers Owe Us</h3>
-                </div>
-                <div class="summary-body">
-                    <div class="summary-value">@customersWithDebt</div>
-                    <div class="summary-label">Customers</div>
-                    <div class="summary-amount debt-amount">@totalDebt.ToString("C2")</div>
-                </div>
-            </div>
+        <div class="main-content">
+            <!-- Left Sidebar for History -->
+            <div class="history-sidebar">
+                @if (expandedCustomerId != null && customerDetail != null)
+                {
+                    <div class="sidebar-header">
+                        <h2>@customerDetail.Name - History</h2>
+                    </div>
 
-            <div class="summary-card credit">
-                <div class="summary-header">
-                    <span class="icon">✅</span>
-                    <h3>We Owe Customers</h3>
-                </div>
-                <div class="summary-body">
-                    <div class="summary-value">@customersWithCredit</div>
-                    <div class="summary-label">Customers</div>
-                    <div class="summary-amount credit-amount">@totalCredit.ToString("C2")</div>
-                </div>
-            </div>
+                    <div class="detail-tabs">
+                        <button class="detail-tab @(activeTab == "purchases" ? "active" : "")"
+                                @onclick='() => activeTab = "purchases"'>
+                            🛒 Purchases (@customerDetail.Sales.Count)
+                        </button>
+                        <button class="detail-tab @(activeTab == "transactions" ? "active" : "")"
+                                @onclick='() => activeTab = "transactions"'>
+                            📊 Transactions (@customerDetail.Transactions.Count)
+                        </button>
+                        <button class="detail-tab @(activeTab == "summary" ? "active" : "")"
+                                @onclick='() => activeTab = "summary"'>
+                            📈 Summary
+                        </button>
+                    </div>
 
-            <div class="summary-card zero">
-                <div class="summary-header">
-                    <span class="icon">⚖️</span>
-                    <h3>Balanced</h3>
-                </div>
-                <div class="summary-body">
-                    <div class="summary-value">@customersBalanced</div>
-                    <div class="summary-label">Customers</div>
-                </div>
-            </div>
-        </div>
-
-        <div class="filters">
-            <div class="search-box">
-                <input type="text"
-                       placeholder="Search by customer name..."
-                       @bind="searchTerm"
-                       @bind:event="oninput"
-                       class="search-input" />
-            </div>
-
-            <div class="filter-buttons">
-                <button class="filter-btn @(filterType == "all" ? "active" : "")"
-                        @onclick='() => filterType = "all"'>
-                    All (@customers.Count)
-                </button>
-                <button class="filter-btn debt @(filterType == "debt" ? "active" : "")"
-                        @onclick='() => filterType = "debt"'>
-                    Owe Us (@customersWithDebt)
-                </button>
-                <button class="filter-btn credit @(filterType == "credit" ? "active" : "")"
-                        @onclick='() => filterType = "credit"'>
-                    We Owe (@customersWithCredit)
-                </button>
-                <button class="filter-btn zero @(filterType == "zero" ? "active" : "")"
-                        @onclick='() => filterType = "zero"'>
-                    Balanced (@customersBalanced)
-                </button>
-            </div>
-        </div>
-
-        <div class="customers-list">
-            <table class="customers-table">
-                <thead>
-                    <tr>
-                        <th>Customer Name</th>
-                        <th class="text-right">Balance</th>
-                        <th class="text-center">Status</th>
-                        <th class="text-center">Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach (var customer in FilteredCustomers)
-                    {
-                        <tr class="customer-row">
-                            <td class="customer-name">
-                                <strong>@customer.Name</strong>
-                            </td>
-                            <td class="text-right">
-                                <span class="balance @GetBalanceClass(customer.Balance)">
-                                    @customer.Balance.ToString("C2")
-                                </span>
-                            </td>
-                            <td class="text-center">
-                                <span class="status-badge @GetStatusClass(customer.Balance)">
-                                    @GetStatusText(customer.Balance)
-                                </span>
-                            </td>
-                            <td class="text-center">
-                                @if (customer.Balance > 0)
+                    <div class="detail-content">
+                        @if (activeTab == "purchases")
+                        {
+                            <div class="purchases-list">
+                                @if (!customerDetail.Sales.Any())
                                 {
-                                    <button class="btn-action" @onclick="() => OpenPaymentModal(customer)">
-                                        Register Payment
-                                    </button>
-                                }
-                                else if (customer.Balance < 0)
-                                {
-                                    <button class="btn-action refund" @onclick="() => OpenRefundModal(customer)">
-                                        Issue Refund
-                                    </button>
+                                    <div class="empty-state small">
+                                        <p>No purchases yet</p>
+                                    </div>
                                 }
                                 else
                                 {
-                                    <span class="text-muted">No action needed</span>
+                                    @foreach (var sale in customerDetail.Sales)
+                                    {
+                                        <div class="purchase-item">
+                                            <div class="purchase-header">
+                                                <div class="purchase-info">
+                                                    <strong class="invoice-number">@sale.InvoiceNumber</strong>
+                                                    <span class="purchase-date">@sale.SaleDate.ToString("dd/MM/yyyy HH:mm")</span>
+                                                </div>
+                                                <div class="purchase-badges">
+                                                    <span class="badge @(sale.PaymentStatus == "Paid" ? "badge-success" : "badge-warning")">
+                                                        @sale.PaymentStatus
+                                                    </span>
+                                                    <span class="badge badge-info">@sale.Status</span>
+                                                </div>
+                                            </div>
+                                            <div class="purchase-amounts">
+                                                <div class="amount-item">
+                                                    <span class="amount-label">Total:</span>
+                                                    <span class="amount-value">€@sale.TotalAmount.ToString("N2")</span>
+                                                </div>
+                                                <div class="amount-item">
+                                                    <span class="amount-label">Paid:</span>
+                                                    <span class="amount-value success">€@sale.PaidAmount.ToString("N2")</span>
+                                                </div>
+                                                @if (sale.TotalAmount - sale.PaidAmount > 0)
+                                                {
+                                                    <div class="amount-item">
+                                                        <span class="amount-label">Credit:</span>
+                                                        <span class="amount-value warning">€@((sale.TotalAmount - sale.PaidAmount).ToString("N2"))</span>
+                                                    </div>
+                                                }
+                                            </div>
+                                        </div>
+                                    }
                                 }
-                            </td>
-                        </tr>
-                        @if (selectedCustomer?.CustomerId == customer.CustomerId && showPaymentModal)
+                            </div>
+                        }
+                        else if (activeTab == "transactions")
                         {
-                            <tr class="payment-row">
-                                <td colspan="4">
-                                    <div class="payment-form @(customer.Balance < 0 ? "refund-form" : "")">
-                                        <h4>
-                                            @if (customer.Balance > 0)
-                                            {
-                                                <span>Register Payment for @customer.Name</span>
-                                            }
-                                            else
-                                            {
-                                                <span>Issue Refund to @customer.Name</span>
-                                            }
-                                        </h4>
-
-                                        <div class="balance-info">
-                                            @if (customer.Balance > 0)
-                                            {
-                                                <p>Customer owes: <strong class="debt">@customer.Balance.ToString("C2")</strong></p>
-                                            }
-                                            else
-                                            {
-                                                <p>We owe customer: <strong class="credit">@Math.Abs(customer.Balance).ToString("C2")</strong></p>
-                                            }
-                                        </div>
-
-                                        <div class="form-row">
-                                            <div class="form-group">
-                                                <label>
-                                                    @(customer.Balance > 0 ? "Payment Amount" : "Refund Amount")
-                                                </label>
-                                                <input type="number"
-                                                       step="0.01"
-                                                       min="0.01"
-                                                       max="@Math.Abs(customer.Balance)"
-                                                       placeholder="0.00"
-                                                       @bind="paymentAmount"
-                                                       @bind:event="oninput"
-                                                       class="form-input" />
+                            <div class="transactions-list">
+                                @if (!customerDetail.Transactions.Any())
+                                {
+                                    <div class="empty-state small">
+                                        <p>No transactions yet</p>
+                                    </div>
+                                }
+                                else
+                                {
+                                    @foreach (var tx in customerDetail.Transactions)
+                                    {
+                                        <div class="transaction-item @GetTransactionTypeClass(tx.Type)">
+                                            <div class="transaction-icon">
+                                                @GetTransactionIcon(tx.Type)
                                             </div>
-
-                                            <div class="form-group">
-                                                <label>Description (Optional)</label>
-                                                <input type="text"
-                                                       placeholder="@(customer.Balance > 0 ? "Payment description..." : "Refund reason...")"
-                                                       @bind="paymentDescription"
-                                                       class="form-input" />
+                                            <div class="transaction-info">
+                                                <strong>@tx.Type</strong>
+                                                <span class="transaction-date">@tx.TransactionDate.ToString("dd/MM/yyyy HH:mm")</span>
+                                                @if (!string.IsNullOrEmpty(tx.Description))
+                                                {
+                                                    <p class="transaction-desc">@tx.Description</p>
+                                                }
+                                            </div>
+                                            <div class="transaction-amounts">
+                                                <div class="transaction-amount">€@tx.Amount.ToString("N2")</div>
+                                                <div class="transaction-balance">
+                                                    <span class="balance-label">Balance:</span>
+                                                    <span class="balance-value @(tx.BalanceAfter > 0 ? "debt" : tx.BalanceAfter < 0 ? "credit" : "")">
+                                                        €@Math.Abs(tx.BalanceAfter).ToString("N2")
+                                                    </span>
+                                                </div>
                                             </div>
                                         </div>
-
-                                        <div class="form-row">
-                                            <div class="form-group">
-                                                <label class="checkbox-label">
-                                                    <input type="checkbox" @bind="isCash" />
-                                                    <span>Cash @(customer.Balance > 0 ? "Payment" : "Refund")</span>
-                                                </label>
-                                            </div>
-                                        </div>
-
-                                        <div class="quick-amounts">
-                                            <button class="btn-quick" @onclick="() => paymentAmount = Math.Round(Math.Abs(customer.Balance) * 0.25m, 2)">
-                                                25% (@(Math.Round(Math.Abs(customer.Balance) * 0.25m, 2).ToString("C2")))
-                                            </button>
-                                            <button class="btn-quick" @onclick="() => paymentAmount = Math.Round(Math.Abs(customer.Balance) * 0.5m, 2)">
-                                                50% (@(Math.Round(Math.Abs(customer.Balance) * 0.5m, 2).ToString("C2")))
-                                            </button>
-                                            <button class="btn-quick" @onclick="() => paymentAmount = Math.Round(Math.Abs(customer.Balance) * 0.75m, 2)">
-                                                75% (@(Math.Round(Math.Abs(customer.Balance) * 0.75m, 2).ToString("C2")))
-                                            </button>
-                                            <button class="btn-quick" @onclick="() => paymentAmount = Math.Abs(customer.Balance)">
-                                                Full (@Math.Abs(customer.Balance).ToString("C2"))
-                                            </button>
-                                        </div>
-
-                                        <div class="form-actions">
-                                            <button class="btn-cancel" @onclick="CloseModal">
-                                                Cancel
-                                            </button>
-                                            <button class="btn-submit @(customer.Balance < 0 ? "refund-btn" : "")"
-                                                    @onclick="() => ProcessTransactionAsync(customer.Balance > 0)"
-                                                    disabled="@isProcessing">
-                                                @if (isProcessing)
-                                                {
-                                                    <span>Processing...</span>
-                                                }
-                                                else if (customer.Balance > 0)
-                                                {
-                                                    <span>Register Payment</span>
-                                                }
-                                                else
-                                                {
-                                                    <span>Issue Refund</span>
-                                                }
-                                            </button>
+                                    }
+                                }
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="summary-grid">
+                                <div class="summary-item">
+                                    <div class="summary-icon">🛒</div>
+                                    <div class="summary-data">
+                                        <div class="summary-label">Total Sales</div>
+                                        <div class="summary-value">€@customerDetail.TotalSales.ToString("N2")</div>
+                                    </div>
+                                </div>
+                                <div class="summary-item">
+                                    <div class="summary-icon">💰</div>
+                                    <div class="summary-data">
+                                        <div class="summary-label">Total Paid</div>
+                                        <div class="summary-value">€@customerDetail.TotalPaid.ToString("N2")</div>
+                                    </div>
+                                </div>
+                                <div class="summary-item">
+                                    <div class="summary-icon">⚖️</div>
+                                    <div class="summary-data">
+                                        <div class="summary-label">Current Balance</div>
+                                        <div class="summary-value @GetBalanceClass(customerDetail.CurrentBalance)">
+                                            €@Math.Abs(customerDetail.CurrentBalance).ToString("N2")
                                         </div>
                                     </div>
-                                </td>
-                            </tr>
+                                </div>
+                                <div class="summary-item">
+                                    <div class="summary-icon">📅</div>
+                                    <div class="summary-data">
+                                        <div class="summary-label">Customer Since</div>
+                                        <div class="summary-value small">@customerDetail.CreatedAt.ToString("dd/MM/yyyy")</div>
+                                    </div>
+                                </div>
+                            </div>
                         }
+                    </div>
+                }
+                else
+                {
+                    <div class="empty-state">
+                        <span class="empty-icon">👤</span>
+                        <h3>Select a Customer</h3>
+                        <p>Click on a customer to view their purchase history and transactions</p>
+                    </div>
+                }
+            </div>
+
+            <!-- Right Main Area for Credits -->
+            <div class="credits-main">
+                <!-- Summary Dashboard -->
+                <div class="dashboard-grid">
+                    <div class="stat-card red">
+                        <div class="stat-icon">💰</div>
+                        <div class="stat-content">
+                            <div class="stat-label">Customers Owe Us</div>
+                            <div class="stat-value">€@totalDebt.ToString("N2")</div>
+                            <div class="stat-meta">@customersWithDebt customers</div>
+                        </div>
+                    </div>
+
+                    <div class="stat-card green">
+                        <div class="stat-icon">✅</div>
+                        <div class="stat-content">
+                            <div class="stat-label">We Owe Customers</div>
+                            <div class="stat-value">€@totalCredit.ToString("N2")</div>
+                            <div class="stat-meta">@customersWithCredit customers</div>
+                        </div>
+                    </div>
+
+                    <div class="stat-card blue">
+                        <div class="stat-icon">⚖️</div>
+                        <div class="stat-content">
+                            <div class="stat-label">Balanced</div>
+                            <div class="stat-value">@customersBalanced</div>
+                            <div class="stat-meta">No outstanding balance</div>
+                        </div>
+                    </div>
+
+                    <div class="stat-card purple">
+                        <div class="stat-icon">👥</div>
+                        <div class="stat-content">
+                            <div class="stat-label">Total Customers</div>
+                            <div class="stat-value">@customers.Count</div>
+                            <div class="stat-meta">All customers</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Filters -->
+                <div class="filters-bar">
+                    <div class="search-container">
+                        <span class="search-icon">🔍</span>
+                        <input type="text"
+                               placeholder="Search by customer name..."
+                               @bind="searchTerm"
+                               @bind:event="oninput"
+                               class="search-input" />
+                    </div>
+
+                    <div class="filter-tabs">
+                        <button class="filter-tab @(filterType == "all" ? "active" : "")"
+                                @onclick='() => filterType = "all"'>
+                            <span class="tab-label">All</span>
+                            <span class="tab-count">@customers.Count</span>
+                        </button>
+                        <button class="filter-tab debt-tab @(filterType == "debt" ? "active" : "")"
+                                @onclick='() => filterType = "debt"'>
+                            <span class="tab-label">Owe Us</span>
+                            <span class="tab-count">@customersWithDebt</span>
+                        </button>
+                        <button class="filter-tab credit-tab @(filterType == "credit" ? "active" : "")"
+                                @onclick='() => filterType = "credit"'>
+                            <span class="tab-label">We Owe</span>
+                            <span class="tab-count">@customersWithCredit</span>
+                        </button>
+                        <button class="filter-tab zero-tab @(filterType == "zero" ? "active" : "")"
+                                @onclick='() => filterType = "zero"'>
+                            <span class="tab-label">Balanced</span>
+                            <span class="tab-count">@customersBalanced</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Customers Table -->
+                <div class="customers-container">
+                    @if (!FilteredCustomers.Any())
+                    {
+                        <div class="empty-state small">
+                            <span class="empty-icon">🔍</span>
+                            <p>No customers match your search</p>
+                        </div>
                     }
-                </tbody>
-            </table>
+                    else
+                    {
+                        <div class="customers-list">
+                            @foreach (var customer in FilteredCustomers)
+                            {
+                                <div class="customer-card @GetBalanceClass(customer.Balance) @(expandedCustomerId == customer.CustomerId ? "expanded" : "")">
+                                    <div class="customer-header" @onclick="() => ToggleCustomerDetail(customer.CustomerId)">
+                                        <div class="customer-info">
+                                            <div class="customer-avatar">
+                                                @customer.Name.Substring(0, 1).ToUpper()
+                                            </div>
+                                            <div class="customer-details">
+                                                <h3 class="customer-name">@customer.Name</h3>
+                                                <div class="customer-meta">
+                                                    <span class="status-badge @GetStatusClass(customer.Balance)">
+                                                        @GetStatusText(customer.Balance)
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div class="customer-balance-section">
+                                            <div class="balance-amount @GetBalanceClass(customer.Balance)">
+                                                @if (customer.Balance > 0)
+                                                {
+                                                    <span class="balance-label">Owes:</span>
+                                                }
+                                                else if (customer.Balance < 0)
+                                                {
+                                                    <span class="balance-label">Credit:</span>
+                                                }
+                                                <span class="balance-value">€@Math.Abs(customer.Balance).ToString("N2")</span>
+                                            </div>
+                                            <div class="customer-actions">
+                                                @if (customer.Balance > 0)
+                                                {
+                                                    <button class="btn-primary small" @onclick="() => OpenPaymentModal(customer)" @onclick:stopPropagation="true">
+                                                        💵 Payment
+                                                    </button>
+                                                }
+                                                else if (customer.Balance < 0)
+                                                {
+                                                    <button class="btn-warning small" @onclick="() => OpenRefundModal(customer)" @onclick:stopPropagation="true">
+                                                        💸 Refund
+                                                    </button>
+                                                }
+                                                <button class="btn-ghost small" @onclick:stopPropagation="true">
+                                                    <span>@(expandedCustomerId == customer.CustomerId ? "▲" : "▼")</span>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
         </div>
     }
 
+    <!-- Payment/Refund Modal -->
+    @if (showPaymentModal && selectedCustomer != null)
+    {
+        <div class="modal-overlay" @onclick="CloseModal">
+            <div class="modal-container" @onclick:stopPropagation="true">
+                <div class="modal-header @(selectedCustomer.Balance < 0 ? "refund" : "payment")">
+                    <h2>
+                        @if (selectedCustomer.Balance > 0)
+                        {
+                            <span>💵 Register Payment</span>
+                        }
+                        else
+                        {
+                            <span>💸 Issue Refund</span>
+                        }
+                    </h2>
+                    <button class="btn-close" @onclick="CloseModal">×</button>
+                </div>
+
+                <div class="modal-body">
+                    <div class="customer-info-box">
+                        <div class="info-row">
+                            <span class="info-label">Customer:</span>
+                            <strong>@selectedCustomer.Name</strong>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Current Balance:</span>
+                            <strong class="@GetBalanceClass(selectedCustomer.Balance)">
+                                €@Math.Abs(selectedCustomer.Balance).ToString("N2")
+                            </strong>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">
+                            @(selectedCustomer.Balance > 0 ? "Payment Amount" : "Refund Amount")
+                        </label>
+                        <div class="input-group">
+                            <span class="input-prefix">€</span>
+                            <input type="number"
+                                   step="0.01"
+                                   min="0.01"
+                                   max="@Math.Abs(selectedCustomer.Balance)"
+                                   placeholder="0.00"
+                                   @bind="paymentAmount"
+                                   @bind:event="oninput"
+                                   class="form-input-large" />
+                        </div>
+                        <div class="form-hint">
+                            Maximum: €@Math.Abs(selectedCustomer.Balance).ToString("N2")
+                        </div>
+                    </div>
+
+                    <div class="quick-amounts-grid">
+                        <button class="quick-amount-btn" @onclick="() => paymentAmount = Math.Round(Math.Abs(selectedCustomer.Balance) * 0.25m, 2)">
+                            <span class="quick-label">25%</span>
+                            <span class="quick-value">€@(Math.Round(Math.Abs(selectedCustomer.Balance) * 0.25m, 2).ToString("N2"))</span>
+                        </button>
+                        <button class="quick-amount-btn" @onclick="() => paymentAmount = Math.Round(Math.Abs(selectedCustomer.Balance) * 0.5m, 2)">
+                            <span class="quick-label">50%</span>
+                            <span class="quick-value">€@(Math.Round(Math.Abs(selectedCustomer.Balance) * 0.5m, 2).ToString("N2"))</span>
+                        </button>
+                        <button class="quick-amount-btn" @onclick="() => paymentAmount = Math.Round(Math.Abs(selectedCustomer.Balance) * 0.75m, 2)">
+                            <span class="quick-label">75%</span>
+                            <span class="quick-value">€@(Math.Round(Math.Abs(selectedCustomer.Balance) * 0.75m, 2).ToString("N2"))</span>
+                        </button>
+                        <button class="quick-amount-btn primary" @onclick="() => paymentAmount = Math.Abs(selectedCustomer.Balance)">
+                            <span class="quick-label">Full</span>
+                            <span class="quick-value">€@Math.Abs(selectedCustomer.Balance).ToString("N2")</span>
+                        </button>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Description (Optional)</label>
+                        <textarea placeholder="@(selectedCustomer.Balance > 0 ? "Payment notes..." : "Refund reason...")"
+                                  @bind="paymentDescription"
+                                  rows="3"
+                                  class="form-textarea"></textarea>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="checkbox-container">
+                            <input type="checkbox" @bind="isCash" />
+                            <span class="checkmark"></span>
+                            <span class="checkbox-label">
+                                Cash @(selectedCustomer.Balance > 0 ? "Payment" : "Refund")
+                                <span class="checkbox-hint">(This will affect cash drawer balance)</span>
+                            </span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="modal-footer">
+                    <button class="btn-secondary" @onclick="CloseModal" disabled="@isProcessing">
+                        Cancel
+                    </button>
+                    <button class="btn-primary @(selectedCustomer.Balance < 0 ? "refund" : "")"
+                            @onclick="() => ProcessTransactionAsync(selectedCustomer.Balance > 0)"
+                            disabled="@(isProcessing || paymentAmount <= 0)">
+                        @if (isProcessing)
+                        {
+                            <span class="spinner-small"></span>
+                            <span>Processing...</span>
+                        }
+                        else if (selectedCustomer.Balance > 0)
+                        {
+                            <span>💵 Register €@paymentAmount.ToString("N2")</span>
+                        }
+                        else
+                        {
+                            <span>💸 Refund €@paymentAmount.ToString("N2")</span>
+                        }
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+
+    <!-- Success Toast -->
     @if (!string.IsNullOrEmpty(successMessage))
     {
-        <div class="alert alert-success">
-            @successMessage
+        <div class="toast-success">
+            <span class="toast-icon">✅</span>
+            <span>@successMessage</span>
         </div>
     }
 </div>
-
 @code {
     [Inject] private ICustomerTransactionsApi CustomerTransactionsApi { get; set; } = default!;
 
     private List<CustomerCreditResult>? customers;
     private CustomerCreditResult? selectedCustomer;
+    private CustomerDetailResult? customerDetail;
     private bool showPaymentModal = false;
 
     private decimal paymentAmount = 0;
     private string paymentDescription = string.Empty;
     private bool isCash = true;
     private bool isProcessing = false;
+    private bool isLoadingDetail = false;
 
     private bool isLoading = false;
     private string? errorMessage;
     private string? successMessage;
     private string searchTerm = string.Empty;
     private string filterType = "debt";
+    private string activeTab = "purchases";
+    private Guid? expandedCustomerId = null;
 
     private int customersWithDebt => customers?.Count(c => c.Balance > 0) ?? 0;
     private int customersWithCredit => customers?.Count(c => c.Balance < 0) ?? 0;
@@ -290,13 +512,11 @@
 
             var filtered = customers.AsEnumerable();
 
-            // Apply search filter
             if (!string.IsNullOrWhiteSpace(searchTerm))
             {
                 filtered = filtered.Where(c => c.Name.Contains(searchTerm, StringComparison.OrdinalIgnoreCase));
             }
 
-            // Apply type filter
             filtered = filterType switch
             {
                 "debt" => filtered.Where(c => c.Balance > 0),
@@ -334,6 +554,33 @@
         }
     }
 
+    private async Task ToggleCustomerDetail(Guid customerId)
+    {
+        if (expandedCustomerId == customerId)
+        {
+            expandedCustomerId = null;
+            customerDetail = null;
+            return;
+        }
+
+        expandedCustomerId = customerId;
+        isLoadingDetail = true;
+        activeTab = "purchases";
+
+        try
+        {
+            customerDetail = await CustomerTransactionsApi.GetCustomerDetail(customerId);
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to load customer details: {ex.Message}";
+        }
+        finally
+        {
+            isLoadingDetail = false;
+        }
+    }
+
     private void OpenPaymentModal(CustomerCreditResult customer)
     {
         selectedCustomer = customer;
@@ -354,7 +601,7 @@
 
     private void CloseModal()
     {
-        selectedCustomer = null;
+        // selectedCustomer = null;
         showPaymentModal = false;
         paymentAmount = 0;
         paymentDescription = string.Empty;
@@ -380,7 +627,7 @@
             var maxAmount = Math.Abs(selectedCustomer.Balance);
             if (paymentAmount > maxAmount)
             {
-                errorMessage = $"{(isPayment ? "Payment" : "Refund")} amount cannot exceed {maxAmount:C2}.";
+                errorMessage = $"{(isPayment ? "Payment" : "Refund")} amount cannot exceed €{maxAmount:N2}.";
                 isProcessing = false;
                 return;
             }
@@ -396,7 +643,7 @@
                 };
 
                 await CustomerTransactionsApi.RegisterPayment(request);
-                successMessage = $"Payment of {paymentAmount:C2} registered successfully for {selectedCustomer.Name}!";
+                successMessage = $"✅ Payment of €{paymentAmount:N2} registered for {selectedCustomer.Name}!";
             }
             else
             {
@@ -409,14 +656,22 @@
                 };
 
                 await CustomerTransactionsApi.RegisterRefund(request);
-                successMessage = $"Refund of {paymentAmount:C2} issued successfully to {selectedCustomer.Name}!";
+                successMessage = $"✅ Refund of €{paymentAmount:N2} issued to {selectedCustomer.Name}!";
             }
 
             CloseModal();
 
-            await Task.Delay(1500);
+            await Task.Delay(3000);
             successMessage = null;
             await LoadCustomersAsync();
+
+
+            // Reload detail if expanded
+            if (expandedCustomerId == selectedCustomer.CustomerId)
+            {
+                await ToggleCustomerDetail(selectedCustomer.CustomerId);
+                selectedCustomer = null;
+            }
         }
         catch (Exception ex)
         {
@@ -447,5 +702,27 @@
         if (balance > 0) return "Owes Us";
         if (balance < 0) return "We Owe";
         return "Balanced";
+    }
+
+    private string GetTransactionTypeClass(string type)
+    {
+        return type.ToLower() switch
+        {
+            "payment" => "type-payment",
+            "refund" => "type-refund",
+            "credit" => "type-credit",
+            _ => ""
+        };
+    }
+
+    private string GetTransactionIcon(string type)
+    {
+        return type.ToLower() switch
+        {
+            "payment" => "💵",
+            "refund" => "💸",
+            "credit" => "🛒",
+            _ => "📝"
+        };
     }
 }

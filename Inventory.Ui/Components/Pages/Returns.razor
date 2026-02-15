@@ -4,9 +4,11 @@
 @using Inventory.Dto.SaleLines.Results
 @using Inventory.Dto.Sales.Results
 @using Inventory.Dto.Returns.Requests
+
 @inject IJSRuntime JS
 @inject IProductApi ProductApi
 @inject ISaleApi SaleApi
+@inject ISaleLineApi SaleLineApi
 @inject IReturnApi ReturnApi
 @inject ICustomerApi CustomerApi
 @inject NavigationManager Navigation
@@ -204,7 +206,7 @@
                             @onclick="() => AddToReturn(line)">
                             <strong>Product ID: @line.ProductId</strong>
                             <div class="product-details">
-                                <span class="muted">Qty: @line.Quantity</span>
+                                <span class="muted">Qty: @line.AvailableQuantity</span>
                                 <span class="muted">€@line.UnitPrice.ToString("F2")</span>
                                 <span class="price">Total: €@line.LineAmountInclVat.ToString("F2")</span>
                             </div>
@@ -265,13 +267,16 @@
                 <div class="refund-method-section">
                     <h4>Refund Method:</h4>
                     <div class="method-buttons">
-                        @foreach (RefundType type in Enum.GetValues(typeof(RefundType)))
+                        @foreach (RefundMethod type in Enum.GetValues(typeof(RefundMethod)))
                         {
-                            <button class="method-btn @(CurrentRefundType == type ? "active" : "")"
-                                    @onclick="@(() => CurrentRefundType = type)">
-                                <span class="method-icon">@GetRefundTypeIcon(type)</span>
-                                <span class="method-name">@GetRefundTypeName(type)</span>
-                            </button>
+                            @if (type != RefundMethod.Original)
+                            {
+                                <button class="method-btn @(CurrentRefundMethod == type ? "active" : "")"
+                                        @onclick="@(() => CurrentRefundMethod = type)">
+                                    <span class="method-icon">@GetRefundMethodIcon(type)</span>
+                                    <span class="method-name">@GetRefundMethodName(type)</span>
+                                </button>
+                            }
                         }
                     </div>
                 </div>
@@ -338,7 +343,7 @@
         </div>
     </div>
 }
-
+@* 
 <div id="receipt" style="display:none">
     <h3>RETURN RECEIPT</h3>
     <p>Return #: @returnReceipt.ReturnNumber</p>
@@ -362,13 +367,13 @@
         <p>Notes: @returnReceipt.Notes</p>
     }
     <p>Thank you</p>
-</div>
+</div> *@
 
 @code {
     // STATE
     List<ReturnCartLine> ReturnLines = new();
     List<SaleResult> SearchedSales = new();
-    List<SaleLineResult> OriginalSaleLines = new();
+    List<SaleLineWithReturnsResult> OriginalSaleLines = new();
     Dictionary<Guid, string> ProductNames = new(); // Cache for product names
 
     SaleResult? OriginalSale;
@@ -381,7 +386,7 @@
     bool IsSearchingSales;
     bool ShowRefundModal;
 
-    RefundType CurrentRefundType = RefundType.Cash;
+    RefundMethod CurrentRefundMethod = RefundMethod.Cash;
 
     ElementReference saleSearchInputRef;
 
@@ -461,14 +466,18 @@
             try
             {
                 // Option 1: If your SaleResult includes Lines
-                OriginalSaleLines = new List<SaleLineResult>(); // Replace with actual line loading
+                // OriginalSaleLines = new List<SaleLineWithReturnsResult>(); // Replace with actual line loading
 
                 // Option 2: If you need to call SaleLineApi separately
-                // var lines = await SaleLineApi.GetBySaleId(sale.Id);
-                // OriginalSaleLines = lines.ToList();
+                var lines = await SaleLineApi.GetBySaleWithReturnsAsync(sale.Id);
+
+                OriginalSaleLines = lines;
+
+                // var saleLines = await SaleLineApi.GetAllAsync();
+                // OriginalSaleLines = saleLines.ToList();
 
                 // For now, we'll assume you need to implement this
-                await JS.InvokeVoidAsync("alert", "Note: Sale line loading needs to be implemented based on your API structure");
+                // await JS.InvokeVoidAsync("alert", "Note: Sale line loading needs to be implemented based on your API structure");
             }
             catch (Exception ex)
             {
@@ -517,60 +526,83 @@
     }
 
     // RETURN CART OPERATIONS
-    void AddToReturn(SaleLineResult saleLine)
+    void AddToReturn(SaleLineWithReturnsResult saleLine)
     {
+        if (saleLine.AvailableQuantity <= 0)
+            return;
+
         var existingLine = ReturnLines.FirstOrDefault(l => l.SaleLineId == saleLine.Id);
 
         if (existingLine != null)
         {
-            // If already in cart, just select it
             SelectedReturnLine = existingLine;
+            return;
         }
-        else
+
+        ReturnLines.Add(new ReturnCartLine
         {
-            var newLine = new ReturnCartLine
+            SaleLineId = saleLine.Id,
+            ProductId = saleLine.ProductId,
+            ProductName = GetProductName(saleLine.ProductId),
+            UnitPrice = saleLine.UnitPrice,
+            TaxRate = saleLine.VatRate,
+            Quantity = 1,
+            MaxQuantity = (int)saleLine.AvailableQuantity,
+            Reason = string.Empty
+        });
+    }
+
+
+    // void AddAllToReturn()
+    // {
+    //     foreach (var saleLine in OriginalSaleLines)
+    //     {
+    //         if (!IsLineInReturn(saleLine))
+    //         {
+    //             ReturnLines.Add(new ReturnCartLine
+    //             {
+    //                 SaleLineId = saleLine.Id,
+    //                 ProductId = saleLine.ProductId,
+    //                 ProductName = GetProductName(saleLine.ProductId),
+    //                 UnitPrice = saleLine.UnitPrice,
+    //                 TaxRate = saleLine.VatRate,
+    //                 Quantity = (decimal)saleLine.Quantity,
+    //                 MaxQuantity = (decimal)saleLine.Quantity,
+    //                 Reason = string.Empty
+    //             });
+    //         }
+    //     }
+    //     StateHasChanged();
+
+    // }
+
+    void AddAllToReturn()
+    {
+        foreach (var saleLine in OriginalSaleLines)
+        {
+            if (saleLine.AvailableQuantity <= 0)
+                continue;
+
+            if (IsLineInReturn(saleLine))
+                continue;
+
+            ReturnLines.Add(new ReturnCartLine
             {
                 SaleLineId = saleLine.Id,
                 ProductId = saleLine.ProductId,
                 ProductName = GetProductName(saleLine.ProductId),
                 UnitPrice = saleLine.UnitPrice,
                 TaxRate = saleLine.VatRate,
-                Quantity = 1,
-                MaxQuantity = (int)saleLine.Quantity,
+                Quantity = (int)saleLine.AvailableQuantity,
+                MaxQuantity = (int)saleLine.AvailableQuantity,
                 Reason = string.Empty
-            };
-
-            ReturnLines.Add(newLine);
-            SelectedReturnLine = newLine;
+            });
         }
-
-        StateHasChanged();
+        // StateHasChanged();
     }
 
-    void AddAllToReturn()
-    {
-        foreach (var saleLine in OriginalSaleLines)
-        {
-            if (!IsLineInReturn(saleLine))
-            {
-                ReturnLines.Add(new ReturnCartLine
-                {
-                    SaleLineId = saleLine.Id,
-                    ProductId = saleLine.ProductId,
-                    ProductName = GetProductName(saleLine.ProductId),
-                    UnitPrice = saleLine.UnitPrice,
-                    TaxRate = saleLine.VatRate,
-                    Quantity = (int)saleLine.Quantity,
-                    MaxQuantity = (int)saleLine.Quantity,
-                    Reason = string.Empty
-                });
-            }
-        }
 
-        StateHasChanged();
-    }
-
-    bool IsLineInReturn(SaleLineResult saleLine)
+    bool IsLineInReturn(SaleLineWithReturnsResult saleLine)
     {
         return ReturnLines.Any(r => r.SaleLineId == saleLine.Id);
     }
@@ -636,7 +668,7 @@
             return;
 
         ShowRefundModal = true;
-        CurrentRefundType = RefundType.Cash;
+        CurrentRefundMethod = RefundMethod.Cash;
         RefundNotes = string.Empty;
         StateHasChanged();
     }
@@ -652,6 +684,7 @@
         return ReturnLines.Any(l => string.IsNullOrWhiteSpace(l.Reason));
     }
 
+
     // COMPLETE REFUND
     async Task CompleteRefund()
     {
@@ -661,22 +694,22 @@
             return;
         }
 
+        if (CurrentRefundMethod == RefundMethod.Original)
+        {
+            await JS.InvokeVoidAsync("alert", "Original payment method refunds are not currently supported. Please select Cash, Card, Credit, or Exchange.");
+            return;
+        }
         IsSaving = true;
         StateHasChanged();
 
         try
         {
             var returnNumber = await GenerateReturnNumber();
-
             var request = new CreateCompleteReturnRequest
             {
-                ReturnNumber = returnNumber,
                 SaleId = OriginalSale!.Id,
                 ReturnDate = DateTime.UtcNow,
-                TotalAmount = TotalRefundAmount,
-                Reason = BuildReturnReason(),
-                IsProcessed = true,
-                ProcessedAt = DateTime.UtcNow,
+                RefundType = CurrentRefundMethod,
                 Lines = ReturnLines.Select(l => new ReturnLineItem
                 {
                     ProductId = l.ProductId,
@@ -688,6 +721,7 @@
                 }).ToList()
             };
 
+
             var result = await ReturnApi.CreateComplete(request);
 
             // Create receipt
@@ -698,7 +732,7 @@
                 Date = result.ReturnDate,
                 Total = TotalRefundAmount,
                 Tax = TotalRefundTax,
-                RefundMethod = GetRefundTypeName(CurrentRefundType),
+                RefundMethod = GetRefundMethodName(CurrentRefundMethod),
                 Notes = RefundNotes,
                 Lines = ReturnLines.Select(l => new ReturnReceiptLine
                 {
@@ -717,6 +751,26 @@
             ResetReturn();
             CloseRefundModal();
         }
+        catch (ValidationApiException ex)
+        {
+            var errors = ex.Content?.Errors;
+            var message = "Validation failed:\n";
+            
+            if (errors != null)
+            {
+                foreach (var error in errors)
+                {
+                    message += $"- {error.Key}: {string.Join(", ", error.Value)}\n";
+                }
+            }
+            else
+            {
+                message += ex.Message;
+            }
+
+            Console.WriteLine($"Validation error completion return: {message}");
+            await JS.InvokeVoidAsync("alert", message);
+        }
         catch (Exception ex)
         {
             Console.WriteLine($"Error completing return: {ex.Message}");
@@ -730,26 +784,28 @@
     }
 
     // UTILITY METHODS
-    string GetRefundTypeIcon(RefundType type)
+    string GetRefundMethodIcon(RefundMethod type)
     {
         return type switch
         {
-            RefundType.Cash => "💵",
-            RefundType.Card => "💳",
-            RefundType.Credit => "📝",
-            RefundType.Exchange => "🔄",
+            RefundMethod.Cash => "💵",
+            RefundMethod.Card => "💳",
+            RefundMethod.Credit => "📝",
+            RefundMethod.Exchange => "🔄",
+            RefundMethod.Original => "🔙",
             _ => "💰"
         };
     }
 
-    string GetRefundTypeName(RefundType type)
+    string GetRefundMethodName(RefundMethod type)
     {
         return type switch
         {
-            RefundType.Cash => "Cash",
-            RefundType.Card => "Card",
-            RefundType.Credit => "Store Credit",
-            RefundType.Exchange => "Exchange",
+            RefundMethod.Cash => "Cash",
+            RefundMethod.Card => "Card",
+            RefundMethod.Credit => "Store Credit",
+            RefundMethod.Exchange => "Exchange",
+            RefundMethod.Original => "Original Payment",
             _ => "Other"
         };
     }
@@ -766,7 +822,7 @@
         var reasons = new List<string>();
 
         // Add refund method
-        reasons.Add($"Refund Method: {GetRefundTypeName(CurrentRefundType)}");
+        reasons.Add($"Refund Method: {GetRefundMethodName(CurrentRefundMethod)}");
 
         // Add user notes if any
         if (!string.IsNullOrWhiteSpace(RefundNotes))
@@ -812,23 +868,14 @@
         await JS.InvokeVoidAsync("printReceipt");
     }
 
-    // ENUMS
-    enum RefundType
-    {
-        Cash,
-        Card,
-        Credit,
-        Exchange
-    }
-
     // MODELS
     class ReturnCartLine
     {
         public Guid SaleLineId { get; set; }
         public Guid ProductId { get; set; }
         public string ProductName { get; set; } = "";
-        public int Quantity { get; set; }
-        public int MaxQuantity { get; set; }
+        public decimal Quantity { get; set; }
+        public decimal MaxQuantity { get; set; }
         public decimal UnitPrice { get; set; }
         public decimal TaxRate { get; set; }
         public string Reason { get; set; } = "";
@@ -853,7 +900,7 @@
     class ReturnReceiptLine
     {
         public string Name { get; set; } = "";
-        public int Quantity { get; set; }
+        public decimal Quantity { get; set; }
         public decimal UnitPrice { get; set; }
         public decimal Amount { get; set; }
         public string Reason { get; set; } = "";

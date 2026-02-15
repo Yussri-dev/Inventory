@@ -1,12 +1,21 @@
+using Inventory.Dto.Enums;
 using System.ComponentModel.DataAnnotations;
 
 namespace Inventory.Dto.Returns.Requests
 {
-    public class CreateCompleteReturnRequest : CreateReturnRequest
+    public class CreateCompleteReturnRequest /*: CreateReturnRequest*/
     {
+        [Required]
+        public Guid SaleId { get; set; }
+
         [Required]
         [MinLength(1, ErrorMessage = "At least one return line is required")]
         public List<ReturnLineItem> Lines { get; set; } = new();
+
+        public DateTime ReturnDate { get; set; }
+
+        [Required]
+        public RefundMethod RefundType { get; set; }
     }
 
     public class ReturnLineItem

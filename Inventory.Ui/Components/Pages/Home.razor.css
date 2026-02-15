@@ -1,0 +1,144 @@
+﻿/* ===============================
+   ANALYTICS DASHBOARD – FIX LAYOUT
+   =============================== */
+
+.analytics-page {
+    width: 100%;
+    max-width: none;
+    margin: 0;
+}
+
+    /* HEADER */
+    .analytics-page h1 {
+        font-size: 26px;
+        font-weight: 800;
+        margin-bottom: 20px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+/* PERIOD SELECTOR */
+.period-selector {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 32px;
+}
+
+    .period-selector button {
+        background: transparent;
+        border: 1px solid var(--border);
+        color: var(--muted);
+        padding: 8px 16px;
+        border-radius: 999px;
+        font-size: 13px;
+        cursor: pointer;
+    }
+
+        .period-selector button:hover {
+            border-color: var(--primary);
+            color: #fff;
+        }
+
+/* ===============================
+   KPI GRID – FIXED
+   =============================== */
+.kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(180px, 1fr));
+    gap: 18px;
+    width: 100%;
+    margin-bottom: 40px;
+}
+
+.kpi-card {
+    background: linear-gradient( 180deg, rgba(255,255,255,.04), rgba(255,255,255,.01) );
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 20px;
+}
+
+.kpi-label {
+    font-size: 13px;
+    color: var(--muted);
+    margin-bottom: 6px;
+}
+
+.kpi-value {
+    font-size: 22px;
+    font-weight: 800;
+}
+
+    .kpi-value.positive {
+        color: #22c55e;
+    }
+
+    .kpi-value.negative {
+        color: var(--danger);
+    }
+
+/* ===============================
+   LOSS PRODUCTS TABLE
+   =============================== */
+.table {
+    width: 100%;
+    margin-bottom: 40px;
+    border-collapse: collapse;
+    background: linear-gradient( 180deg, rgba(255,255,255,.04), rgba(255,255,255,.01) );
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+}
+
+    .table th {
+        padding: 14px 16px;
+        font-size: 12px;
+        color: var(--muted);
+        text-align: left;
+        border-bottom: 1px solid var(--border);
+    }
+
+    .table td {
+        padding: 14px 16px;
+        font-size: 13px;
+        border-bottom: 1px solid var(--border);
+    }
+
+    .table tr:last-child td {
+        border-bottom: none;
+    }
+
+    .table .negative {
+        color: var(--danger);
+        font-weight: 600;
+    }
+
+/* ===============================
+   WEEKLY REPORT – GRID FIX
+   =============================== */
+.analytics-page h2 {
+    margin-top: 40px;
+    margin-bottom: 18px;
+    font-size: 18px;
+    font-weight: 700;
+}
+
+    .analytics-page h2 + .kpi-grid {
+        grid-template-columns: repeat(6, minmax(160px, 1fr));
+        margin-bottom: 0;
+    }
+
+/* ===============================
+   RESPONSIVE
+   =============================== */
+@media (max-width: 1200px) {
+    .kpi-grid {
+        grid-template-columns: repeat(3, 1fr);
+    }
+}
+
+@media (max-width: 768px) {
+    .kpi-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}

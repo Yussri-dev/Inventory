@@ -1,8 +1,7 @@
-﻿
-
-using Inventory.Ui.Services;
+﻿using Inventory.Ui.Services;
 using Refit;
 using System.Net;
+using System.Text.Json;
 
 namespace Inventory.Ui.Infrastructure
 {
@@ -13,8 +12,19 @@ namespace Inventory.Ui.Infrastructure
             string baseUrl
         ) where T : class
         {
+            var jsonOptions = new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+                // CRITICAL: no JsonStringEnumConverter
+            };
+
+            var refitSettings = new RefitSettings
+            {
+                ContentSerializer = new SystemTextJsonContentSerializer(jsonOptions)
+            };
+
             var http = services
-                .AddRefitClient<T>()
+                .AddRefitClient<T>(refitSettings)
                 .ConfigureHttpClient(c =>
                 {
                     c.BaseAddress = new Uri(baseUrl);

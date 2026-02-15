@@ -106,6 +106,41 @@
         color: #333;
     }
 
+.coins {
+    background: #f5f5f5;
+    padding: 12px;
+    border-radius: 4px;
+    margin-top: 16px;
+}
+
+    .coins .label {
+        font-size: 14px;
+        color: #666;
+        font-weight: 600;
+    }
+
+    .coins p {
+        margin: 8px 0 0 0;
+        color: #333;
+    }
+
+.rouleaux {
+    background: #f5f5f5;
+    padding: 12px;
+    border-radius: 4px;
+    margin-top: 16px;
+}
+
+    .rouleaux .label {
+        font-size: 14px;
+        color: #666;
+        font-weight: 600;
+    }
+
+    .rouleaux p {
+        margin: 8px 0 0 0;
+        color: #333;
+    }
 /* QUICK ACTIONS */
 .quick-actions {
     display: flex;

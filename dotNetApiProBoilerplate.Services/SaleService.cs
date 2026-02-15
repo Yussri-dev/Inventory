@@ -1,7 +1,6 @@
 ﻿using AutoMapper;
 using Inventory.Domain.Entities;
 using Inventory.Domain.Models;
-using Inventory.Domain.Enums;
 using Inventory.Dto.Pages.Results;
 using Inventory.Dto.Sales.Requests;
 using Inventory.Dto.Sales.Results;
@@ -10,6 +9,7 @@ using Inventory.Infrastructure.Repositories;
 using Inventory.Services.Exceptions;
 using Inventory.Services.Abstractions;
 using Inventory.Services.Context;
+using Inventory.Dto.Enums;
 
 namespace Inventory.Services
 {
@@ -88,7 +88,7 @@ namespace Inventory.Services
 
             sale.Id = Guid.NewGuid();
             sale.TenantId = tenantId;
-            sale.InvoiceNumber = await _documentNumberService.GenerateAsync("SALE");
+            sale.InvoiceNumber = await _documentNumberService.GenerateAsync("191125");
             sale.SaleDate = request.SaleDate == default ? DateTime.UtcNow : request.SaleDate;
             sale.TotalAmount = request.TotalAmount;
             sale.CreatedAt = DateTime.UtcNow;
@@ -162,7 +162,7 @@ namespace Inventory.Services
             {
                 Id = Guid.NewGuid(),
                 TenantId = tenantId,
-                InvoiceNumber = await _documentNumberService.GenerateAsync("SALE"),
+                InvoiceNumber = await _documentNumberService.GenerateAsync("191125"),
                 CustomerId = request.CustomerId,
                 CashSessionId = activeCashSessionId,
                 SaleDate = request.SaleDate == default ? DateTime.UtcNow : request.SaleDate,
@@ -234,30 +234,38 @@ namespace Inventory.Services
             // =========================
             // PAYMENT (DOCUMENT)
             // =========================
+            // =========================
+            // PAYMENT (DOCUMENT) - SUPPORT MULTIPLE PAYMENTS
+            // =========================
             decimal cashAmount = 0m;
 
-            if (request.Payment != null)
+            if (request.Payments != null && request.Payments.Any())
             {
-                Enum.TryParse<PaymentMethod>(request.Payment.PaymentMethod, true, out var method);
-
-                await _paymentRepository.AddAsync(new Payment
+                foreach (var paymentInfo in request.Payments)
                 {
-                    Id = Guid.NewGuid(),
-                    SaleId = sale.Id,
-                    TenantId = tenantId,
-                    Method = method,
-                    Amount = request.Payment.Amount,
-                    TransactionRef = request.Payment.Reference,
-                    PaidAt = DateTime.UtcNow,
-                    IsRefunded = false,
-                    CreatedAt = DateTime.UtcNow,
-                    ModifiedAt = DateTime.UtcNow
-                });
+                    Enum.TryParse<PaymentMethod>(paymentInfo.PaymentMethod, true, out var method);
 
-                if (method == PaymentMethod.Cash)
-                    cashAmount = request.Payment.Amount;
+                    await _paymentRepository.AddAsync(new Payment
+                    {
+                        Id = Guid.NewGuid(),
+                        SaleId = sale.Id,
+                        TenantId = tenantId,
+                        Method = method,
+                        Amount = paymentInfo.Amount,
+                        TransactionRef = paymentInfo.Reference,
+                        PaidAt = DateTime.UtcNow,
+                        IsRefunded = false,
+                        CreatedAt = DateTime.UtcNow,
+                        ModifiedAt = DateTime.UtcNow
+                    });
+
+                    if (method == PaymentMethod.Cash)
+                        cashAmount += paymentInfo.Amount + sale.ChangeAmount;
+                }
             }
-
+            // =========================
+            // CASH MOVEMENTS
+            // =========================
             // =========================
             // CASH MOVEMENTS
             // =========================
@@ -286,36 +294,31 @@ namespace Inventory.Services
                     MovementDate = DateTime.UtcNow,
                     CreatedAt = DateTime.UtcNow
                 });
-            }
 
-            if (sale.ChangeAmount > 0)
-            {
-                var last = await _cashMovementRepository.GetLastAsync(
-                    m => m.CashSessionId == activeCashSessionId &&
-                         !m.IsDeleted &&
-                         m.TenantId == tenantId,
-                    m => m.MovementDate);
-
-                var before = last?.BalanceAfter ?? 0m;
-                var after = before - sale.ChangeAmount;
-
-                if (after < 0)
-                    throw new ValidationException("Cash drawer cannot go negative.");
-
-                await _cashMovementRepository.AddAsync(new CashMovement
+                // Handle change immediately after adding cash (while we know balance is positive)
+                if (sale.ChangeAmount > 0)
                 {
-                    Id = Guid.NewGuid(),
-                    TenantId = tenantId,
-                    CashSessionId = activeCashSessionId,
-                    Type = CashMovementType.Refund,
-                    Amount = sale.ChangeAmount,
-                    BalanceBefore = before,
-                    BalanceAfter = after,
-                    SaleId = sale.Id,
-                    Reason = $"Change for sale {sale.InvoiceNumber}",
-                    MovementDate = DateTime.UtcNow,
-                    CreatedAt = DateTime.UtcNow
-                });
+                    var afterCash = after; // Balance after adding cash
+                    var afterChange = afterCash - sale.ChangeAmount;
+
+                    if (afterChange < 0)
+                        throw new ValidationException("Cash drawer cannot go negative after giving change.");
+
+                    await _cashMovementRepository.AddAsync(new CashMovement
+                    {
+                        Id = Guid.NewGuid(),
+                        TenantId = tenantId,
+                        CashSessionId = activeCashSessionId,
+                        Type = CashMovementType.Refund,
+                        Amount = sale.ChangeAmount,
+                        BalanceBefore = afterCash,
+                        BalanceAfter = afterChange,
+                        SaleId = sale.Id,
+                        Reason = $"Change for sale {sale.InvoiceNumber}",
+                        MovementDate = DateTime.UtcNow,
+                        CreatedAt = DateTime.UtcNow
+                    });
+                }
             }
 
             // =========================
@@ -358,6 +361,51 @@ namespace Inventory.Services
             await _unitOfWork.SaveChangesAsync();
 
             return _mapper.Map<SaleResult>(sale);
+        }
+
+        public async Task<SaleTicketResult> BuildTicketAsync(Guid saleId)
+        {
+            var tenantId = _tenantContext.TenantId;
+            var sale = await _repository.GetByIdAsync(saleId);
+            if (sale == null || sale.TenantId != tenantId)
+                throw new NotFoundException("Sale", saleId);
+
+            var lines = await _saleLineRepository.GetAsync(
+                l => l.SaleId == saleId,
+                l => l.Product
+            );
+
+            var payments = await _paymentRepository.GetAsync(
+                p => p.SaleId == saleId
+            );
+
+            Customer? customer = null;
+            if (sale.CustomerId != null)
+            {
+                customer = await _customerRepository.GetByIdAsync(sale.CustomerId.Value);
+            }
+            return new SaleTicketResult
+            {
+                InvoiceNumber = sale.InvoiceNumber,
+                SaleDate = sale.SaleDate,
+
+                CustomerId = sale.CustomerId ?? Guid.Empty,
+                CustomerName = customer?.Name ?? "Walk-in customer",
+                Lines = lines.Select(l => new SaleTicketLineResult
+                {
+                    ProductName = l.Product.Name,
+                    Quantity = l.Quantity,
+                    UnitPrice = l.UnitPrice
+                }).ToList(),
+
+                Subtotal = sale.SubtotalAmount,
+                VatAmount = sale.VatAmount,
+                Total = sale.TotalAmount,
+
+                Paid = sale.PaidAmount,
+                Change = sale.ChangeAmount,
+                //PaymentMethod = payments.FirstOrDefault()?.Method.ToString() ?? "Cash"
+            };
         }
 
 
@@ -438,7 +486,7 @@ namespace Inventory.Services
             var tenantId = _tenantContext.TenantId;
 
             var all = (await _repository.GetAllAsync())
-                .Where(s => !s.IsDeleted && s.TenantId == tenantId)
+                .Where(s => !s.IsDeleted && s.TenantId == tenantId && s.InvoiceNumber.Contains(query.Search.Trim()))
                 .AsQueryable();
 
             var total = all.Count();

@@ -46,10 +46,10 @@ namespace Inventory.Services
                     !s.IsDeleted &&
                     s.TenantId == tenantId);
 
-            //if (stock == null)
-            //{
-            //    throw new NotFoundException("Stock for product", request.ProductId);
-            //}
+            if (stock == null)
+            {
+                throw new NotFoundException("Stock for product", request.ProductId);
+            }
 
             if (request.QuantityChange == 0)
             {
@@ -196,7 +196,7 @@ namespace Inventory.Services
 
             if (query.Type.HasValue)
             {
-                var domainType = (Domain.Enums.StockMovementType)query.Type.Value;
+                var domainType = query.Type.Value;
                 movements = movements.Where(m => m.Type == domainType);
             }
 

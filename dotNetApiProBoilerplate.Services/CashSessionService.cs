@@ -1,8 +1,8 @@
 ﻿using AutoMapper;
 using Inventory.Domain.Entities;
-using Inventory.Domain.Enums;
 using Inventory.Dto.CashSessions.Requests;
 using Inventory.Dto.CashSessions.Results;
+using Inventory.Dto.Enums;
 using Inventory.Dto.Pages.Results;
 using Inventory.Dto.Queries;
 using Inventory.Infrastructure.Repositories;
@@ -115,6 +115,22 @@ namespace Inventory.Services
             cashSession.SessionNumber = $"CS-{DateTime.UtcNow:yyyyMMdd}-{(sessionCount + 1):D4}";
 
             await _repository.AddAsync(cashSession);
+
+            await _cashMovementRepository.AddAsync(new CashMovement
+            {
+                Id = Guid.NewGuid(),
+                TenantId = tenantId,
+                CashSessionId = cashSession.Id,
+                Type = CashMovementType.Opening,
+                Amount = request.OpeningAmount,
+                BalanceBefore = 0,
+                BalanceAfter = request.OpeningAmount,
+                Reason = "Session opening",
+                MovementDate = DateTime.UtcNow,
+                CreatedAt = DateTime.UtcNow
+            });
+
+
             await _unitOfWork.SaveChangesAsync();
 
             return _mapper.Map<CashSessionResult>(cashSession);
@@ -138,20 +154,20 @@ namespace Inventory.Services
 
             if (cashSession.Status != CashSessionStatus.Open)
                 throw new ValidationException(new Dictionary<string, string[]>
-                {
-                    { "Status", new[] { "Cash session is not open." } }
-                });
+        {
+            { "Status", new[] { "Cash session is not open." } }
+        });
 
             var cashMovements = (await _cashMovementRepository.GetAllAsync())
                 .Where(cm =>
                     cm.CashSessionId == id &&
                     !cm.IsDeleted &&
                     (_tenantContext.IsSuperAdmin || cm.TenantId == tenantId))
-                .OrderByDescending(cm => cm.MovementDate)
+                .OrderBy(cm => cm.MovementDate)  // ✅ CHANGÉ: tri croissant
                 .ToList();
 
             var expectedCash =
-                cashMovements.FirstOrDefault()?.BalanceAfter
+                cashMovements.LastOrDefault()?.BalanceAfter
                 ?? cashSession.OpeningAmount;
 
             cashSession.ClosingAmountExpected = expectedCash;
@@ -168,8 +184,6 @@ namespace Inventory.Services
 
             return _mapper.Map<CashSessionResult>(cashSession);
         }
-
-
         // =========================
         // GET BY ID
         // =========================
