@@ -1,4 +1,5 @@
 ﻿using AutoMapper;
+using AutoMapper.QueryableExtensions;
 using Inventory.Domain.Entities;
 using Inventory.Domain.Enums;
 using Inventory.Dto.Pages.Results;
@@ -8,6 +9,7 @@ using Inventory.Dto.Queries;
 using Inventory.Infrastructure.Repositories;
 using Inventory.Services.Context;
 using Inventory.Services.Exceptions;
+using Microsoft.EntityFrameworkCore;
 
 namespace Inventory.Services
 {
@@ -52,8 +54,8 @@ namespace Inventory.Services
             if (exists)
                 throw new ConflictException($"Product '{catalogProduct.Name}' already exists for this store.");
 
-            if (request.PurchasePrice > request.SalePrice && 
-                request.PurchasePrice > request.SalePrice2 && 
+            if (request.PurchasePrice > request.SalePrice &&
+                request.PurchasePrice > request.SalePrice2 &&
                 request.PurchasePrice > request.SalePrice3)
                 throw new ValidationException(new Dictionary<string, string[]>
                 {
@@ -139,8 +141,8 @@ namespace Inventory.Services
                 });
             }
 
-            if (request.PurchasePrice > request.SalePrice && 
-                request.PurchasePrice > request.SalePrice2 && 
+            if (request.PurchasePrice > request.SalePrice &&
+                request.PurchasePrice > request.SalePrice2 &&
                 request.PurchasePrice > request.SalePrice3)
             {
                 throw new ValidationException(new Dictionary<string, string[]>
@@ -184,109 +186,191 @@ namespace Inventory.Services
         }
 
         // PAGINATION + FILTERING + SORTING
+        //public async Task<PagedResult<ProductResult>> QueryAsync(ProductQuery query)
+        //{
+        //    var tenantId = _tenantContext.TenantId;
+
+        //    // Validate query parameters
+        //    if (query.Page < 1)
+        //    {
+        //        throw new ValidationException(new Dictionary<string, string[]>
+        //        {
+        //            { "Page", new[] { "Page must be greater than or equal to 1." } }
+        //        });
+        //    }
+
+        //    if (query.PageSize < 1 || query.PageSize > 100)
+        //    {
+        //        throw new ValidationException(new Dictionary<string, string[]>
+        //        {
+        //            { "PageSize", new[] { "PageSize must be between 1 and 100." } }
+        //        });
+        //    }
+
+        //    var allProducts = await _repository.GetAllAsync();
+        //    var allCatalogs = await _catalogRepository.GetAllAsync();
+
+        //    // Create a dictionary for fast catalog lookup
+        //    var catalogDict = allCatalogs
+        //        .Where(c => !c.IsDeleted)
+        //        .ToDictionary(c => c.Id);
+
+        //    // Filter tenant products - convert to in-memory list
+        //    var filtered = allProducts
+        //        .Where(p => !p.IsDeleted && p.TenantId == tenantId)
+        //        .ToList(); // Convert to in-memory list here
+
+        //    // Search filter - now working with in-memory data
+        //    if (!string.IsNullOrWhiteSpace(query.Search))
+        //    {
+        //        var searchTerm = query.Search.ToLower();
+
+        //        filtered = filtered.Where(p =>
+        //        {
+        //            // Get catalog product
+        //            if (!catalogDict.TryGetValue(p.CatalogProductId, out var catalog))
+        //                return false;
+
+        //            // Search in catalog fields - null-conditional operators work in memory
+        //            return (catalog.Name?.ToLower().Contains(searchTerm) ?? false) ||
+        //                   (catalog.Barcode?.ToLower().Contains(searchTerm) ?? false) ||
+        //                   (catalog.Description?.ToLower().Contains(searchTerm) ?? false) ||
+        //                   (catalog.Brand?.ToLower().Contains(searchTerm) ?? false) ||
+        //                   (catalog.Manufacturer?.ToLower().Contains(searchTerm) ?? false);
+        //        }).ToList();
+        //    }
+
+        //    // Status filter
+        //    if (query.Status.HasValue)
+        //    {
+        //        var status = (ProductStatus)query.Status.Value;
+        //        filtered = filtered.Where(p => p.IsActive == status).ToList();
+        //    }
+
+        //    // Sorting (using catalog data where appropriate)
+        //    IEnumerable<Product> sortedFiltered = query.SortBy?.ToLower() switch
+        //    {
+        //        "name" => query.Desc
+        //            ? filtered.OrderByDescending(p => catalogDict.ContainsKey(p.CatalogProductId) ? catalogDict[p.CatalogProductId].Name : "")
+        //            : filtered.OrderBy(p => catalogDict.ContainsKey(p.CatalogProductId) ? catalogDict[p.CatalogProductId].Name : ""),
+
+        //        "barcode" => query.Desc
+        //            ? filtered.OrderByDescending(p => catalogDict.ContainsKey(p.CatalogProductId) ? catalogDict[p.CatalogProductId].Barcode : "")
+        //            : filtered.OrderBy(p => catalogDict.ContainsKey(p.CatalogProductId) ? catalogDict[p.CatalogProductId].Barcode : ""),
+
+        //        "manufacturer" => query.Desc
+        //            ? filtered.OrderByDescending(p => catalogDict.ContainsKey(p.CatalogProductId) ? catalogDict[p.CatalogProductId].Manufacturer : "")
+        //            : filtered.OrderBy(p => catalogDict.ContainsKey(p.CatalogProductId) ? catalogDict[p.CatalogProductId].Manufacturer : ""),
+
+        //        "saleprice" => query.Desc
+        //            ? filtered.OrderByDescending(p => p.SalePrice)
+        //            : filtered.OrderBy(p => p.SalePrice),
+
+        //        "purchaseprice" => query.Desc
+        //            ? filtered.OrderByDescending(p => p.PurchasePrice)
+        //            : filtered.OrderBy(p => p.PurchasePrice),
+
+        //        _ => query.Desc
+        //            ? filtered.OrderByDescending(p => p.CreatedAt)
+        //            : filtered.OrderBy(p => p.CreatedAt)
+        //    };
+
+        //    var total = sortedFiltered.Count();
+
+        //    var items = sortedFiltered
+        //        .Skip((query.Page - 1) * query.PageSize)
+        //        .Take(query.PageSize)
+        //        .ToList();
+
+        //    return new PagedResult<ProductResult>
+        //    {
+        //        Items = _mapper.Map<List<ProductResult>>(items),
+        //        TotalCount = total,
+        //        Page = query.Page,
+        //        PageSize = query.PageSize
+        //    };
+        //}
+
         public async Task<PagedResult<ProductResult>> QueryAsync(ProductQuery query)
         {
             var tenantId = _tenantContext.TenantId;
 
-            // Validate query parameters
             if (query.Page < 1)
             {
                 throw new ValidationException(new Dictionary<string, string[]>
-                {
-                    { "Page", new[] { "Page must be greater than or equal to 1." } }
-                });
+                    {
+                        { "Page", new[] { "Page must be greater than or equal to 1." } }
+                    });
             }
 
             if (query.PageSize < 1 || query.PageSize > 100)
             {
                 throw new ValidationException(new Dictionary<string, string[]>
-                {
-                    { "PageSize", new[] { "PageSize must be between 1 and 100." } }
-                });
+                    {
+                        { "PageSize", new[] { "PageSize must be between 1 and 100." } }
+                    });
             }
 
-            var allProducts = await _repository.GetAllAsync();
-            var allCatalogs = await _catalogRepository.GetAllAsync();
-
-            // Create a dictionary for fast catalog lookup
-            var catalogDict = allCatalogs
-                .Where(c => !c.IsDeleted)
-                .ToDictionary(c => c.Id);
-
-            // Filter tenant products - convert to in-memory list
-            var filtered = allProducts
+            var productsQuery = _repository.Query()
+                .AsNoTracking()
                 .Where(p => !p.IsDeleted && p.TenantId == tenantId)
-                .ToList(); // Convert to in-memory list here
+                .Include(p => p.CatalogProduct)
+                .AsQueryable();
 
-            // Search filter - now working with in-memory data
+            // SEARCH
             if (!string.IsNullOrWhiteSpace(query.Search))
             {
-                var searchTerm = query.Search.ToLower();
+                var search = query.Search.ToLower();
 
-                filtered = filtered.Where(p =>
-                {
-                    // Get catalog product
-                    if (!catalogDict.TryGetValue(p.CatalogProductId, out var catalog))
-                        return false;
+                productsQuery = productsQuery.Where(p =>
+                 EF.Functions.ILike(p.CatalogProduct.Name, $"%{search}%") ||
+                 EF.Functions.ILike(p.CatalogProduct.Barcode, $"%{search}%") ||
+                 EF.Functions.ILike(p.CatalogProduct.Brand, $"%{search}%")
+             );
 
-                    // Search in catalog fields - null-conditional operators work in memory
-                    return (catalog.Name?.ToLower().Contains(searchTerm) ?? false) ||
-                           (catalog.Barcode?.ToLower().Contains(searchTerm) ?? false) ||
-                           (catalog.Description?.ToLower().Contains(searchTerm) ?? false) ||
-                           (catalog.Brand?.ToLower().Contains(searchTerm) ?? false) ||
-                           (catalog.Manufacturer?.ToLower().Contains(searchTerm) ?? false);
-                }).ToList();
+
             }
 
-            // Status filter
-            if (query.Status.HasValue)
-            {
-                var status = (ProductStatus)query.Status.Value;
-                filtered = filtered.Where(p => p.IsActive == status).ToList();
-            }
+            //// STATUS
+            //if (query.Status.HasValue)
+            //    productsQuery = productsQuery.Where(p => p.IsActive == query.Status);
 
-            // Sorting (using catalog data where appropriate)
-            IEnumerable<Product> sortedFiltered = query.SortBy?.ToLower() switch
+            // SORT
+            productsQuery = query.SortBy.ToLower() switch
             {
                 "name" => query.Desc
-                    ? filtered.OrderByDescending(p => catalogDict.ContainsKey(p.CatalogProductId) ? catalogDict[p.CatalogProductId].Name : "")
-                    : filtered.OrderBy(p => catalogDict.ContainsKey(p.CatalogProductId) ? catalogDict[p.CatalogProductId].Name : ""),
+                    ? productsQuery.OrderByDescending(p => p.CatalogProduct.Name)
+                    : productsQuery.OrderBy(p => p.CatalogProduct.Name),
 
                 "barcode" => query.Desc
-                    ? filtered.OrderByDescending(p => catalogDict.ContainsKey(p.CatalogProductId) ? catalogDict[p.CatalogProductId].Barcode : "")
-                    : filtered.OrderBy(p => catalogDict.ContainsKey(p.CatalogProductId) ? catalogDict[p.CatalogProductId].Barcode : ""),
-
-                "manufacturer" => query.Desc
-                    ? filtered.OrderByDescending(p => catalogDict.ContainsKey(p.CatalogProductId) ? catalogDict[p.CatalogProductId].Manufacturer : "")
-                    : filtered.OrderBy(p => catalogDict.ContainsKey(p.CatalogProductId) ? catalogDict[p.CatalogProductId].Manufacturer : ""),
+                ? productsQuery.OrderByDescending(p => p.CatalogProduct.Barcode)
+                : productsQuery.OrderBy(p => p.CatalogProduct.Barcode),
 
                 "saleprice" => query.Desc
-                    ? filtered.OrderByDescending(p => p.SalePrice)
-                    : filtered.OrderBy(p => p.SalePrice),
-
-                "purchaseprice" => query.Desc
-                    ? filtered.OrderByDescending(p => p.PurchasePrice)
-                    : filtered.OrderBy(p => p.PurchasePrice),
+                    ? productsQuery.OrderByDescending(p => p.SalePrice)
+                    : productsQuery.OrderBy(p => p.SalePrice),
 
                 _ => query.Desc
-                    ? filtered.OrderByDescending(p => p.CreatedAt)
-                    : filtered.OrderBy(p => p.CreatedAt)
+                    ? productsQuery.OrderByDescending(p => p.CreatedAt)
+                    : productsQuery.OrderBy(p => p.CreatedAt)
             };
 
-            var total = sortedFiltered.Count();
+            var total = await productsQuery.CountAsync();
 
-            var items = sortedFiltered
+            var items = await productsQuery
                 .Skip((query.Page - 1) * query.PageSize)
                 .Take(query.PageSize)
-                .ToList();
+                .ProjectTo<ProductResult>(_mapper.ConfigurationProvider)
+                .ToListAsync();
 
             return new PagedResult<ProductResult>
             {
-                Items = _mapper.Map<List<ProductResult>>(items),
+                Items = items,
                 TotalCount = total,
                 Page = query.Page,
                 PageSize = query.PageSize
             };
         }
+
     }
 }
