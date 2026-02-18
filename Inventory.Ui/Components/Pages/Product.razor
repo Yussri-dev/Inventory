@@ -195,6 +195,22 @@
     }
     else
     {
+        <div class="pager">
+            <button class="btn ghost" disabled="@(Page == 1)"
+                    @onclick="() => ChangePage(Page - 1)">
+                Prev
+            </button>
+
+            <span class="muted">
+                Page @Page / @(Math.Ceiling((double)TotalCount / PageSize))
+            </span>
+
+            <button class="btn ghost"
+                    disabled="@(Page* PageSize >= TotalCount)"
+                    @onclick="() => ChangePage(Page + 1)">
+                Next
+            </button>
+        </div>
         <div class="results-header">
             <span>@items.Count product(s) found</span>
             @if (isSearching)
@@ -249,7 +265,7 @@
                             @if (!p.IsTracked)
                             {
                                 <br />
-                    
+
                                 <small class="text-muted">Not tracked</small>
                             }
                         </td>
@@ -303,9 +319,14 @@
     private string searchTerm = string.Empty;
     private bool isSearching;
 
+    int Page = 1;
+    int PageSize = 10;
+    int TotalCount;
+
     protected override async Task OnInitializedAsync()
     {
         await LoadCatalogProducts();
+        Page = 1;
         await LoadData();
     }
 
@@ -333,8 +354,18 @@
         {
             isLoadingData = true;
             errorMessage = null;
-            items = await ProductApi.GetAll();
-            isSearching = false;
+
+            var query = new ProductQuery
+            {
+                Page = Page,
+                PageSize = PageSize,
+                Search = isSearching ? searchTerm : null
+            };
+
+            var response = await ProductApi.Search(query);
+
+            items = response.Items?.ToList() ?? new List<ProductResult>();
+            TotalCount = response.TotalCount;
         }
         catch (Exception ex)
         {
@@ -347,46 +378,28 @@
         }
     }
 
+
     private async Task Search()
     {
         if (string.IsNullOrWhiteSpace(searchTerm))
         {
+            isSearching = false;
+            Page = 1;
             await LoadData();
             return;
         }
 
-        try
-        {
-            isLoadingData = true;
-            errorMessage = null;
-
-            var query = new ProductQuery
-            {
-                Search = searchTerm
-            };
-
-            var response = await ProductApi.Search(query);
-
-            if (response is null)
-            {
-                items = new List<ProductResult>();
-                errorMessage = "Search failed";
-                return;
-            }
-
-            items = response.Items?.ToList() ?? new List<ProductResult>();
-            isSearching = true;
-        }
-        catch (Exception ex)
-        {
-            errorMessage = $"Search failed: {ex.Message}";
-            items = new List<ProductResult>();
-        }
-        finally
-        {
-            isLoadingData = false;
-        }
+        isSearching = true;
+        Page = 1;
+        await LoadData();
     }
+
+    async Task ChangePage(int newPage)
+    {
+        Page = newPage;
+        await LoadData();
+    }
+
 
     private async Task OnSearchKeyUp(KeyboardEventArgs e)
     {
@@ -399,8 +412,11 @@
     private async Task ClearSearch()
     {
         searchTerm = string.Empty;
+        isSearching = false;
+        Page = 1;
         await LoadData();
     }
+
 
     private async Task HandleSubmit()
     {
@@ -631,7 +647,9 @@
         public decimal SalePrice2 { get; set; }
 
         [Range(0, double.MaxValue, ErrorMessage = "Sale3 price must be positive")]
-        public decimal SalePrice3 { get; set;
+        public decimal SalePrice3
+        {
+            get; set;
         }
         [Range(0, double.MaxValue, ErrorMessage = "Purchase price must be positive")]
         public decimal PurchasePrice { get; set; }
