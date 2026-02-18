@@ -8,7 +8,7 @@
         public Guid? CustomerId { get; init; }
         public bool? IsActive { get; init; }
 
-        public string? Search { get; init; } // CardNumber
+        public string? Search { get; init; }
         public string SortBy { get; init; } = "IssuedAt";
         public bool Desc { get; init; } = true;
     }
