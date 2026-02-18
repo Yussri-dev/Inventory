@@ -80,5 +80,9 @@ namespace Inventory.Infrastructure.Repositories
             return await query.Where(predicate).ToListAsync();
         }
 
+        public IQueryable<T> Query()
+        {
+            return _context.Set<T>().AsQueryable();
+        }
     }
 }

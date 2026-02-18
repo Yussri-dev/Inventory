@@ -33,5 +33,7 @@ namespace Inventory.Infrastructure.Repositories
             Expression<Func<T, bool>> predicate,
             params Expression<Func<T, object>>[] includes);
 
+        IQueryable<T> Query();
+
     }
 }
