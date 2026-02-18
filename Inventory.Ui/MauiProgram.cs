@@ -85,6 +85,8 @@ public static class MauiProgram
         builder.Services.AddSecuredApi<IDamageApi>(apiBaseUrl);
         builder.Services.AddSecuredApi<IPosApi>(apiBaseUrl);
 
+        builder.Services.AddSecuredApi<ILoyaltyCardsApi>(apiBaseUrl);
+
         //#if WINDOWS
         //builder.Services.AddSingleton<ITicketPrinter, WindowsTicketPrinter>();
         //#endif

@@ -1,0 +1,336 @@
+﻿@page "/loyaltycards"
+
+@using Inventory.Dto.LoyaltyCards.Requests
+@using Inventory.Dto.LoyaltyCards.Results
+@using Inventory.Dto.Queries
+
+@inject ILoyaltyCardsApi Api
+@inject ICustomerApi CustomerApi
+
+<h3>Loyalty Cards</h3>
+
+<div class="page-container">
+
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert error">
+            <span>@errorMessage</span>
+            <button @onclick="ClearError">×</button>
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(successMessage))
+    {
+        <div class="alert success">
+            <span>@successMessage</span>
+            <button @onclick="ClearSuccess">×</button>
+        </div>
+    }
+
+    <!-- CREATE / EDIT -->
+    <div class="card">
+        <h4>@(editingId == null ? "Create Loyalty Card" : "Edit Loyalty Card")</h4>
+
+        <EditForm Model="form" OnValidSubmit="HandleSubmit">
+            <DataAnnotationsValidator />
+
+            <div class="form-grid">
+
+                <div class="form-row">
+                    <div class="form-field">
+                        <label>Customer *</label>
+                        <InputSelect @bind-Value="form.CustomerIdString"
+                                     disabled="@(isLoading || editingId != null)">
+                            <option value="">-- Select customer --</option>
+                            @foreach (var c in customers)
+                            {
+                                <option value="@c.Id">@c.Name</option>
+                            }
+                        </InputSelect>
+                        <ValidationMessage For="@(() => form.CustomerIdString)" />
+                    </div>
+
+                    <div class="form-field">
+                        <label>Card Number *</label>
+                        <InputText @bind-Value="form.CardNumber"
+                                   disabled="true" />
+
+                        <ValidationMessage For="@(() => form.CardNumber)" />
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-field">
+                        <label>Expiry Date</label>
+                        <InputDate @bind-Value="form.ExpiryDate"
+                                   disabled="@isLoading" />
+                    </div>
+
+                    <div class="form-field">
+                        <label class="checkbox-label">
+                            <InputCheckbox @bind-Value="form.IsActive" />
+                            <span>Active</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-field">
+                        <label>Notes</label>
+                        <InputTextArea @bind-Value="form.Notes"
+                                       disabled="@isLoading" />
+                    </div>
+                </div>
+
+                <div class="actions-end">
+                    <button class="btn primary" type="submit" disabled="@isLoading">
+                        @(editingId == null ? "Create" : "Update")
+                    </button>
+
+                    @if (editingId != null)
+                    {
+                        <button class="btn ghost" type="button" @onclick="CancelEdit">
+                            Cancel
+                        </button>
+                    }
+                </div>
+            </div>
+        </EditForm>
+    </div>
+
+    <!-- SEARCH -->
+    <div class="card">
+        <h4>Search Loyalty Cards</h4>
+
+        <div class="search-grid">
+            <input type="text"
+                   placeholder="Search by card number"
+                   @bind="searchTerm"
+                   @bind:event="oninput"
+                   @onkeyup="OnSearchKeyUp" />
+
+            <div class="search-actions">
+                <button class="btn primary" @onclick="Search">Search</button>
+                <button class="btn ghost" @onclick="ClearSearch">Clear</button>
+            </div>
+        </div>
+    </div>
+
+    @if (isLoadingData)
+    {
+        <p>Loading loyalty cards...</p>
+    }
+    else if (items is null || items.Count == 0)
+    {
+        <p>No loyalty cards found.</p>
+    }
+    else
+    {
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Card</th>
+                    <th>Customer</th>
+                    <th>Points</th>
+                    <th>Lifetime</th>
+                    <th>Status</th>
+                    <th>Expiry</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var card in items)
+                {
+                    var customer = customers.FirstOrDefault(c => c.Id == card.CustomerId);
+
+                    <tr>
+                        <td>@card.CardNumber</td>
+                        <td>@(customer?.Name ?? "-")</td>
+                        <td>@card.CurrentPoints</td>
+                        <td>@card.LifetimePoints</td>
+                        <td>
+                            <span class="badge @(card.IsActive ? "badge-success" : "badge-inactive")">
+                                @(card.IsActive ? "Active" : "Inactive")
+                            </span>
+                        </td>
+                        <td>@card.ExpiryDate?.ToString("dd/MM/yyyy")</td>
+                        <td class="actions-end">
+                            <button class="btn small ghost"
+                                    @onclick="() => StartEdit(card)">
+                                Edit
+                            </button>
+                            <button class="btn small danger"
+                                    @onclick="() => AskDelete(card)">
+                                Delete
+                            </button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+
+    @if (showDelete && loyaltyToDelete != null)
+    {
+        <div class="modal-overlay" @onclick="CancelDelete">
+            <div class="modal-content" @onclick:stopPropagation="true">
+                <h4>Confirm Delete</h4>
+                <p>Delete <strong>@loyaltyToDelete.CardNumber</strong>?</p>
+                <div class="modal-actions">
+                    <button class="btn ghost" @onclick="CancelDelete">Cancel</button>
+                    <button class="btn danger" @onclick="ConfirmDelete">Delete</button>
+                </div>
+            </div>
+        </div>
+    }
+
+</div>
+
+@code {
+
+    private List<LoyaltyCardResult>? items;
+    private List<CustomerResult> customers = new();
+    private LoyaltyCardForm form = new();
+    private Guid? editingId;
+
+    private bool isLoading;
+    private bool isLoadingData;
+    private bool showDelete;
+
+    private string? errorMessage;
+    private string? successMessage;
+    private string searchTerm = string.Empty;
+
+    private LoyaltyCardResult? loyaltyToDelete;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadCustomers();
+        await LoadAll();
+        form.CardNumber = GenerateCardNumber();
+    }
+
+    private async Task LoadCustomers()
+        => customers = await CustomerApi.GetAll();
+
+    private async Task LoadAll()
+    {
+        isLoadingData = true;
+        items = await Api.GetAll();
+        isLoadingData = false;
+    }
+
+    private async Task Search()
+    {
+        var result = await Api.Search(new LoyaltyCardQuery { Search = searchTerm });
+        items = result.Items.ToList();
+    }
+
+    private async Task HandleSubmit()
+    {
+        if (!Guid.TryParse(form.CustomerIdString, out var customerId))
+        {
+            errorMessage = "Invalid customer";
+            return;
+        }
+
+        if (editingId == null)
+            await Api.Create(form.ToCreate(customerId));
+        else
+            await Api.Update(editingId.Value, form.ToUpdate(editingId.Value, customerId));
+
+        Reset();
+        await LoadAll();
+    }
+
+    private void StartEdit(LoyaltyCardResult card)
+    {
+        editingId = card.Id;
+        form = LoyaltyCardForm.From(card);
+    }
+
+    private void AskDelete(LoyaltyCardResult card)
+    {
+        loyaltyToDelete = card;
+        showDelete = true;
+    }
+
+    private async Task ConfirmDelete()
+    {
+        await Api.Delete(loyaltyToDelete!.Id);
+        showDelete = false;
+        await LoadAll();
+    }
+
+    private async Task OnSearchKeyUp(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+            await Search();
+    }
+
+    private async Task ClearSearch()
+    {
+        searchTerm = string.Empty;
+        await LoadAll();
+    }
+
+    private string GenerateCardNumber()
+    {
+        var timestamp = DateTime.UtcNow.ToString("yyyyMMddHHmmss");
+        var random = Random.Shared.Next(1000, 9999);
+        return $"22-{timestamp}-{random}";
+    }
+
+    private void CancelDelete() => showDelete = false;
+    private void CancelEdit() => Reset();
+    private void Reset()
+    {
+        editingId = null;
+        form = new LoyaltyCardForm
+        {
+            CardNumber = GenerateCardNumber(),
+            IsActive = true
+        };
+    }
+
+    private void ClearError() => errorMessage = null;
+    private void ClearSuccess() => successMessage = null;
+
+    private sealed class LoyaltyCardForm
+    {
+        [Required] public string CardNumber { get; set; } = string.Empty;
+        [Required] public string CustomerIdString { get; set; } = string.Empty;
+
+        public DateTime? ExpiryDate { get; set; }
+        public bool IsActive { get; set; } = true;
+        public string? Notes { get; set; }
+
+        public CreateLoyaltyCardRequest ToCreate(Guid customerId) => new()
+        {
+            CardNumber = CardNumber,
+            CustomerId = customerId,
+            ExpiryDate = ExpiryDate,
+            IsActive = IsActive,
+            Notes = Notes
+        };
+
+        public UpdateLoyaltyCardRequest ToUpdate(Guid id, Guid customerId) => new()
+        {
+            Id = id,
+            CardNumber = CardNumber,
+            CustomerId = customerId,
+            ExpiryDate = ExpiryDate,
+            IsActive = IsActive,
+            Notes = Notes
+        };
+
+        public static LoyaltyCardForm From(LoyaltyCardResult r) => new()
+        {
+            CardNumber = r.CardNumber,
+            CustomerIdString = r.CustomerId.ToString(),
+            ExpiryDate = r.ExpiryDate,
+            IsActive = r.IsActive,
+            Notes = r.Notes
+        };
+    }
+}
