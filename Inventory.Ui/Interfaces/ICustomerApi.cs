@@ -3,6 +3,8 @@ using Inventory.Dto.Queries;
 using Inventory.Dto.Customers.Requests;
 using Inventory.Dto.Customers.Results;
 using Refit;
+using Inventory.Dto.LoyaltyCards.Results;
+using Inventory.Dto.LoyaltyCards.Requests;
 
 namespace Inventory.Ui.Interfaces
 {
@@ -23,5 +25,4 @@ namespace Inventory.Ui.Interfaces
         [Get("/api/v1/customers/search")]
         Task<PagedResult<CustomerResult>> Search([Query] CustomerQuery query);
     }
-
 }

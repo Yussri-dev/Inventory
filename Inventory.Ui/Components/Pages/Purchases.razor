@@ -169,7 +169,7 @@
     </div>
 
     <!-- RIGHT COLUMN: Product Search & Numpad -->
-    <div class="purchase-right" @* @onclick="() => FocusBarcodeInput()" *@>
+    <div class="purchase-right" >
 
         <!-- Barcode Scanner Section -->
         <div class="card search-section">
@@ -232,7 +232,7 @@
 
         <!-- Numeric Pad -->
         <div class="card numpad-container">
-            <div class="numpad">
+            <div class="numpad" onclick="@FocusBarcodeInput()">
                 <div class="display">@NumpadValue</div>
                 <div class="keys">
                     @foreach (var key in NumpadKeys)
