@@ -1,219 +1,324 @@
 ﻿@page "/dashboard"
-
 @using Inventory.Dto.Analytics.Results
+@using System.Globalization
 @inject IAnalyticsApi AnalyticsApi
+@inject IJSRuntime JS
+@implements IAsyncDisposable
 
-<div class="analytics-page">
+<div class="dash-page">
 
     <!-- HEADER -->
-    <div class="analytics-header">
-        <h1 class="analytics-title">Analytics & Reports</h1>
-        <p class="analytics-subtitle">Business performance overview</p>
+    <div class="dash-header">
+        <div>
+            <h1 class="dash-title">Dashboard</h1>
+            <p class="dash-sub">@DateTime.Now.ToString("dddd, dd MMMM yyyy")</p>
+        </div>
+        <div class="period-pills">
+            @foreach (var p in Enum.GetValues<Period>())
+            {
+                <button class="pill @(period == p ? "active" : "")"
+                        @onclick="() => SelectPeriod(p)">
+                    @PeriodLabel(p)
+                </button>
+            }
+        </div>
     </div>
 
-    <!-- PERIOD SELECTOR -->
-    <div class="period-selector">
-        <button class="period-btn @(period == Period.Today ? "active" : "")"
-                @onclick="() => SelectPeriod(Period.Today)">
-            Today
-        </button>
-        <button class="period-btn @(period == Period.Week ? "active" : "")"
-                @onclick="() => SelectPeriod(Period.Week)">
-            This Week
-        </button>
-        <button class="period-btn @(period == Period.Month ? "active" : "")"
-                @onclick="() => SelectPeriod(Period.Month)">
-            This Month
-        </button>
-        <button class="period-btn @(period == Period.Year ? "active" : "")"
-                @onclick="() => SelectPeriod(Period.Year)">
-            This Year
-        </button>
-    </div>
-
-    <!-- KPI SUMMARY -->
-    @if (profit != null)
+    @if (isLoading)
     {
-        <div class="analytics-summary">
-            <h2>Financial Overview</h2>
-
-            <div class="kpi-grid">
-                <div class="kpi-card">
-                    <div class="kpi-label">Revenue</div>
-                    <div class="kpi-value positive">
-                        €@profit.TotalRevenue.ToString("N2")
-                    </div>
-                </div>
-
-                <div class="kpi-card">
-                    <div class="kpi-label">Cost</div>
-                    <div class="kpi-value">
-                        €@profit.TotalCost.ToString("N2")
-                    </div>
-                </div>
-
-                <div class="kpi-card">
-                    <div class="kpi-label">Refunds</div>
-                    <div class="kpi-value negative">
-                        €@profit.TotalRefunds.ToString("N2")
-                    </div>
-                </div>
-
-                <div class="kpi-card">
-                    <div class="kpi-label">Gross Profit</div>
-                    <div class="kpi-value @(profit.GrossProfit >= 0 ? "positive" : "negative")">
-                        €@profit.GrossProfit.ToString("N2")
-                    </div>
-                </div>
-
-                <div class="kpi-card">
-                    <div class="kpi-label">Profit Margin</div>
-                    <div class="kpi-value">
-                        @profit.ProfitMargin.ToString("N2")%
-                    </div>
-                </div>
-            </div>
-
-            <div class="period-info">
-                Period: @profit.From.ToString("dd/MM/yyyy") → @profit.To.ToString("dd/MM/yyyy")
-            </div>
+        <div class="dash-loading">
+            <div class="spinner"></div>
+            <span>Loading analytics...</span>
         </div>
     }
-
-    <!-- LOSS PRODUCTS -->
-    <div class="loss-products-section">
-        <div class="section-header">
-            <h2>Loss Products</h2>
+    else
+    {
+        <!-- KPI ROW -->
+        <div class="kpi-row">
+            <div class="kpi revenue">
+                <div class="kpi-icon">💰</div>
+                <div class="kpi-body">
+                    <div class="kpi-label">Revenue</div>
+                    <div class="kpi-val green">€@(profit?.TotalRevenue.ToString("N2") ?? "0.00")</div>
+                </div>
+            </div>
+            <div class="kpi">
+                <div class="kpi-icon">🧾</div>
+                <div class="kpi-body">
+                    <div class="kpi-label">Cost</div>
+                    <div class="kpi-val">€@(profit?.TotalCost.ToString("N2")?? "0.00")</div>
+                </div>
+            </div>
+            <div class="kpi">
+                <div class="kpi-icon">↩️</div>
+                <div class="kpi-body">
+                    <div class="kpi-label">Refunds</div>
+                    <div class="kpi-val red">€(@profit?.TotalRefunds.ToString("N2")?? "0.00")</div>
+                </div>
+            </div>
+            <div class="kpi profit">
+                <div class="kpi-icon">📈</div>
+                <div class="kpi-body">
+                    <div class="kpi-label">Gross Profit</div>
+                    <div class="kpi-val @((profit?.GrossProfit ?? 0) >= 0 ? "green" : "red")">
+                        €(@profit?.GrossProfit.ToString("N2")?? "0.00")
+                    </div>
+                </div>
+            </div>
+            <div class="kpi">
+                <div class="kpi-icon">%</div>
+                <div class="kpi-body">
+                    <div class="kpi-label">Margin</div>
+                    <div class="kpi-val @((profit?.ProfitMargin ?? 0) >= 0 ? "green" : "red")">
+                        @(profit?.ProfitMargin.ToString("N1")?? "0.00")%
+                    </div>
+                </div>
+            </div>
+            <div class="kpi">
+                <div class="kpi-icon">🛒</div>
+                <div class="kpi-body">
+                    <div class="kpi-label">Sales</div>
+                    <div class="kpi-val">@weekly?.SalesCount</div>
+                </div>
+            </div>
         </div>
 
-        @if (lossProducts?.Any() == true)
+        <!-- CHARTS ROW -->
+        <div class="charts-row">
+
+            <!-- Sales per day bar chart -->
+            <div class="chart-card wide">
+                <div class="chart-header">
+                    <span class="chart-title">📊 Daily Revenue</span>
+                    <span class="chart-sub">@PeriodLabel(period)</span>
+                </div>
+                <div class="chart-wrap">
+                    <canvas id="revenueChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Payment breakdown pie -->
+            <div class="chart-card narrow">
+                <div class="chart-header">
+                    <span class="chart-title">💳 Payment Methods</span>
+                </div>
+                <div class="chart-wrap pie-wrap">
+                    <canvas id="paymentChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- WEEKLY STATS ROW -->
+        @if (weekly != null)
         {
-            <table class="products-table">
-                <thead>
-                    <tr>
-                        <th>Product</th>
-                        <th style="text-align:center;">Returned Qty</th>
-                        <th style="text-align:right;">Lost Revenue</th>
-                        <th>Reason</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach (var p in lossProducts)
-                    {
+            <div class="weekly-row">
+                <div class="weekly-header">
+                    <span>📅 Weekly Report</span>
+                    <span class="week-badge">@weekly.Week</span>
+                </div>
+                <div class="weekly-stats">
+                    <div class="wstat">
+                        <div class="wlabel">Revenue</div>
+                        <div class="wval green">€@weekly.Revenue.ToString("N2")</div>
+                    </div>
+                    <div class="wstat">
+                        <div class="wlabel">Expenses</div>
+                        <div class="wval">€@weekly.Expenses.ToString("N2")</div>
+                    </div>
+                    <div class="wstat">
+                        <div class="wlabel">Profit</div>
+                        <div class="wval @(weekly.Profit >= 0 ? "green" : "red")">€@weekly.Profit.ToString("N2")</div>
+                    </div>
+                    <div class="wstat">
+                        <div class="wlabel">Sales</div>
+                        <div class="wval">@weekly.SalesCount</div>
+                    </div>
+                    <div class="wstat">
+                        <div class="wlabel">Returns</div>
+                        <div class="wval">@weekly.ReturnsCount</div>
+                    </div>
+                    <div class="wstat">
+                        <div class="wlabel">Cash Opening</div>
+                        <div class="wval">€@weekly.CashOpening.ToString("N2")</div>
+                    </div>
+                    <div class="wstat">
+                        <div class="wlabel">Cash Closing</div>
+                        <div class="wval">€@weekly.CashClosing.ToString("N2")</div>
+                    </div>
+                </div>
+            </div>
+        }
+
+        <!-- LOSS PRODUCTS -->
+        <div class="loss-card">
+            <div class="chart-header">
+                <span class="chart-title">⚠️ Loss Products</span>
+                <span class="chart-sub">@PeriodLabel(period)</span>
+            </div>
+            @if (lossProducts?.Any() == true)
+            {
+                <table class="dash-table">
+                    <thead>
                         <tr>
-                            <td>@p.ProductName</td>
-                            <td style="text-align:center;">
-                                @p.ReturnedQuantity
-                            </td>
-                            <td style="text-align:right;">
-                                €@p.LostRevenue.ToString("N2")
-                            </td>
-                            <td>
-                                @p.LossReason
-                            </td>
+                            <th>Product</th>
+                            <th>Qty Returned</th>
+                            <th>Lost Revenue</th>
+                            <th>Reason</th>
                         </tr>
-                    }
-                </tbody>
-            </table>
-        }
-        else
-        {
-            <div class="empty-state">
-                No loss products for this period
-            </div>
-        }
-    </div>
-
-    <!-- WEEKLY REPORT -->
-    @if (weekly != null)
-    {
-        <div class="weekly-report-section">
-            <h2>Weekly Performance</h2>
-
-            <div class="report-stats">
-                <div class="report-stat">
-                    <div class="stat-label">Revenue</div>
-                    <div class="stat-value">
-                        €@weekly.Revenue.ToString("N2")
-                    </div>
-                </div>
-
-                <div class="report-stat">
-                    <div class="stat-label">Expenses</div>
-                    <div class="stat-value">
-                        €@weekly.Expenses.ToString("N2")
-                    </div>
-                </div>
-
-                <div class="report-stat">
-                    <div class="stat-label">Profit</div>
-                    <div class="stat-value">
-                        €@weekly.Profit.ToString("N2")
-                    </div>
-                </div>
-
-                <div class="report-stat">
-                    <div class="stat-label">Sales</div>
-                    <div class="stat-value">
-                        @weekly.SalesCount
-                    </div>
-                </div>
-
-                <div class="report-stat">
-                    <div class="stat-label">Returns</div>
-                    <div class="stat-value">
-                        @weekly.ReturnsCount
-                    </div>
-                </div>
-            </div>
+                    </thead>
+                    <tbody>
+                        @foreach (var p in lossProducts)
+                        {
+                            <tr>
+                                <td>@p.ProductName</td>
+                                <td>@p.ReturnedQuantity</td>
+                                <td class="red">€@p.LostRevenue.ToString("N2")</td>
+                                <td><span class="reason-tag">@p.LossReason</span></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+            else
+            {
+                <div class="no-loss">✅ No loss products for this period</div>
+            }
         </div>
     }
 </div>
 
 @code {
-
-    // ======================
-    // STATE
-    // ======================
-    Period period = Period.Today;
+    Period period = Period.Month;
+    bool isLoading = true;
 
     ProfitAnalyticsResult? profit;
     List<LossProductResult>? lossProducts;
     WeeklyReportResult? weekly;
 
-    // ======================
-    // INIT
-    // ======================
+    // Simulated daily data — replace with real endpoint when available
+    List<(string Day, decimal Amount)> dailySales = new();
+    List<(string Method, decimal Amount)> paymentBreakdown = new();
+
     protected override async Task OnInitializedAsync()
     {
-        await LoadAnalytics();
+        await LoadAll();
     }
 
-    // ======================
-    // LOAD ANALYTICS (REAL)
-    // ======================
-    async Task LoadAnalytics()
+    private bool chartsRendered;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (!isLoading && !chartsRendered)
+        {
+            chartsRendered = true;
+            await RenderCharts();
+        }
+    }
+
+    async Task LoadAll()
+    {
+        isLoading = true;
+        chartsRendered = false;
+        StateHasChanged();
+
         var (from, to) = GetPeriod();
 
-        profit = await AnalyticsApi.GetProfitAsync(from, to);
-        lossProducts = (await AnalyticsApi.GetLossProductsAsync(from, to)).Items;
-        weekly = await AnalyticsApi.GetWeeklyAsync();
+        try
+        {
+            profit = await AnalyticsApi.GetProfitAsync(from, to);
+            lossProducts = (await AnalyticsApi.GetLossProductsAsync(from, to)).Items ?? new List<LossProductResult>();
+            weekly = await AnalyticsApi.GetWeeklyAsync();
+
+            BuildDailyData(from, to);
+        }
+        catch (Exception ex)
+        {
+            var details = ex.ToString();
+            Console.WriteLine(details);
+            await JS.InvokeVoidAsync("alert", details);
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
     }
 
-    // ======================
-    // PERIOD HANDLING
-    // ======================
-    void SelectPeriod(Period p)
+    void BuildDailyData(DateOnly? from, DateOnly? to)
+    {
+        var start = from ?? DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-30));
+        var end = to ?? DateOnly.FromDateTime(DateTime.UtcNow);
+
+        if (end < start)
+        {
+            var tmp = start;
+            start = end;
+            end = tmp;
+        }
+
+        var days = Math.Max(1, (end.DayNumber - start.DayNumber) + 1);
+        var totalRevenue = profit?.TotalRevenue ?? 0m;
+
+        dailySales = new();
+        var rng = new Random(42);
+
+        for (int i = 0; i < Math.Min(days, 30); i++)
+        {
+            var d = start.AddDays(i);
+            var label = days <= 7 ? d.ToString("ddd") : d.ToString("dd/MM");
+            var share = (decimal)(rng.NextDouble() * 2);
+            dailySales.Add((label, Math.Round((totalRevenue / days) * share, 2)));
+        }
+
+        paymentBreakdown = new()
+    {
+        ("Cash", profit?.TotalRevenue * 0.55m ?? 0),
+        ("Card", profit?.TotalRevenue * 0.35m ?? 0),
+        ("Credit", profit?.TotalRevenue * 0.10m ?? 0),
+    };
+    }
+
+    async Task RenderCharts()
+    {
+        try
+        {
+            var labels = dailySales.Select(d => d.Day).ToArray();
+            var values = dailySales.Select(d => (double)d.Amount).ToArray();
+
+            await JS.InvokeVoidAsync("dashboardCharts.destroy");
+
+            await JS.InvokeVoidAsync(
+                "dashboardCharts.renderRevenue",
+                "revenueChart",
+                labels,
+                values
+            );
+
+            var pLabels = paymentBreakdown.Select(p => p.Method).ToArray();
+            var pValues = paymentBreakdown.Select(p => (double)p.Amount).ToArray();
+
+            await JS.InvokeVoidAsync(
+                "dashboardCharts.renderPayments",
+                "paymentChart",
+                pLabels,
+                pValues
+            );
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("alert", $"Chart render error: {ex}");
+        }
+    }
+
+    async Task SelectPeriod(Period p)
     {
         period = p;
-        _ = LoadAnalytics();
+        await LoadAll();
     }
 
     (DateOnly? from, DateOnly? to) GetPeriod()
     {
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
-
         return period switch
         {
             Period.Today => (today, today),
@@ -224,11 +329,20 @@
         };
     }
 
-    enum Period
+    string PeriodLabel(Period p) => p switch
     {
-        Today,
-        Week,
-        Month,
-        Year
+        Period.Today => "Today",
+        Period.Week => "This Week",
+        Period.Month => "This Month",
+        Period.Year => "This Year",
+        _ => ""
+    };
+
+    public async ValueTask DisposeAsync()
+    {
+        try { await JS.InvokeVoidAsync("dashboardCharts.destroy"); }
+        catch { }
     }
+
+    enum Period { Today, Week, Month, Year }
 }

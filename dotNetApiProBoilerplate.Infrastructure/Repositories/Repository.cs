@@ -82,7 +82,7 @@ namespace Inventory.Infrastructure.Repositories
 
         public IQueryable<T> Query()
         {
-            return _context.Set<T>().AsQueryable();
+            return _context.Set<T>().AsNoTracking().AsQueryable();
         }
     }
 }

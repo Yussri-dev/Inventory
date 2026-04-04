@@ -1364,6 +1364,18 @@
         border: 1px solid #bee5eb;
     }
 
+.adjustment-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+}
+
+.adjustment {
+    font-size: 13px;
+}
+
+
 /* Animation pour l'apparition des éléments */
 @keyframes slideIn {
     from {
@@ -1461,4 +1473,232 @@ tr.overstock {
 
 .stock-available {
     font-weight: normal;
+}
+
+.btn.danger {
+    background: #dc3545;
+    color: white;
+    border: none;
+}
+
+.pending-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.18);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    z-index: 2000;
+    animation: pendingFadeIn 0.2s ease;
+}
+
+.pending-modal {
+    width: 100%;
+    max-width: 700px;
+    max-height: 85vh;
+    overflow: hidden;
+    border-radius: 24px;
+    background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+    border: 1px solid rgba(148, 163, 184, 0.22);
+    box-shadow: 0 24px 60px rgba(15, 23, 42, 0.16);
+    color: #0f172a;
+    display: flex;
+    flex-direction: column;
+    animation: pendingSlideUp 0.25s ease;
+}
+
+.pending-modal-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 22px 24px 18px;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+    background: rgba(255, 255, 255, 0.85);
+}
+
+    .pending-modal-header h3 {
+        margin: 0;
+        font-size: 24px;
+        font-weight: 700;
+        color: #0f172a;
+    }
+
+    .pending-modal-header p {
+        margin: 6px 0 0;
+        font-size: 14px;
+        color: #64748b;
+    }
+
+.pending-close-btn {
+    width: 40px;
+    height: 40px;
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    border-radius: 12px;
+    background: #ffffff;
+    color: #334155;
+    font-size: 24px;
+    line-height: 1;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+    .pending-close-btn:hover {
+        background: #fee2e2;
+        color: #dc2626;
+        border-color: #fecaca;
+        transform: scale(1.05);
+    }
+
+.pending-modal-body {
+    padding: 20px 24px;
+    overflow-y: auto;
+    flex: 1;
+}
+
+.pending-ticket-list {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.pending-ticket-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 18px 20px;
+    border-radius: 18px;
+    background: linear-gradient(135deg, #ffffff, #f8fafc);
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    cursor: pointer;
+    transition: all 0.22s ease;
+}
+
+    .pending-ticket-card:hover {
+        transform: translateY(-2px);
+        border-color: rgba(59, 130, 246, 0.35);
+        box-shadow: 0 12px 28px rgba(59, 130, 246, 0.12);
+        background: linear-gradient(135deg, #eff6ff, #ffffff);
+    }
+
+.pending-ticket-left,
+.pending-ticket-right {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.pending-ticket-right {
+    text-align: right;
+}
+
+.pending-ticket-label {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #64748b;
+    font-weight: 600;
+}
+
+.pending-ticket-number {
+    font-size: 18px;
+    font-weight: 700;
+    color: #0f172a;
+}
+
+.pending-ticket-total {
+    font-size: 20px;
+    font-weight: 800;
+    color: #2563eb;
+}
+
+.pending-empty {
+    min-height: 180px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px dashed rgba(148, 163, 184, 0.35);
+    border-radius: 18px;
+    color: #64748b;
+    font-size: 15px;
+    background: #f8fafc;
+}
+
+.pending-modal-footer {
+    padding: 18px 24px 22px;
+    border-top: 1px solid rgba(148, 163, 184, 0.18);
+    display: flex;
+    justify-content: flex-end;
+    background: rgba(255, 255, 255, 0.85);
+}
+
+.pending-footer-btn {
+    min-width: 120px;
+    border: 1px solid rgba(148, 163, 184, 0.22);
+    border-radius: 14px;
+    padding: 12px 18px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    color: #334155;
+    background: linear-gradient(135deg, #ffffff, #f1f5f9);
+    transition: all 0.2s ease;
+}
+
+    .pending-footer-btn:hover {
+        background: linear-gradient(135deg, #f8fafc, #e2e8f0);
+        transform: translateY(-1px);
+    }
+
+@keyframes pendingFadeIn {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes pendingSlideUp {
+    from {
+        opacity: 0;
+        transform: translateY(18px) scale(0.98);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+@media (max-width: 640px) {
+    .pending-modal {
+        max-width: 100%;
+        border-radius: 18px;
+    }
+
+    .pending-modal-header,
+    .pending-modal-body,
+    .pending-modal-footer {
+        padding-left: 16px;
+        padding-right: 16px;
+    }
+
+    .pending-ticket-card {
+        padding: 14px 16px;
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .pending-ticket-right {
+        text-align: left;
+    }
+
+    .pending-ticket-total {
+        font-size: 18px;
+    }
 }

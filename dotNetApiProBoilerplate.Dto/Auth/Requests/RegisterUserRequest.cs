@@ -14,15 +14,13 @@ namespace Inventory.Dto.Auth.Requests
         public string Password { get; set; } = null!;
 
         [Required(ErrorMessage = "Full name is required")]
-        [MaxLength(200, ErrorMessage = "Full name cannot exceed 200 characters")]
+        [MaxLength(200)]
         public string FullName { get; set; } = null!;
-
-        [Required(ErrorMessage = "Tenant ID is required")]
-        public Guid TenantId { get; set; }
 
         [Required(ErrorMessage = "User role is required")]
         public UserRole Role { get; set; }
 
+        public Guid TenantId { get; set; }
         public Guid CreatedByUserId { get; set; }
     }
 

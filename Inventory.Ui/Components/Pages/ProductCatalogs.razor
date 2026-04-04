@@ -1,5 +1,6 @@
 ﻿@page "/productCatalogs"
 @inject IProductCatalogApi Api
+@using Inventory.Dto.Enums
 
 <h3>Product Catalogs</h3>
 <div class="page-container">
@@ -29,6 +30,7 @@
                     <div class="form-field">
                         <label>Name *</label>
                         <InputText placeholder="Product name"
+                                   class="inputText"
                                    @bind-Value="form.Name"
                                    disabled="@isLoading" />
                         <ValidationMessage For="@(() => form.Name)" />
@@ -36,6 +38,7 @@
                     <div class="form-field">
                         <label>Barcode *</label>
                         <InputText placeholder="Barcode"
+                                   class="inputText"
                                    @bind-Value="form.Barcode"
                                    disabled="@isLoading" />
                         <ValidationMessage For="@(() => form.Barcode)" />
@@ -45,6 +48,7 @@
                     <div class="form-field">
                         <label>Brand</label>
                         <InputText placeholder="Brand (optional)"
+                                   class="inputText"
                                    @bind-Value="form.Brand"
                                    disabled="@isLoading" />
                         <ValidationMessage For="@(() => form.Brand)" />
@@ -52,14 +56,29 @@
                     <div class="form-field">
                         <label>Manufacturer</label>
                         <InputText placeholder="Manufacturer (optional)"
+                                   class="inputText"
                                    @bind-Value="form.Manufacturer"
                                    disabled="@isLoading" />
                         <ValidationMessage For="@(() => form.Manufacturer)" />
                     </div>
                 </div>
+                <div class="form-row">
+                    <div class="form-field">
+                        <label>Unit of Measure</label>
+                        <InputSelect @bind-Value="form.UnitOfMeasure"
+                                     class="inputText"
+                                     disabled="@isLoading">
+                            <option value="@UnitOfMeasure.pcs">Pieces</option>
+                            <option value="@UnitOfMeasure.l">Litre</option>
+                            <option value="@UnitOfMeasure.m">metre</option>
+                        </InputSelect>
+                        <ValidationMessage For="@(() => form.UnitOfMeasure)" />
+                    </div>
+                </div>
                 <div class="form-field">
                     <label>Description</label>
                     <InputTextArea placeholder="Product description (optional)"
+                                   class="inputText"
                                    rows="3"
                                    @bind-Value="form.Description"
                                    disabled="@isLoading" />
@@ -118,6 +137,23 @@
     }
     else
     {
+
+        <div class="pager">
+            <button class="btn ghost" disabled="@(Page == 1)"
+                    @onclick="() => ChangePage(Page - 1)">
+                Prev
+            </button>
+
+            <span class="muted">
+                Page @Page / @(Math.Ceiling((double)TotalCount / PageSize))
+            </span>
+
+            <button class="btn ghost"
+                    disabled="@(Page* PageSize >= TotalCount)"
+                    @onclick="() => ChangePage(Page + 1)">
+                Next
+            </button>
+        </div>
         <div class="results-header">
             <span>@items.Count product(s) found</span>
             @if (isSearching)
@@ -133,6 +169,7 @@
                     <th>Barcode</th>
                     <th>Brand</th>
                     <th>Manufacturer</th>
+                    <th>Unit</th>
                     <th style="width:160px"></th>
                 </tr>
             </thead>
@@ -150,6 +187,7 @@
                         <td><code>@p.Barcode</code></td>
                         <td>@(p.Brand ?? "-")</td>
                         <td>@(p.Manufacturer ?? "-")</td>
+                        <td>@(p.UnitOfMeasure ?? "-")</td>
                         <td class="actions-end">
                             <button class="btn small ghost"
                                     @onclick="() => StartEdit(p)"
@@ -199,8 +237,13 @@
     private string searchTerm = string.Empty;
     private bool isSearching;
 
+    int Page = 1;
+    int PageSize = 10;
+    int TotalCount;
+
     protected override async Task OnInitializedAsync()
     {
+        Page = 1;
         await LoadData();
     }
 
@@ -210,8 +253,20 @@
         {
             isLoadingData = true;
             errorMessage = null;
-            items = await Api.GetAll();
-            isSearching = false;
+            // items = await Api.GetAll();
+            // isSearching = false;
+
+            var query = new ProductCatalogQuery
+            {
+                Page = Page,
+                PageSize = PageSize,
+                Search = isSearching ? searchTerm : null
+            };
+
+            var response = await Api.Search(query);
+
+            items = response.Items?.ToList() ?? new List<ProductCatalogResult>();
+            TotalCount = response.TotalCount;
         }
         catch (Exception ex)
         {
@@ -224,48 +279,69 @@
         }
     }
 
+
     private async Task Search()
     {
         if (string.IsNullOrWhiteSpace(searchTerm))
         {
+            isSearching = false;
+            Page = 1;
             await LoadData();
             return;
         }
 
-        try
-        {
-            isLoadingData = true;
-            errorMessage = null;
-
-            var query = new ProductCatalogQuery
-            {
-                Search = searchTerm
-            };
-
-            var response = await Api.Search(query);
-
-            if (!response.IsSuccessStatusCode || response.Content is null)
-            {
-                items = new List<ProductCatalogResult>();
-                errorMessage = $"Search failed ({response.StatusCode})";
-                return;
-            }
-
-            items = response.Content.Items?.ToList()
-                    ?? new List<ProductCatalogResult>();
-
-            isSearching = true;
-        }
-        catch (Exception ex)
-        {
-            errorMessage = $"Search failed: {ex.Message}";
-            items = new List<ProductCatalogResult>();
-        }
-        finally
-        {
-            isLoadingData = false;
-        }
+        isSearching = true;
+        Page = 1;
+        await LoadData();
     }
+
+    async Task ChangePage(int newPage)
+    {
+        Page = newPage;
+        await LoadData();
+    }
+    // private async Task Search()
+    // {
+    //     if (string.IsNullOrWhiteSpace(searchTerm))
+    //     {
+    //         await LoadData();
+    //         return;
+    //     }
+
+    //     try
+    //     {
+    //         isLoadingData = true;
+    //         errorMessage = null;
+
+    //         var query = new ProductCatalogQuery
+    //         {
+    //             Search = searchTerm
+    //         };
+
+    //         var response = await Api.Search(query);
+
+    //         if (!response.IsSuccessStatusCode || response.Content is null)
+    //         {
+    //             items = new List<ProductCatalogResult>();
+    //             errorMessage = $"Search failed ({response.StatusCode})";
+    //             return;
+    //         }
+
+    //         items = response.Content.Items?.ToList()
+    //                 ?? new List<ProductCatalogResult>();
+
+    //         isSearching = true;
+    //     }
+    //     catch (Exception ex)
+    //     {
+    //         errorMessage = $"Search failed: {ex.Message}";
+    //         items = new List<ProductCatalogResult>();
+    //     }
+    //     finally
+    //     {
+    //         isLoadingData = false;
+    //     }
+    // }
 
 
     private async Task OnSearchKeyUp(KeyboardEventArgs e)
@@ -308,6 +384,7 @@
                 Brand = form.Brand,
                 Manufacturer = form.Manufacturer,
                 Description = form.Description,
+                UnitOfMeasure = form.UnitOfMeasure,
                 CreatedAt = DateTime.UtcNow
             };
 
@@ -352,7 +429,8 @@
                 Brand = form.Brand,
                 Manufacturer = form.Manufacturer,
                 Description = form.Description,
-                ModifiedAt = DateTime.UtcNow
+                ModifiedAt = DateTime.UtcNow,
+                UnitOfMeasure = form.UnitOfMeasure
             };
 
             await Api.Update(editingId.Value, request);
@@ -436,6 +514,7 @@
         form.Brand = p.Brand;
         form.Manufacturer = p.Manufacturer;
         form.Description = p.Description;
+        form.UnitOfMeasure = p.UnitOfMeasure;
         ClearMessages();
     }
 
@@ -484,5 +563,9 @@
 
         [StringLength(1000, ErrorMessage = "Description cannot exceed 1000 characters")]
         public string? Description { get; set; }
+
+        [StringLength(10, ErrorMessage = "Unit of Measure cannot exceed 10 characaters")]
+        public string UnitOfMeasure { get; set; } = "Pcs";
+
     }
 }

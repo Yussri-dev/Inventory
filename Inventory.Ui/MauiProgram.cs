@@ -57,7 +57,7 @@ public static class MauiProgram
         // =========================
         // SECURED APIs (JWT + REFRESH)
         // =========================
-        builder.Services.AddSecuredApi<IAuthApi>(apiBaseUrl);
+        builder.Services.AddSecuredApi<IAuthApi>(apiBaseUrl, withRefresh: false);
         builder.Services.AddSecuredApi<ICashSessionApi>(apiBaseUrl);
 
         builder.Services.AddSecuredApi<IProductApi>(apiBaseUrl);

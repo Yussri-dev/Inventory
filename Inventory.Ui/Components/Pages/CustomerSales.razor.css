@@ -1,0 +1,351 @@
+﻿/* ============================================================
+   CustomerSales.razor.css  —  scoped styles
+   Uses global variables from app.css:
+   --bg, --panel, --border, --text, --muted, --primary,
+   --danger, --success
+   ============================================================ */
+
+/* ── Layout ─────────────────────────────────────────────── */
+.sale-container {
+    display: flex;
+    gap: 16px;
+    height: calc(100vh - 60px);
+    padding: 16px;
+    overflow: hidden;
+    box-sizing: border-box;
+}
+
+.sale-left {
+    flex: 1.6;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    overflow: hidden;
+}
+
+.sale-right {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--primary) var(--panel);
+}
+
+/* ── Header section ─────────────────────────────────────── */
+.header-section {
+    margin-bottom: 0 !important;
+    padding: 16px 20px !important;
+}
+
+.sale-info {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.title {
+    font-size: 18px;
+    color: var(--text);
+    margin-right: 10px;
+}
+
+/* ── Sales table card ───────────────────────────────────── */
+.cart-table {
+    flex: 1;
+    overflow-y: auto;
+    margin-bottom: 0 !important;
+    padding: 0 !important;
+    scrollbar-width: thin;
+    scrollbar-color: var(--primary) var(--panel);
+}
+
+    .cart-table .table {
+        border-radius: 0;
+        border: none;
+    }
+
+/* ── Status badges ──────────────────────────────────────── */
+.status-badge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+}
+
+.status-paid {
+    background: rgba(34, 197, 94, 0.15);
+    color: #86efac;
+    border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+.status-pending {
+    background: rgba(234, 179, 8, 0.15);
+    color: #fde047;
+    border: 1px solid rgba(234, 179, 8, 0.3);
+}
+
+.status-partial {
+    background: rgba(249, 115, 22, 0.15);
+    color: #fdba74;
+    border: 1px solid rgba(249, 115, 22, 0.3);
+}
+
+/* ── Text alignment ─────────────────────────────────────── */
+.text-right {
+    text-align: right;
+}
+
+/* ── Totals row ─────────────────────────────────────────── */
+.totals-row {
+    display: flex;
+    gap: 8px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px 16px;
+}
+
+.total-item {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+}
+
+.total-label {
+    font-size: 11px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.total-value {
+    font-size: 16px;
+    color: var(--text);
+}
+
+    .total-value.primary {
+        color: var(--primary);
+    }
+
+/* ── Actions footer ─────────────────────────────────────── */
+.actions-footer {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 0 4px 0;
+}
+
+    .actions-footer span {
+        flex: 1;
+        text-align: center;
+        font-size: 13px;
+        color: var(--muted);
+    }
+
+    /* Override global .btn classes to match Sales.razor style */
+    .actions-footer .btn,
+    .sale-right .btn {
+        padding: 8px 16px;
+        border-radius: 8px;
+        border: none;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s;
+        font-size: 13px;
+    }
+
+.btn-primary {
+    background: var(--primary);
+    color: white;
+}
+
+    .btn-primary:hover:not(:disabled) {
+        background: #4338ca;
+    }
+
+.btn-secondary {
+    background: transparent;
+    border: 1px solid var(--border) !important;
+    color: var(--text);
+}
+
+    .btn-secondary:hover:not(:disabled) {
+        background: rgba(255, 255, 255, 0.05);
+    }
+
+/* ── Right column: search section ──────────────────────── */
+.search-section {
+    margin-bottom: 0 !important;
+    padding: 14px 16px !important;
+}
+
+.search-box {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.search-input {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 36px 10px 12px;
+    color: var(--text);
+    font-size: 14px;
+    transition: border-color 0.2s;
+    font-family: inherit;
+    box-sizing: border-box;
+}
+
+    .search-input:focus {
+        outline: none;
+        border-color: var(--primary);
+        box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
+    }
+
+    .search-input::placeholder {
+        color: var(--muted);
+    }
+
+    .search-input:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+.search-icon {
+    position: absolute;
+    right: 10px;
+    font-size: 14px;
+    pointer-events: none;
+    color: var(--muted);
+}
+
+/* ── Right column: customer list ────────────────────────── */
+.product-list-container {
+    flex: 1;
+    overflow-y: auto;
+    margin-bottom: 0 !important;
+    padding: 0 !important;
+    scrollbar-width: thin;
+    scrollbar-color: var(--primary) var(--panel);
+}
+
+.product-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.product-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+    .product-item:last-child {
+        border-bottom: none;
+    }
+
+    .product-item:hover {
+        background: rgba(79, 70, 229, 0.08);
+    }
+
+    .product-item strong {
+        color: var(--text);
+        font-size: 14px;
+    }
+
+    .product-item .muted {
+        font-size: 12px;
+        color: var(--muted);
+    }
+
+    .product-item .price {
+        font-size: 12px;
+        color: var(--muted);
+    }
+
+/* Selected customer highlight */
+.selected-customer {
+    background: rgba(79, 70, 229, 0.12) !important;
+    border-left: 3px solid var(--primary);
+}
+
+.stock-indicator {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+    margin-top: 2px;
+    align-self: flex-start;
+}
+
+    .stock-indicator.in {
+        background: rgba(34, 197, 94, 0.15);
+        color: #86efac;
+        border: 1px solid rgba(34, 197, 94, 0.3);
+    }
+
+/* ── Right column: summary card ─────────────────────────── */
+.numpad-container {
+    margin-bottom: 0 !important;
+    min-height: 120px;
+}
+
+/* ── Empty & loading states ─────────────────────────────── */
+.empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 20px;
+    text-align: center;
+    gap: 6px;
+}
+
+    .empty-state p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 14px;
+    }
+
+.loading-state {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 20px;
+    color: var(--muted);
+    font-size: 14px;
+}
+
+/* ── Responsive ─────────────────────────────────────────── */
+@media (max-width: 900px) {
+    .sale-container {
+        flex-direction: column;
+        height: auto;
+        overflow: auto;
+    }
+
+    .sale-left,
+    .sale-right {
+        flex: unset;
+        width: 100%;
+    }
+
+    .cart-table {
+        max-height: 40vh;
+    }
+}

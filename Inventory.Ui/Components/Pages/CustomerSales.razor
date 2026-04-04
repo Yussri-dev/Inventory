@@ -1,0 +1,434 @@
+﻿@page "/customersales"
+@using Inventory.Dto.Sales.Results
+@using Inventory.Dto.Queries
+@using Microsoft.Extensions.Logging
+@inject ISaleApi SaleApi
+@inject ICustomerApi CustomerApi
+@inject ILogger<CustomerSales> Logger
+
+<div class="sale-container">
+
+    @* ── LEFT COLUMN ── *@
+    <div class="sale-left">
+
+        @* Header *@
+        <div class="card header-section">
+            <div class="sale-info">
+                <div>
+                    <strong class="title">Sales by Customer</strong>
+                    @if (selectedCustomer != null)
+                    {
+                        <span class="muted">@selectedCustomer.Name — @totalCount result(s)</span>
+                    }
+                </div>
+            </div>
+        </div>
+
+        @* Alert messages *@
+        @if (!string.IsNullOrWhiteSpace(errorMessage))
+        {
+            <div class="alert error" style="margin: 0.5rem 0;">
+                <span>@errorMessage</span>
+                <button @onclick="ClearError">×</button>
+            </div>
+        }
+        @if (!string.IsNullOrWhiteSpace(successMessage))
+        {
+            <div class="alert success" style="margin: 0.5rem 0;">
+                <span>@successMessage</span>
+                <button @onclick="ClearSuccess">×</button>
+            </div>
+        }
+
+        @* Sales Table *@
+        <div class="card cart-table">
+            @if (selectedCustomer == null)
+            {
+                <div class="empty-state">
+                    <p>No customer selected</p>
+                    <p class="muted">Search and select a customer on the right to view their sales</p>
+                </div>
+            }
+            else if (isLoadingData)
+            {
+                <div class="loading-state">Loading sales...</div>
+            }
+            else if (sales == null || !sales.Any())
+            {
+                <div class="empty-state">
+                    <p>No sales found</p>
+                    <p class="muted">This customer has no recorded sales yet</p>
+                </div>
+            }
+            else
+            {
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>Invoice #</th>
+                            <th>Date</th>
+                            <th style="width: 120px;">Total</th>
+                            <th style="width: 120px;">Paid</th>
+                            <th style="width: 120px;">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var sale in sales)
+                        {
+                            <tr>
+                                <td><strong>@sale.InvoiceNumber</strong></td>
+                                <td>@sale.SaleDate.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</td>
+                                <td class="text-right">€@sale.TotalAmount.ToString("F2")</td>
+                                <td class="text-right">€@sale.PaidAmount.ToString("F2")</td>
+                                <td>
+                                    <span class="status-badge @GetStatusClass(sale.PaymentStatus.ToString())">
+                                        @sale.PaymentStatus
+                                    </span>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        </div>
+
+        @* Totals Row *@
+        <div class="totals-row">
+            <div class="total-item">
+                <span class="total-label">Customer</span>
+                <strong class="total-value primary">@(selectedCustomer?.Name ?? "—")</strong>
+            </div>
+            <div class="total-item">
+                <span class="total-label">Total Sales</span>
+                <strong class="total-value primary">@totalCount</strong>
+            </div>
+            <div class="total-item">
+                <span class="total-label">Page</span>
+                <strong class="total-value primary">@currentPage / @TotalPages</strong>
+            </div>
+        </div>
+
+        @* Pagination Footer *@
+        <div class="actions-footer">
+            <button class="btn btn-secondary"
+                    disabled="@(currentPage <= 1 || isLoadingData)"
+                    @onclick="PreviousPage">
+                ‹ Prev
+            </button>
+            <span style="line-height: 36px; color: var(--muted);">
+                Page @currentPage of @(TotalPages == 0 ? 1 : TotalPages)
+            </span>
+            <button class="btn btn-secondary"
+                    disabled="@(currentPage >= TotalPages || isLoadingData)"
+                    @onclick="NextPage">
+                Next ›
+            </button>
+            <button class="btn btn-secondary" @onclick="ClearAll">
+                Clear
+            </button>
+        </div>
+    </div>
+
+    @* ── RIGHT COLUMN ── *@
+    <div class="sale-right">
+
+        @* Customer Search *@
+        <div class="card search-section">
+            <div class="search-box">
+                <input type="text"
+                       class="search-input"
+                       placeholder="Search customers by name, phone or email..."
+                       @bind="customerSearchTerm"
+                       @bind:event="oninput"
+                       @onkeyup="OnCustomerSearchKeyUp"
+                       disabled="@isLoading"
+                       autofocus />
+                <span class="search-icon">🔍</span>
+            </div>
+            <div style="display:flex; gap: 0.5rem; margin-top: 0.5rem;">
+                <button class="btn btn-primary" @onclick="SearchCustomers" disabled="@isLoading" style="flex:1;">
+                    @(isLoading ? "Searching..." : "Search Customer")
+                </button>
+                <button class="btn btn-secondary" @onclick="ClearCustomerSearch" disabled="@isLoading">
+                    Clear
+                </button>
+            </div>
+        </div>
+
+        @* Customer Results *@
+        <div class="card product-list-container">
+            @if (isLoading)
+            {
+                <div class="loading-state">Searching...</div>
+            }
+            else if (customerResults == null)
+            {
+                <div class="empty-state">
+                    <p>Search for a customer above</p>
+                </div>
+            }
+            else if (!customerResults.Any())
+            {
+                <div class="empty-state">
+                    <p>No customers found</p>
+                </div>
+            }
+            else
+            {
+                <ul class="product-list">
+                    @foreach (var customer in customerResults)
+                    {
+                        <li class="product-item @(selectedCustomer?.Id == customer.Id ? "selected-customer" : "")"
+                            @onclick="() => SelectCustomer(customer)">
+                            <strong>@customer.Name</strong>
+                            @if (!string.IsNullOrEmpty(customer.Phone))
+                            {
+                                <span class="muted">📞 @customer.Phone</span>
+                            }
+                            @if (!string.IsNullOrEmpty(customer.Email))
+                            {
+                                <span class="muted price">✉ @customer.Email</span>
+                            }
+                            @if (selectedCustomer?.Id == customer.Id)
+                            {
+                                <span class="stock-indicator in">Selected</span>
+                            }
+                        </li>
+                    }
+                </ul>
+            }
+        </div>
+
+        @* Invoice Search (shown once a customer is selected) *@
+        @if (selectedCustomer != null)
+        {
+            <div class="card search-section">
+                <div class="search-box">
+                    <input type="text"
+                           class="search-input"
+                           placeholder="Filter by invoice number..."
+                           @bind="saleSearchTerm"
+                           @bind:event="oninput"
+                           @onkeyup="OnSaleSearchKeyUp"
+                           disabled="@isLoadingData" />
+                    <span class="search-icon">🔍</span>
+                </div>
+                <div style="display:flex; gap: 0.5rem; margin-top: 0.5rem;">
+                    <button class="btn btn-primary" @onclick="SearchSales" disabled="@isLoadingData" style="flex:1;">
+                        Filter
+                    </button>
+                    <button class="btn btn-secondary" @onclick="ClearSaleSearch" disabled="@isLoadingData">
+                        Clear
+                    </button>
+                </div>
+            </div>
+        }
+
+        @* Numpad placeholder — keeps right column height consistent *@
+        <div class="card numpad-container" style="flex:1; display:flex; align-items:center; justify-content:center;">
+            @if (selectedCustomer != null && sales != null && sales.Any())
+            {
+                <div style="text-align:center; color: var(--muted);">
+                    <div style="font-size: 2rem;">📋</div>
+                    <div>@sales.Count sale(s) on this page</div>
+                    <div style="margin-top: 0.25rem;">@totalCount total</div>
+                </div>
+            }
+            else
+            {
+                <div style="text-align:center; color: var(--muted);">
+                    <div style="font-size: 2rem;">👤</div>
+                    <div>Select a customer</div>
+                    <div style="margin-top: 0.25rem;">to view their sales history</div>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    // ── Messages ──────────────────────────────────────────────────────────────
+    private string? errorMessage;
+    private string? successMessage;
+
+    // ── Loading state ─────────────────────────────────────────────────────────
+    private bool isLoading;
+    private bool isLoadingData;
+
+    // ── Customer search ───────────────────────────────────────────────────────
+    private string customerSearchTerm = string.Empty;
+    private List<CustomerResult>? customerResults;
+    private CustomerResult? selectedCustomer;
+
+    // ── Sales list ────────────────────────────────────────────────────────────
+    private string saleSearchTerm = string.Empty;
+    private bool isSaleSearching;
+    private List<SaleResult>? sales;
+    private int currentPage = 1;
+    private int pageSize = 25;
+    private int totalCount;
+    private int TotalPages => (int)Math.Ceiling((double)totalCount / pageSize);
+
+    // =========================================================================
+    // LIFECYCLE
+    // =========================================================================
+    protected override Task OnInitializedAsync() => Task.CompletedTask;
+
+    // =========================================================================
+    // CUSTOMER SEARCH
+    // =========================================================================
+    private async Task OnCustomerSearchKeyUp(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await SearchCustomers();
+    }
+
+    private async Task SearchCustomers()
+    {
+        if (string.IsNullOrWhiteSpace(customerSearchTerm)) return;
+
+        try
+        {
+            isLoading = true;
+            errorMessage = null;
+
+            var query = new CustomerQuery
+            {
+                Search = customerSearchTerm.Trim(),
+                Page = 1,
+                PageSize = 20
+            };
+
+            var response = await CustomerApi.Search(query);
+            customerResults = response.Items?.ToList();
+            selectedCustomer = null;
+            sales = null;
+            totalCount = 0;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Error searching customers: {ex.Message}";
+            Logger.LogError(ex, "Error searching customers");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void ClearCustomerSearch()
+    {
+        customerSearchTerm = string.Empty;
+        customerResults = null;
+        selectedCustomer = null;
+        sales = null;
+        totalCount = 0;
+        errorMessage = null;
+    }
+
+    private async Task SelectCustomer(CustomerResult customer)
+    {
+        if (customer.Id == Guid.Empty)
+        {
+            errorMessage = "Walk-in customers have no sales history.";
+            return;
+        }
+
+        selectedCustomer = customer;
+        saleSearchTerm = string.Empty;
+        isSaleSearching = false;
+        currentPage = 1;
+        await LoadSales();
+    }
+
+    // =========================================================================
+    // SALE SEARCH
+    // =========================================================================
+    private async Task OnSaleSearchKeyUp(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await SearchSales();
+    }
+
+    private async Task SearchSales()
+    {
+        isSaleSearching = true;
+        currentPage = 1;
+        await LoadSales();
+    }
+
+    private async Task ClearSaleSearch()
+    {
+        saleSearchTerm = string.Empty;
+        isSaleSearching = false;
+        currentPage = 1;
+        await LoadSales();
+    }
+
+    // =========================================================================
+    // LOAD SALES
+    // =========================================================================
+    private async Task LoadSales()
+    {
+        if (selectedCustomer == null) return;
+
+        try
+        {
+            isLoadingData = true;
+            errorMessage = null;
+
+            var query = new CustomerSaleQuery
+            {
+                Page = currentPage,
+                PageSize = pageSize,
+                Search = isSaleSearching ? saleSearchTerm.Trim() : null
+            };
+
+            var response = await SaleApi.GetByCustomer(selectedCustomer.Id, query);
+            sales = response.Items?.ToList();
+            totalCount = response.TotalCount;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Error loading sales: {ex.Message}";
+            Logger.LogError(ex, "Error loading sales for customer {CustomerId}", selectedCustomer.Id);
+        }
+        finally
+        {
+            isLoadingData = false;
+        }
+    }
+
+    // =========================================================================
+    // PAGINATION
+    // =========================================================================
+    private async Task PreviousPage()
+    {
+        if (currentPage > 1) { currentPage--; await LoadSales(); }  
+    }
+
+    private async Task NextPage()
+    {
+        if (currentPage < TotalPages) { currentPage++; await LoadSales(); }
+    }
+
+    // =========================================================================
+    // CLEAR ALL
+    // =========================================================================
+    private void ClearAll()
+    {
+        ClearCustomerSearch();
+    }
+
+    // =========================================================================
+    // HELPERS
+    // =========================================================================
+    private string GetStatusClass(string? status) => status?.ToLower() switch
+    {
+        "paid" => "status-paid",
+        "pending" => "status-pending",
+        "partial" => "status-partial",
+        _ => ""
+    };
+
+    private void ClearError() => errorMessage = null;
+    private void ClearSuccess() => successMessage = null;
+}

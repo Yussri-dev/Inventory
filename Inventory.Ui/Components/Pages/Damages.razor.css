@@ -54,22 +54,26 @@ h3 {
     border-bottom: 2px solid var(--border);
 }
 
-/* ===============================
-   CARD
-   =============================== */
+/* Card Styles */
 .card {
-    background: linear-gradient(180deg, #111827, #0b111a);
+    background: var(--panel);
     border: 1px solid var(--border);
     border-radius: 16px;
     padding: 24px;
     margin-bottom: 24px;
-    box-shadow: 0 6px 24px rgba(0,0,0,.45);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+    transition: box-shadow 0.3s;
 }
 
+    .card:hover {
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+    }
+
     .card h4 {
-        font-size: 20px;
+        margin: 0 0 20px 0;
+        color: var(--text);
         font-weight: 600;
-        margin-bottom: 20px;
+        font-size: 20px;
         display: flex;
         align-items: center;
         gap: 10px;
@@ -78,10 +82,11 @@ h3 {
         .card h4::before {
             content: "";
             width: 4px;
-            height: 22px;
+            height: 24px;
             background: linear-gradient(180deg, var(--primary), #6366f1);
             border-radius: 2px;
         }
+
 
 /* ===============================
    FORM
@@ -230,40 +235,52 @@ textarea {
     cursor: not-allowed;
 }
 
-/* ===============================
-   TABLE – DAMAGES LIST (FIXED)
-   =============================== */
+/* Table Styles */
 .table {
     width: 100%;
     border-collapse: collapse;
     background: var(--panel);
-    border-radius: 16px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
     overflow: hidden;
 }
 
-    /* Header */
     .table thead {
-        background: linear-gradient( 135deg, rgba(79,70,229,.35), rgba(79,70,229,.18) );
+        background: rgba(79, 70, 229, 0.1);
     }
 
     .table th {
-        padding: 14px 18px;
+        padding: 12px 16px;
         text-align: left;
-        font-size: 12px;
-        font-weight: 700;
-        letter-spacing: .6px;
-        text-transform: uppercase;
-        color: #e5e7eb;
-        border-bottom: 1px solid rgba(255,255,255,.25);
+        font-weight: 600;
+        color: var(--text);
+        border-bottom: 1px solid var(--border);
+        font-size: 13px;
     }
 
-    /* Rows */
     .table td {
-        padding: 14px 18px;
+        padding: 12px 16px;
+        color: var(--text);
+        border-bottom: 1px solid var(--border);
         font-size: 14px;
-        color: #e5e7eb;
-        border-bottom: 1px solid rgba(255,255,255,.08);
     }
+
+        .table td code {
+            background: var(--bg);
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 13px;
+            color: var(--primary);
+        }
+
+    .table tbody tr:last-child td {
+        border-bottom: none;
+    }
+
+    .table tbody tr:hover {
+        background: rgba(255, 255, 255, 0.02);
+    }
+
 
     .table tbody tr {
         background: rgba(17,24,39,.65);

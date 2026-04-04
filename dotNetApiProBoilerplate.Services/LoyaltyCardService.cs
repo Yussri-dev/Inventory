@@ -42,8 +42,9 @@ namespace Inventory.Services
                 !c.IsDeleted);
 
             if (exists)
-                throw new ConflictException(
-                    $"Loyalty card '{request.CardNumber}' already exists.");
+            {
+                throw new ConflictException($"Loyalty card '{request.CardNumber}' already exists.");
+            }
 
             var entity = _mapper.Map<LoyaltyCard>(request);
 

@@ -6,6 +6,7 @@
 @using Inventory.Dto.Products.Results
 @using Inventory.Dto.ProductCatalogs.Results
 @using Inventory.Dto.Queries
+@inject IJSRuntime JS
 @inject IProductApi ProductApi
 @inject IProductCatalogApi CatalogApi
 
@@ -38,7 +39,9 @@
                 <!-- PRODUCT CATALOG SELECTION (MANDATORY) -->
                 <div class="form-field">
                     <label>Product Catalog *</label>
-                    <InputSelect @bind-Value="form.CatalogProductId" disabled="@(isLoading || editingId != null)">
+                    <InputSelect @bind-Value="form.CatalogProductId"
+                                 class="inputText"
+                                 disabled="@(isLoading || editingId != null)">
                         <option value="@Guid.Empty">-- Select a product from catalog --</option>
                         @foreach (var catalog in catalogProducts)
                         {
@@ -71,6 +74,7 @@
                     <div class="form-field">
                         <label>Sale Price *</label>
                         <InputNumber placeholder="0.00"
+                                     class="inputText"
                                      @bind-Value="form.SalePrice"
                                      disabled="@isLoading" />
                         <ValidationMessage For="@(() => form.SalePrice)" />
@@ -78,6 +82,7 @@
                     <div class="form-field">
                         <label>Sale Price 2 *</label>
                         <InputNumber placeholder="0.00"
+                                     class="inputText"
                                      @bind-Value="form.SalePrice2"
                                      disabled="@isLoading" />
                         <ValidationMessage For="@(() => form.SalePrice2)" />
@@ -85,6 +90,7 @@
                     <div class="form-field">
                         <label>Sale Price 3 *</label>
                         <InputNumber placeholder="0.00"
+                                     class="inputText"
                                      @bind-Value="form.SalePrice3"
                                      disabled="@isLoading" />
                         <ValidationMessage For="@(() => form.SalePrice3)" />
@@ -92,6 +98,7 @@
                     <div class="form-field">
                         <label>Purchase Price *</label>
                         <InputNumber placeholder="0.00"
+                                     class="inputText"
                                      @bind-Value="form.PurchasePrice"
                                      disabled="@isLoading" />
                         <ValidationMessage For="@(() => form.PurchasePrice)" />
@@ -99,9 +106,21 @@
                     <div class="form-field">
                         <label>VAT Rate (%) *</label>
                         <InputNumber placeholder="0-100"
+                                     class="inputText"
                                      @bind-Value="form.VatRate"
                                      disabled="@isLoading" />
                         <ValidationMessage For="@(() => form.VatRate)" />
+                    </div>
+                    <div class="form-field">
+                        <label>Status</label>
+                        <InputSelect @bind-Value="form.Status"
+                                     class="inputText"
+                                     disabled="@isLoading">
+                            <option value="@ProductStatus.Active">Active</option>
+                            <option value="@ProductStatus.Inactive">Inactive</option>
+                            <option value="@ProductStatus.Discontinued">Discontinued</option>
+                        </InputSelect>
+                        <ValidationMessage For="@(() => form.Status)" />
                     </div>
                 </div>
 
@@ -110,6 +129,7 @@
                     <div class="form-field">
                         <label>Min Stock Level *</label>
                         <InputNumber placeholder="0"
+                                     class="inputText"
                                      @bind-Value="form.MinStockLevel"
                                      disabled="@isLoading" />
                         <ValidationMessage For="@(() => form.MinStockLevel)" />
@@ -117,6 +137,7 @@
                     <div class="form-field">
                         <label>Max Stock Level *</label>
                         <InputNumber placeholder="0"
+                                     class="inputText"
                                      @bind-Value="form.MaxStockLevel"
                                      disabled="@isLoading" />
                         <ValidationMessage For="@(() => form.MaxStockLevel)" />
@@ -127,19 +148,13 @@
                 <div class="form-row">
                     <div class="form-field">
                         <label>
-                            <InputCheckbox @bind-Value="form.IsTracked" disabled="@isLoading" />
+                            <InputCheckbox @bind-Value="form.IsTracked"
+                                           class="inputText"
+                                           disabled="@isLoading" />
                             Track inventory for this product
                         </label>
                     </div>
-                    <div class="form-field">
-                        <label>Status</label>
-                        <InputSelect @bind-Value="form.Status" disabled="@isLoading">
-                            <option value="@ProductStatus.Active">Active</option>
-                            <option value="@ProductStatus.Inactive">Inactive</option>
-                            <option value="@ProductStatus.Discontinued">Discontinued</option>
-                        </InputSelect>
-                        <ValidationMessage For="@(() => form.Status)" />
-                    </div>
+                   
                 </div>
 
                 <div class="actions-end">
@@ -275,6 +290,10 @@
                                     disabled="@isLoading">
                                 Edit
                             </button>
+                            <button class="btn small ghost"
+                                    @onclick="() => PrintLabel(p.Id)">
+                                Label
+                            </button>
                             <button class="btn small danger"
                                     @onclick="() => ConfirmDelete(p)"
                                     disabled="@isLoading">
@@ -348,6 +367,21 @@
         return catalogProducts.FirstOrDefault(c => c.Id == catalogProductId);
     }
 
+    private async Task Search()
+    {
+        if (string.IsNullOrWhiteSpace(searchTerm))
+        {
+            isSearching = false;
+            Page = 1;
+            await LoadData();
+            return;
+        }
+
+        isSearching = true;
+        Page = 1;
+        await LoadData();
+    }
+
     private async Task LoadData()
     {
         try
@@ -376,22 +410,6 @@
         {
             isLoadingData = false;
         }
-    }
-
-
-    private async Task Search()
-    {
-        if (string.IsNullOrWhiteSpace(searchTerm))
-        {
-            isSearching = false;
-            Page = 1;
-            await LoadData();
-            return;
-        }
-
-        isSearching = true;
-        Page = 1;
-        await LoadData();
     }
 
     async Task ChangePage(int newPage)
@@ -502,7 +520,7 @@
                 VatRate = form.VatRate,
                 MinStockLevel = form.MinStockLevel,
                 MaxStockLevel = form.MaxStockLevel,
-                // IsActive = form.Status,
+                IsActive = form.Status,
                 IsTracked = form.IsTracked
             };
 
@@ -633,6 +651,39 @@
             ProductStatus.Discontinued => "error",
             _ => ""
         };
+    }
+
+    private async Task PrintLabel(Guid productId)
+    {
+        try
+        {
+            var response = await ProductApi.GetLabel(productId);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                errorMessage = "Label generation failed";
+                return;
+            }
+
+            var pdf = await response.Content.ReadAsByteArrayAsync();
+
+            if (pdf == null || pdf.Length == 0)
+            {
+                errorMessage = "Empty label received";
+                return;
+            }
+
+            await JS.InvokeVoidAsync(
+                "downloadFile",
+                $"label-{productId}.pdf",
+                "application/pdf",
+                Convert.ToBase64String(pdf)
+            );
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Label generation failed: {ex.Message}";
+        }
     }
 
     private sealed class ProductForm

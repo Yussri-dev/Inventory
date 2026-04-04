@@ -1,166 +1,609 @@
-﻿/* =========================
-   INVENTORY PAGE – BASE CSS
-   ========================= */
-
-:root {
-    --bg-main: #0f172a;
-    --bg-card: #111827;
-    --bg-muted: #1f2933;
-    --border-color: #374151;
-    --text-main: #e5e7eb;
-    --text-muted: #9ca3af;
-    --primary: #3b82f6;
-    --danger: #ef4444;
-    --success: #22c55e;
+﻿/* ================================
+   PAGE HEADER
+================================ */
+.page-header {
+    margin-bottom: 28px;
 }
 
-/* ===== GLOBAL ===== */
-
-body {
-    background-color: var(--bg-main);
-    color: var(--text-main);
-    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+.page-title {
+    font-size: 28px;
+    font-weight: 700;
+    margin: 0;
 }
 
-h2 {
-    margin-bottom: 1rem;
+/* ================================
+   SECTION CARD STRUCTURE
+================================ */
+.section-card {
+    padding: 28px 32px;
+}
+
+.section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+}
+
+.section-title {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
+
+    .section-title h4 {
+        margin: 0;
+        font-size: 20px;
+        font-weight: 600;
+    }
+
+.section-accent {
+    width: 4px;
+    height: 22px;
+    background: var(--primary);
+    border-radius: 4px;
+}
+
+.section-body {
+    margin-top: 10px;
+}
+
+.section-summary {
+    margin-bottom: 24px;
+}
+
+/* ================================
+   CLEAN TABLE (softer look)
+================================ */
+.clean-table .table {
+    border-collapse: separate;
+    border-spacing: 0;
+}
+
+.clean-table thead th {
+    border-bottom: 1px solid var(--border);
+    font-weight: 600;
+    padding: 14px 12px;
+}
+
+.clean-table tbody td {
+    padding: 16px 12px;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+
+.clean-table tbody tr:hover {
+    background: rgba(79,70,229,0.04);
+}
+
+
+/* ============================================
+   ROW SELECTED
+============================================ */
+.row-selected {
+    background: rgba(79, 70, 229, 0.08) !important;
+}
+
+/* ============================================
+   ROW ACTIONS  (aligned exactly like Products)
+============================================ */
+.row-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    align-items: center;
+}
+
+/* ============================================
+   SUMMARY STRIP
+============================================ */
+.summary-strip {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 16px;
+    margin-bottom: 20px;
+    padding: 16px;
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border);
+}
+
+.summary-item {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.summary-label {
+    font-size: 12px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
     font-weight: 600;
 }
 
-/* ===== CARDS ===== */
-
-.card {
-    background-color: var(--bg-card);
-    border: 1px solid var(--border-color);
-    border-radius: 10px;
-    box-shadow: 0 6px 20px rgba(0,0,0,0.35);
+.summary-value {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--text);
 }
 
-.card-header {
-    padding: 0.75rem 1rem;
-    border-bottom: 1px solid var(--border-color);
+    .summary-value.success {
+        color: #86efac;
+    }
+
+    .summary-value.danger {
+        color: #fca5a5;
+    }
+
+/* ============================================
+   VARIANCE COLORS
+============================================ */
+.variance-ok {
+    color: var(--success);
     font-weight: 600;
 }
 
-.card-body {
-    padding: 1rem;
+.variance-pos {
+    color: #fcd34d;
+    font-weight: 600;
 }
 
-/* ===== TABLES ===== */
-
-.table {
-    width: 100%;
-    border-collapse: collapse;
-    color: var(--text-main);
+.variance-neg {
+    color: var(--danger);
+    font-weight: 600;
 }
 
-    .table thead th {
-        text-align: left;
-        padding: 0.6rem;
-        border-bottom: 1px solid var(--border-color);
-        color: var(--text-muted);
-        font-size: 0.85rem;
-        text-transform: uppercase;
-    }
-
-    .table tbody td {
-        padding: 0.6rem;
-        border-bottom: 1px solid var(--border-color);
-        vertical-align: middle;
-    }
-
-.table-hover tbody tr:hover {
-    background-color: var(--bg-muted);
+/* ============================================
+   BADGE STATUS
+============================================ */
+.badge-inprogress {
+    background: linear-gradient(135deg, rgba(245, 158, 11, 0.25), rgba(245, 158, 11, 0.1));
+    color: #fcd34d;
+    border: 1.5px solid rgba(245, 158, 11, 0.4);
 }
 
-.table-active {
-    background-color: rgba(59, 130, 246, 0.15);
+.badge-completed {
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.25), rgba(59, 130, 246, 0.1));
+    color: #93c5fd;
+    border: 1.5px solid rgba(59, 130, 246, 0.4);
 }
 
-/* ===== BUTTONS ===== */
+.badge-inactive {
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--muted);
+    border: 1px solid var(--border);
+}
 
-.btn {
-    border-radius: 6px;
-    padding: 0.35rem 0.7rem;
-    font-size: 0.85rem;
-    cursor: pointer;
+.badge-success {
+    background: linear-gradient(135deg, rgba(34, 197, 94, 0.25), rgba(34, 197, 94, 0.15));
+    color: #86efac;
+    border: 1.5px solid rgba(34, 197, 94, 0.4);
+}
+
+/* ============================================
+   EMPTY BLOCK
+============================================ */
+.empty-block {
+    padding: 40px 32px;
+    text-align: center;
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px dashed var(--border);
+}
+
+/* ============================================
+   MODAL WIDE
+============================================ */
+.modal-wide {
+    max-width: 680px;
+    width: 95%;
+}
+
+/* ============================================
+   MODAL HEADER ROW
+============================================ */
+.modal-header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 4px;
+}
+
+.modal-close-btn {
+    background: none;
     border: none;
-    transition: background 0.15s ease, opacity 0.15s ease;
+    font-size: 24px;
+    line-height: 1;
+    cursor: pointer;
+    color: var(--muted);
+    padding: 0 4px;
+    transition: color 0.2s, transform 0.2s;
 }
 
-.btn-primary {
-    background-color: var(--primary);
-    color: white;
+    .modal-close-btn:hover {
+        color: var(--text);
+        transform: scale(1.1);
+    }
+
+/* ============================================
+   SEARCH BOX (MODAL)
+============================================ */
+.search-box-modal {
+    position: relative;
 }
 
-.btn-secondary {
-    background-color: var(--bg-muted);
-    color: var(--text-main);
+.search-input-modal {
+    width: 100%;
+    background: var(--bg);
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 40px 12px 14px;
+    color: var(--text);
+    font-size: 14px;
+    font-family: inherit;
+    transition: all 0.3s;
+    box-sizing: border-box;
 }
 
-.btn-danger {
-    background-color: var(--danger);
-    color: white;
+    .search-input-modal:focus {
+        outline: none;
+        border-color: var(--primary);
+        background: rgba(79, 70, 229, 0.05);
+        box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
+    }
+
+    .search-input-modal::placeholder {
+        color: var(--muted);
+        opacity: 0.7;
+    }
+
+.search-icon-modal {
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--muted);
+    pointer-events: none;
+    font-size: 16px;
 }
 
-.btn:hover {
-    opacity: 0.9;
+/* ============================================
+   DIVIDER OR
+============================================ */
+.divider-or {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 16px 0;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
 }
 
-.btn:disabled {
-    opacity: 0.5;
+    .divider-or::before,
+    .divider-or::after {
+        content: "";
+        flex: 1;
+        height: 1px;
+        background: var(--border);
+    }
+
+/* ============================================
+   PRODUCT PICKER
+============================================ */
+.product-picker {
+    margin-top: 16px;
+    max-height: 300px;
+    overflow-y: auto;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: var(--panel);
+}
+
+/* ============================================
+   SELECTED PRODUCT BANNER
+============================================ */
+.selected-product-banner {
+    padding: 16px 18px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: rgba(79, 70, 229, 0.06);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+/* ============================================
+   QUANTITY INPUTS
+============================================ */
+.qty-input {
+    width: 100px;
+    background: var(--bg);
+    border: 1.5px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 10px;
+    color: var(--text);
+    font-size: 14px;
+    text-align: right;
+}
+
+.qty-input-lg {
+    width: 100%;
+    background: var(--bg);
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 14px;
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text);
+}
+
+    .qty-input:focus,
+    .qty-input-lg:focus {
+        outline: none;
+        border-color: var(--primary);
+        background: rgba(79, 70, 229, 0.05);
+        box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
+    }
+
+
+/* =========================================
+   MODAL OVERLAY
+========================================= */
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.55);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    animation: fadeIn 0.15s ease-out;
+}
+
+/* =========================================
+   MODAL CONTAINER
+========================================= */
+.modal-content {
+    background: var(--panel);
+    border-radius: 18px;
+    width: 520px;
+    max-width: 95%;
+    padding: 28px 32px;
+    border: 1px solid var(--border);
+    box-shadow: 0 25px 60px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255,255,255,0.02);
+    animation: modalPop 0.18s ease-out;
+    position: relative;
+}
+
+/* Wider modal variant */
+.modal-wide {
+    width: 720px;
+    max-width: 95%;
+}
+
+/* =========================================
+   MODAL HEADER
+========================================= */
+.modal-header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 18px;
+}
+
+    .modal-header-row h4 {
+        margin: 0;
+        font-size: 20px;
+        font-weight: 600;
+    }
+
+/* Close button */
+.modal-close-btn {
+    background: none;
+    border: none;
+    font-size: 22px;
+    cursor: pointer;
+    color: var(--muted);
+    transition: 0.2s;
+}
+
+    .modal-close-btn:hover {
+        color: var(--text);
+        transform: scale(1.1);
+    }
+
+/* =========================================
+   MODAL FORM LAYOUT
+========================================= */
+.modal-content .form-grid {
+    margin-top: 10px;
+}
+
+.modal-content .form-field label {
+    font-weight: 600;
+    font-size: 13px;
+    margin-bottom: 6px;
+    display: block;
+}
+
+.modal-content input,
+.modal-content textarea {
+    width: 100%;
+    background: var(--bg);
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 14px;
+    font-size: 14px;
+    color: var(--text);
+    transition: 0.25s;
+}
+
+.modal-content textarea {
+    resize: vertical;
+    min-height: 80px;
+}
+
+    .modal-content input:focus,
+    .modal-content textarea:focus {
+        outline: none;
+        border-color: var(--primary);
+        background: rgba(79, 70, 229, 0.05);
+        box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.12);
+    }
+
+/* =========================================
+   MODAL ACTION BUTTONS
+========================================= */
+.modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    margin-top: 26px;
+}
+
+/* =========================================
+   SEARCH BOX (Inventory picker)
+========================================= */
+.search-box-modal {
+    position: relative;
+}
+
+.search-input-modal {
+    width: 100%;
+    background: var(--bg);
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 42px 12px 14px;
+    font-size: 14px;
+    color: var(--text);
+    transition: 0.25s;
+}
+
+    .search-input-modal:focus {
+        outline: none;
+        border-color: var(--primary);
+        background: rgba(79, 70, 229, 0.05);
+        box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.12);
+    }
+
+.search-icon-modal {
+    position: absolute;
+    right: 14px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--muted);
+    font-size: 16px;
+    pointer-events: none;
+}
+
+/* =========================================
+   PRODUCT PICKER LIST
+========================================= */
+.product-picker {
+    margin-top: 18px;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: var(--bg);
+    max-height: 280px;
+    overflow-y: auto;
+}
+
+.picker-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.picker-item {
+    padding: 14px 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+
+    .picker-item:last-child {
+        border-bottom: none;
+    }
+
+    .picker-item:hover:not(.picker-item-disabled) {
+        background: rgba(79, 70, 229, 0.06);
+    }
+
+.picker-item-disabled {
+    opacity: 0.4;
     cursor: not-allowed;
 }
 
-/* ===== TEXT ===== */
-
-.text-muted {
-    color: var(--text-muted);
+/* =========================================
+   SELECTED PRODUCT BANNER
+========================================= */
+.selected-product-banner {
+    padding: 18px 20px;
+    border-radius: 14px;
+    border: 1px solid var(--border);
+    background: rgba(79, 70, 229, 0.07);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 18px;
 }
 
-.text-danger {
-    color: var(--danger);
-}
-
-/* ===== SPACING ===== */
-
-.mb-3 {
-    margin-bottom: 1rem;
-}
-
-.mb-4 {
-    margin-bottom: 1.5rem;
-}
-
-.float-end {
-    float: right;
-}
-
-/* ===== RESPONSIVE ===== */
-
-@media (max-width: 900px) {
-    .table thead {
-        display: none;
+/* =========================================
+   ANIMATIONS
+========================================= */
+@keyframes fadeIn {
+    from {
+        opacity: 0;
     }
 
-    .table tbody tr {
-        display: block;
-        margin-bottom: 0.8rem;
-        border: 1px solid var(--border-color);
-        border-radius: 8px;
-        padding: 0.5rem;
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes modalPop {
+    from {
+        opacity: 0;
+        transform: translateY(8px) scale(0.98);
     }
 
-    .table tbody td {
-        display: flex;
-        justify-content: space-between;
-        border-bottom: none;
-        padding: 0.4rem 0;
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+/* =========================================
+   RESPONSIVE
+========================================= */
+@media (max-width: 768px) {
+    .modal-content {
+        padding: 22px;
+        width: 95%;
     }
 
-        .table tbody td::before {
-            content: attr(data-label);
-            color: var(--text-muted);
-            font-size: 0.75rem;
-        }
+    .modal-wide {
+        width: 95%;
+    }
+}
+
+/* ============================================
+   RESPONSIVE
+============================================ */
+@media (max-width: 768px) {
+    .summary-strip {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .modal-wide {
+        max-width: 100%;
+        width: 95%;
+    }
 }

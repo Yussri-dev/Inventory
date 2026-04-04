@@ -18,6 +18,8 @@ namespace Inventory.Dto.ProductCatalogs.Requests
 
         [MaxLength(1000)]
         public string? Description { get; set; }
+        [MaxLength(10)]
+        public string UnitOfMeasure { get; set; } = "pcs"; // pcs, kg, g, l
 
         public DateTime CreatedAt { get; set; }
         public DateTime? ModifiedAt { get; set; }

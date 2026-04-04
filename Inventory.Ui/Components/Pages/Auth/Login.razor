@@ -3,88 +3,74 @@
 @inject IAuthApiOpen AuthApi
 @inject ISecureStorageService SecureStorage
 @inject NavigationManager Nav
+@inject AuthenticationStateProvider AuthStateProvider
 
-<div class="login-container">
-    <div class="login-card">
-        <!-- Logo/Header -->
-        <div class="login-header">
-            <div class="logo-circle">
-                <span class="logo-icon">🏪</span>
+@using System.Text.Json
+@using Inventory.Ui.Authentification
+@using Microsoft.AspNetCore.Components.Authorization
+
+<div class="login-card">
+    <div class="login-header">
+        <div class="logo-circle">
+            <span class="logo-icon">🏪</span>
+        </div>
+        <h2>Welcome Back</h2>
+        <p class="subtitle">Sign in to your account</p>
+    </div>
+
+    @if (!string.IsNullOrEmpty(Error))
+    {
+        <div class="alert alert-error">
+            <span class="alert-icon">⚠️</span>
+            <span>@Error</span>
+        </div>
+    }
+
+    <form class="login-form" @onsubmit="LoginAsync" @onsubmit:preventDefault>
+        <div class="form-group">
+            <label class="form-label">Email Address</label>
+            <div class="input-wrapper">
+                <span class="input-icon">📧</span>
+                <input class="form-input" type="email"
+                       @bind="Model.Email" @bind:event="oninput"
+                       placeholder="your@email.com"
+                       autocomplete="username" disabled="@IsLoading" />
             </div>
-            <h2>Welcome Back</h2>
-            <p class="subtitle">Sign in to your account</p>
         </div>
 
-        <!-- Error Message -->
-        @if (!string.IsNullOrEmpty(Error))
+        <div class="form-group">
+            <label class="form-label">Password</label>
+            <div class="input-wrapper">
+                <span class="input-icon">🔒</span>
+                <input class="form-input" type="password"
+                       @bind="Model.Password" @bind:event="oninput"
+                       placeholder="Enter your password"
+                       autocomplete="current-password" disabled="@IsLoading" />
+            </div>
+        </div>
+
+        <button class="btn-login" type="submit" disabled="@IsLoading">
+            @if (IsLoading)
+            {
+                <span class="spinner"></span>
+                <span>Logging in...</span>
+            }
+            else
+            {
+                <span>Sign In</span>
+                <span class="btn-arrow">→</span>
+            }
+        </button>
+    </form>
+
+    <div class="login-footer">
+        @if (DaysLeft != null)
         {
-            <div class="alert alert-error">
-                <span class="alert-icon">⚠️</span>
-                <span>@Error</span>
+            <div class="trial-info">
+                Trial ends in <strong>@DaysLeft</strong> days
             </div>
         }
-
-        <!-- Login Form -->
-        <form class="login-form" @onsubmit="LoginAsync" @onsubmit:preventDefault>
-            <div class="form-group">
-                <label class="form-label">Email Address</label>
-                <div class="input-wrapper">
-                    <span class="input-icon">📧</span>
-                    <input class="form-input"
-                           type="email"
-                           @bind="Model.Email"
-                           @bind:event="oninput"
-                           placeholder="your@email.com"
-                           autocomplete="username"
-                           disabled="@IsLoading" />
-                </div>
-            </div>
-
-            <div class="form-group">
-                <label class="form-label">Password</label>
-                <div class="input-wrapper">
-                    <span class="input-icon">🔒</span>
-                    <input class="form-input"
-                           type="password"
-                           @bind="Model.Password"
-                           @bind:event="oninput"
-                           placeholder="Enter your password"
-                           autocomplete="current-password"
-                           disabled="@IsLoading" />
-                </div>
-            </div>
-
-            <button class="btn-login"
-                    type="submit"
-                    disabled="@IsLoading">
-                @if (IsLoading)
-                {
-                    <span class="spinner"></span>
-                    <span>Logging in...</span>
-                }
-                else
-                {
-                    <span>Sign In</span>
-                    <span class="btn-arrow">→</span>
-                }
-            </button>
-
-
-
-        </form>
-
-        <!-- Footer -->
-        <div class="login-footer">
-            <div>
-                @if (DaysLeft != null)
-                {
-                    <div class="trial-info">
-                        Trial ends in <strong>@DaysLeft</strong> days
-                    </div>
-                }
-            </div>
-            <p class="footer-text">Forgot your password? <a href="/forgot-password">Reset it</a></p>
-        </div>
+        <p class="footer-text">Forgot your password? <a href="/forgot-password">Reset it</a></p>
     </div>
 </div>
 
@@ -96,13 +82,33 @@
 
     protected override async Task OnInitializedAsync()
     {
-        var token = await SecureStorage.GetTokenAsync();
-        if (!string.IsNullOrWhiteSpace(token))
-            Nav.NavigateTo("/", true);
+        if (AuthStateProvider is JwtAuthStateProvider jwt)
+        {
+            var state = await jwt.GetAuthenticationStateAsync();
+            if (state.User.Identity?.IsAuthenticated == true)
+            {
+                Nav.NavigateTo("/", replace: true);
+                return;
+            }
+        }
+        else
+        {
+            // Fallback for web
+            var token = await SecureStorage.GetTokenAsync();
+            if (!string.IsNullOrWhiteSpace(token))
+                Nav.NavigateTo("/", replace: true);
+        }
     }
 
     private async Task LoginAsync()
     {
+        // Validation côté client — évite l'appel API inutile
+        if (string.IsNullOrWhiteSpace(Model.Email) || string.IsNullOrWhiteSpace(Model.Password))
+        {
+            Error = "Please enter your email and password.";
+            return;
+        }
+
         Error = string.Empty;
         IsLoading = true;
 
@@ -117,22 +123,23 @@
             }
 
             if (result.TrialEndDate != null)
-            {
-                DaysLeft = (int)Math.Ceiling(
-                    (result.TrialEndDate.Value - DateTime.UtcNow).TotalDays
-                );
-            }
+                DaysLeft = (int)Math.Ceiling((result.TrialEndDate.Value - DateTime.UtcNow).TotalDays);
 
             var token = result.AccessToken.StartsWith("Bearer ")
                 ? result.AccessToken["Bearer ".Length..]
                 : result.AccessToken;
 
             await SecureStorage.SaveTokenAsync(token);
-            Nav.NavigateTo("/", true);
+
+            if (AuthStateProvider is JwtAuthStateProvider jwt)
+            {
+                jwt.NotifyUserLoggedIn(token);
+            }
+            Nav.NavigateTo("/");
         }
         catch (ApiException ex)
         {
-            Error = ex.Content ?? ex.Message;
+            Error = ParseApiError(ex.Content) ?? ex.ReasonPhrase ?? "Login failed.";
         }
         catch (Exception ex)
         {
@@ -142,5 +149,38 @@
         {
             IsLoading = false;
         }
+    }
+
+    private static string? ParseApiError(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return null;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+
+            if (root.TryGetProperty("errors", out var errors))
+            {
+                var messages = new List<string>();
+                foreach (var field in errors.EnumerateObject())
+                    foreach (var msg in field.Value.EnumerateArray())
+                        messages.Add(msg.GetString() ?? "");
+
+                if (messages.Count > 0)
+                    return string.Join(" • ", messages);
+            }
+
+            foreach (var key in new[] { "detail", "message", "title" })
+                if (root.TryGetProperty(key, out var prop) && prop.ValueKind == JsonValueKind.String)
+                    if (!string.IsNullOrWhiteSpace(prop.GetString()))
+                        return prop.GetString();
+        }
+        catch
+        {
+            return json?.Length > 120 ? json[..120] + "…" : json;
+        }
+
+        return null;
     }
 }

@@ -1,258 +1,928 @@
 ﻿@page "/inventory"
+@using Inventory.Dto.Enums
 @using Inventory.Dto.InventoryLines.Requests
 @using Inventory.Dto.InventoryLines.Results
 @using Inventory.Dto.InventorySessions.Requests
 @using Inventory.Dto.InventorySessions.Results
+@using Inventory.Dto.Queries
+@using Inventory.Dto.Stock.Results
+@using Microsoft.Extensions.Logging
 
 @inject IInventorySessionApi InventorySessionApi
 @inject IInventoryLineApi InventoryLineApi
+@inject IPosApi PosApi
+@inject ILogger<Inventories> Logger
 @inject IJSRuntime JS
 
-<h2>Inventory Sessions</h2>
+<div class="page-container">
 
-<!-- ===================== -->
-<!-- INVENTORY SESSIONS -->
-<!-- ===================== -->
-
-<div class="card mb-4">
-    <div class="card-header">
-        <strong>Sessions</strong>
-        <button class="btn btn-primary float-end" @onclick="CreateSession">
-            New Session
-        </button>
+    <div class="page-header">
+        <h3 class="page-title">Inventory</h3>
     </div>
 
-    <div class="card-body">
-        @if (IsLoadingSessions)
-        {
-            <p>Loading sessions...</p>
-        }
-        else if (Sessions.Count == 0)
-        {
-            <p class="text-muted">No inventory sessions found.</p>
-        }
-        else
-        {
-            <table class="table table-hover">
-                <thead>
-                    <tr>
-                        <th>Date</th>
-                        <th>Status</th>
-                        <th>Notes</th>
-                        <th style="width:200px;"></th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach (var session in Sessions)
-                    {
-                        <tr class="@(SelectedSession?.Id == session.Id ? "table-active" : "")">
-                            <td>@session.StartedAt.ToLocalTime()</td>
-                            <td>@session.Status</td>
-                            <td>@session.Notes</td>
-                            <td>
-                                <button class="btn btn-sm btn-secondary"
-                                        @onclick="() => SelectSession(session)">
-                                    Open
-                                </button>
-                                <button class="btn btn-sm btn-danger"
-                                        @onclick="() => DeleteSession(session.Id)">
-                                    Delete
-                                </button>
-                            </td>
-                        </tr>
-                    }
-                </tbody>
-            </table>
-        }
-    </div>
-</div>
+    @if (!string.IsNullOrWhiteSpace(errorMessage))
+    {
+        <div class="alert error">
+            <span>@errorMessage</span>
+            <button @onclick="() => errorMessage = null">×</button>
+        </div>
+    }
+    @if (!string.IsNullOrWhiteSpace(successMessage))
+    {
+        <div class="alert success">
+            <span>@successMessage</span>
+            <button @onclick="() => successMessage = null">×</button>
+        </div>
+    }
 
-<!-- ===================== -->
-<!-- INVENTORY LINES -->
-<!-- ===================== -->
+    <!-- ================= SESSIONS ================= -->
 
-@if (SelectedSession != null)
-{
-    <div class="card">
-        <div class="card-header">
-            <strong>Lines — Session @SelectedSession.StartedAt.ToLocalTime()</strong>
+    <div class="card section-card">
+
+        <div class="section-header">
+            <div class="section-title">
+                <span class="section-accent"></span>
+                <h4>Inventory Sessions</h4>
+            </div>
+
+            <button class="btn primary"
+                    @onclick="OpenCreateSessionModal"
+                    disabled="@isSaving">
+                + New Session
+            </button>
         </div>
 
-        <div class="card-body">
+        <div class="section-body">
 
-            <button class="btn btn-primary mb-3" @onclick="CreateLine">
-                Add Line
-            </button>
-
-            @if (IsLoadingLines)
+            @if (isLoadingSessions)
             {
-                <p>Loading lines...</p>
+                <div class="loading-container">
+                    <p>Loading sessions...</p>
+                </div>
             }
-            else if (Lines.Count == 0)
+            else if (sessions.Count == 0)
             {
-                <p class="text-muted">No inventory lines.</p>
+                <div class="empty-block">
+                    <p>No inventory sessions found.</p>
+                </div>
             }
             else
             {
-                <table class="table table-sm table-striped">
-                    <thead>
-                        <tr>
-                            <th>Product</th>
-                            <th>Expected</th>
-                            <th>Counted</th>
-                            <th>Difference</th>
-                            <th style="width:160px;"></th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach (var line in Lines)
-                        {
+                <div class="table-container clean-table">
+                    <table class="table">
+                        <thead>
                             <tr>
-                                <td>@line.ProductId</td>
-                                <td>@line.SystemQuantity</td>
-                                <td>@line.CountedQuantity</td>
-                                <td class="@(line.Variance == 0 ? "" : "text-danger")">
-                                    @line.Variance
-                                </td>
-                                <td>
-                                    <button class="btn btn-sm btn-secondary"
-                                            @onclick="() => EditLine(line)">
-                                        Edit
-                                    </button>
-                                    <button class="btn btn-sm btn-danger"
-                                            @onclick="() => DeleteLine(line.Id)">
-                                        Delete
-                                    </button>
-                                </td>
+                                <th>Session #</th>
+                                <th>Started</th>
+                                <th>Closed</th>
+                                <th>Status</th>
+                                <th>Notes</th>
+                                <th style="width:220px;"></th>
                             </tr>
-                        }
-                    </tbody>
-                </table>
+                        </thead>
+                        <tbody>
+                            @foreach (var session in sessions)
+                            {
+                                <tr class="@(selectedSession?.Id == session.Id ? "row-selected" : "")">
+                                    <td><strong>@session.SessionNumber</strong></td>
+                                    <td>@session.StartedAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</td>
+                                    <td>
+                                        @(session.ClosedAt?.ToLocalTime().ToString("dd/MM/yyyy HH:mm") ?? "—")
+                                    </td>
+                                    <td>
+                                        <span class="@GetSessionBadgeClass(session.Status)">
+                                            @session.Status
+                                        </span>
+                                    </td>
+                                    <td><small>@session.Notes</small></td>
+                                    <td class="actions-end">
+                                        <div class="row-actions">
+                                            <button class="btn ghost small"
+                                                    @onclick="() => SelectSession(session)">
+                                                Lines
+                                            </button>
+
+                                            @if (session.Status == InventoryStatus.InProgress)
+                                            {
+                                                <button class="btn ghost small"
+                                                        @onclick="() => CloseSession(session.Id)">
+                                                    Close
+                                                </button>
+                                            }
+
+                                            @if (session.Status == InventoryStatus.Completed)
+                                            {
+                                                <button class="btn ghost small"
+                                                        @onclick="() => ValidateSession(session.Id)">
+                                                    Validate
+                                                </button>
+                                            }
+
+                                            <button class="btn danger small"
+                                                    @onclick="() => ConfirmDeleteSession(session)">
+                                                Delete
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
             }
+
+        </div>
+    </div>
+
+    <!-- ================= LINES ================= -->
+    @if (selectedSession != null)
+    {
+        <div class="card section-card">
+
+            <div class="section-header">
+                <div class="section-title">
+                    <span class="section-accent"></span>
+                    <h4>
+                        Lines —
+                        <span class="muted session-ref">
+                            @selectedSession.SessionNumber
+                        </span>
+                    </h4>
+                </div>
+
+                <button class="btn primary"
+                        @onclick="OpenAddLineModal">
+                    + Add Line
+                </button>
+            </div>
+
+            <div class="section-summary">
+                <div class="summary-strip">
+                    <div class="summary-item">
+                        <span class="summary-label">Lines</span>
+                        <span class="summary-value">@lines.Count</span>
+                    </div>
+                    <div class="summary-item">
+                        <span class="summary-label">With Variance</span>
+                        <span class="summary-value danger">@lines.Count(l => l.Variance != 0)</span>
+                    </div>
+                    <div class="summary-item">
+                        <span class="summary-label">OK</span>
+                        <span class="summary-value success">@lines.Count(l => l.Variance == 0)</span>
+                    </div>
+                    <div class="summary-item">
+                        <span class="summary-label">Adjusted</span>
+                        <span class="summary-value">@lines.Count(l => l.IsAdjusted)</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section-body">
+
+                @if (isLoadingLines)
+                {
+                    <div class="loading-container">
+                        <p>Loading lines...</p>
+                    </div>
+                }
+                else if (lines.Count == 0)
+                {
+                    <div class="empty-block">
+                        <p>No lines yet. Click "+ Add Line" to start counting.</p>
+                    </div>
+                }
+                else
+                {
+                    <div class="table-container clean-table">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>Product</th>
+                                    <th>Expected</th>
+                                    <th>Counted</th>
+                                    <th>Variance</th>
+                                    <th>Adjusted</th>
+                                    <th style="width:160px;"></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var line in lines)
+                                {
+                                    <tr>
+                                        <td>
+                                            <div class="product-name">
+                                                @GetProductName(line.ProductId)
+                                            </div>
+                                            @if (!string.IsNullOrEmpty(GetProductBarcode(line.ProductId)))
+                                            {
+                                                <div class="product-desc">
+                                                    @GetProductBarcode(line.ProductId)
+                                                </div>
+                                            }
+                                        </td>
+
+                                        <td>@line.SystemQuantity</td>
+
+                                        <td>
+                                            @if (editingLineId == line.Id)
+                                            {
+                                                <input type="number"
+                                                       class="qty-input"
+                                                       @bind="editingCountedQty"
+                                                       min="0" />
+                                            }
+                                            else
+                                            {
+                                                @line.CountedQuantity
+                                            }
+                                        </td>
+
+                                        <td>
+                                            <span class="@GetVarianceClass(line.Variance)">
+                                                @(line.Variance > 0 ? "+" : "")@line.Variance
+                                            </span>
+                                        </td>
+
+                                        <td>
+                                            @if (line.IsAdjusted)
+                                            {
+                                                <span class="badge badge-success">✔</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="muted">—</span>
+                                            }
+                                        </td>
+
+                                        <td class="actions-end">
+                                            <div class="row-actions">
+                                                @if (!line.IsAdjusted)
+                                                {
+                                                    <button class="btn ghost small"
+                                                            @onclick="() => StartLineEdit(line)">
+                                                        Edit
+                                                    </button>
+
+                                                    <button class="btn danger small"
+                                                            @onclick="() => ConfirmDeleteLine(line)">
+                                                        Delete
+                                                    </button>
+                                                }
+                                            </div>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+
+            </div>
+        </div>
+    }
+
+</div>
+@* ══════════════════════════════════════════
+   MODAL — Create Session
+   Matches product.css modal pattern
+══════════════════════════════════════════ *@
+@if (showCreateSessionModal)
+{
+    <div class="modal-overlay" @onclick="CloseCreateSessionModal">
+        <div class="modal-content" @onclick:stopPropagation="true">
+            <div class="modal-header-row">
+                <h4>New Inventory Session</h4>
+                <button class="modal-close-btn" @onclick="CloseCreateSessionModal">×</button>
+            </div>
+            <div class="form-grid" style="margin-top:16px;">
+                <div class="form-field">
+                    <label>Session Number</label>
+                    <input type="text"
+                           placeholder="e.g. INV-2025-001"
+                           @bind="newSession.SessionNumber"
+                           @onkeydown="OnSessionModalKeyDown" />
+                </div>
+                <div class="form-field">
+                    <label>Notes <span class="muted" style="font-weight:400;">(optional)</span></label>
+                    <textarea placeholder="Optional notes..." @bind="newSession.Notes"></textarea>
+                </div>
+            </div>
+            <div class="modal-actions">
+                <button class="btn primary" @onclick="CreateSession" disabled="@isSaving">
+                    @(isSaving ? "Creating..." : "Create Session")
+                </button>
+                <button class="btn ghost" @onclick="CloseCreateSessionModal">Cancel</button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ══════════════════════════════════════════
+   MODAL — Add Line
+══════════════════════════════════════════ *@
+@if (showAddLineModal)
+{
+    <div class="modal-overlay" @onclick="CloseAddLineModal">
+        <div class="modal-content modal-wide" @onclick:stopPropagation="true">
+            <div class="modal-header-row">
+                <h4>Add Inventory Line</h4>
+                <button class="modal-close-btn" @onclick="CloseAddLineModal">×</button>
+            </div>
+
+            @if (lineSelectedProduct == null)
+            {
+                @* Step 1 — Pick product *@
+                <div class="form-grid" style="margin-top:16px;">
+                    <div class="form-field">
+                        <label>Scan Barcode</label>
+                        <div class="search-box-modal">
+                            <input type="text"
+                                   class="search-input-modal"
+                                   placeholder="Scan or type barcode, then press Enter..."
+                                   @bind="barcodeInput"
+                                   @bind:event="oninput"
+                                   @onkeydown="OnBarcodeKeyDown"
+                                   @ref="barcodeRef"
+                                   autofocus />
+                            <span class="search-icon-modal">📷</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="divider-or"><span>or search by name</span></div>
+
+                <div class="form-field">
+                    <div class="search-box-modal">
+                        <input type="text"
+                               class="search-input-modal"
+                               placeholder="Search products by name..."
+                               @bind="productSearchTerm"
+                               @bind:event="oninput" />
+                        <span class="search-icon-modal">🔍</span>
+                    </div>
+                </div>
+
+                <div class="product-picker">
+                    @if (isLoadingProducts)
+                    {
+                        <div class="picker-empty">
+                            <p>Loading products...</p>
+                        </div>
+                    }
+                    else if (!FilteredProducts.Any())
+                    {
+                        <div class="picker-empty">
+                            <p>No products found.</p>
+                        </div>
+                    }
+                    else
+                    {
+                        <ul class="picker-list">
+                            @foreach (var product in FilteredProducts)
+                            {
+                                var stock = GetStockForProduct(product.Id);
+                                var qty = stock?.AvailableQuantity ?? 0;
+                                var alreadyIn = lines.Any(l => l.ProductId == product.Id);
+                                var stockCss = qty <= 0 ? "picker-stock-zero"
+                                : qty <= 5 ? "picker-stock-low"
+                                : "picker-stock-ok";
+                                var stockLbl = qty <= 0 ? "Out of stock"
+                                : qty <= 5 ? $"Low: {qty}"
+                                : $"Stock: {qty}";
+                                <li class="picker-item @(alreadyIn ? "picker-item-disabled" : "")"
+                                    @onclick="() => { if (!alreadyIn) SelectProduct(product); }">
+                                    <div class="picker-item-info">
+                                        <div class="product-name">@product.CatalogName</div>
+                                        @if (!string.IsNullOrEmpty(product.CatalogBarcode))
+                                        {
+                                            <div class="product-desc">@product.CatalogBarcode</div>
+                                        }
+                                    </div>
+                                    <div style="display:flex; flex-direction:column; align-items:flex-end; gap:6px;">
+                                        <span class="@stockCss">@stockLbl</span>
+                                        @if (alreadyIn)
+                                        {
+                                            <span class="badge badge-inprogress" style="font-size:10px;">Added</span>
+                                        }
+                                    </div>
+                                </li>
+                            }
+                        </ul>
+                    }
+                </div>
+            }
+            else
+            {
+                @* Step 2 — Enter quantity *@
+                <div class="selected-product-banner" style="margin-top:16px;">
+                    <div>
+                        <div class="product-name">@lineSelectedProduct.CatalogName</div>
+                        @if (!string.IsNullOrEmpty(lineSelectedProduct.CatalogBarcode))
+                        {
+                            <div class="product-desc">@lineSelectedProduct.CatalogBarcode</div>
+                        }
+                    </div>
+                    <button class="btn ghost small" @onclick="() => lineSelectedProduct = null">
+                        ✕ Change
+                    </button>
+                </div>
+
+                <div class="form-grid" style="margin-top:16px;">
+                    <div class="form-field">
+                        <label>Counted Quantity</label>
+                        <input type="number"
+                               class="qty-input-lg"
+                               min="0"
+                               @bind="newLineCountedQty"
+                               @onkeydown="OnCountedQtyKeyDown"
+                               autofocus />
+                        <small class="muted">System quantity will be loaded automatically from stock.</small>
+                    </div>
+                    <div class="form-field">
+                        <label>Notes <span class="muted" style="font-weight:400;">(optional)</span></label>
+                        <input type="text"
+                               placeholder="e.g. damaged items excluded..."
+                               @bind="newLineNotes" />
+                    </div>
+                </div>
+
+                <div class="modal-actions">
+                    <button class="btn primary" @onclick="CreateLine" disabled="@isSaving">
+                        @(isSaving ? "Saving..." : "Add Line")
+                    </button>
+                    <button class="btn ghost" @onclick="CloseAddLineModal">Cancel</button>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@* ══════════════════════════════════════════
+   MODAL — Delete Session Confirm
+   Mirrors product.css delete modal pattern
+══════════════════════════════════════════ *@
+@if (showDeleteSessionConfirm && sessionToDelete != null)
+{
+    <div class="modal-overlay" @onclick="CancelDeleteSession">
+        <div class="modal-content" @onclick:stopPropagation="true">
+            <h4>Confirm Delete</h4>
+            <p>Are you sure you want to delete session <strong>@sessionToDelete.SessionNumber</strong>?</p>
+            <p class="text-muted">All lines in this session will also be deleted. This action cannot be undone.</p>
+            <div class="modal-actions">
+                <button class="btn danger" @onclick="ConfirmDeleteSessionAction" disabled="@isSaving">
+                    Delete
+                </button>
+                <button class="btn ghost" @onclick="CancelDeleteSession">Cancel</button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ══════════════════════════════════════════
+   MODAL — Delete Line Confirm
+══════════════════════════════════════════ *@
+@if (showDeleteLineConfirm && lineToDelete != null)
+{
+    <div class="modal-overlay" @onclick="CancelDeleteLine">
+        <div class="modal-content" @onclick:stopPropagation="true">
+            <h4>Confirm Delete</h4>
+            <p>Are you sure you want to delete the line for <strong>@GetProductName(lineToDelete.ProductId)</strong>?</p>
+            <p class="text-muted">This action cannot be undone.</p>
+            <div class="modal-actions">
+                <button class="btn danger" @onclick="ConfirmDeleteLineAction" disabled="@isSaving">
+                    Delete
+                </button>
+                <button class="btn ghost" @onclick="CancelDeleteLine">Cancel</button>
+            </div>
         </div>
     </div>
 }
 
 @code {
 
-    // =====================
-    // STATE
-    // =====================
+    // ── Alerts ────────────────────────────────────────────────────────────────
+    private string? errorMessage;
+    private string? successMessage;
 
-    List<InventorySessionResult> Sessions = new();
-    List<InventoryLineResult> Lines = new();
+    // ── Sessions ──────────────────────────────────────────────────────────────
+    private List<InventorySessionResult> sessions = new();
+    private InventorySessionResult? selectedSession;
+    private bool isLoadingSessions;
 
-    InventorySessionResult? SelectedSession;
+    // ── Lines ─────────────────────────────────────────────────────────────────
+    private List<InventoryLineResult> lines = new();
+    private bool isLoadingLines;
 
-    bool IsLoadingSessions;
-    bool IsLoadingLines;
+    // ── Inline edit ───────────────────────────────────────────────────────────
+    private Guid? editingLineId;
+    private decimal editingCountedQty;
 
-    // =====================
-    // INIT
-    // =====================
+    // ── Products & stocks ─────────────────────────────────────────────────────
+    private List<ProductResult> allProducts = new();
+    private List<StockResult> allStocks = new();
+    private bool isLoadingProducts;
 
+    // ── Shared ────────────────────────────────────────────────────────────────
+    private bool isSaving;
+
+    // ── Create session modal ──────────────────────────────────────────────────
+    private bool showCreateSessionModal;
+    private CreateInventorySessionRequest newSession = new();
+
+    // ── Delete session confirm (mirrors product pattern) ──────────────────────
+    private bool showDeleteSessionConfirm;
+    private InventorySessionResult? sessionToDelete;
+
+    // ── Delete line confirm ───────────────────────────────────────────────────
+    private bool showDeleteLineConfirm;
+    private InventoryLineResult? lineToDelete;
+
+    // ── Add line modal ────────────────────────────────────────────────────────
+    private bool showAddLineModal;
+    private string barcodeInput = string.Empty;
+    private string productSearchTerm = string.Empty;
+    private ProductResult? lineSelectedProduct;
+    private decimal newLineCountedQty;
+    private string newLineNotes = string.Empty;
+    private ElementReference barcodeRef;
+
+    // ── Filtered products ─────────────────────────────────────────────────────
+    private IEnumerable<ProductResult> FilteredProducts =>
+        string.IsNullOrWhiteSpace(productSearchTerm)
+            ? allProducts
+            : allProducts.Where(p =>
+                p.CatalogName.Contains(productSearchTerm, StringComparison.OrdinalIgnoreCase) ||
+                (p.CatalogBarcode?.Contains(productSearchTerm, StringComparison.OrdinalIgnoreCase) ?? false));
+
+    // =========================================================================
+    // LIFECYCLE
+    // =========================================================================
     protected override async Task OnInitializedAsync()
     {
-        await LoadSessions();
+        await Task.WhenAll(LoadSessions(), LoadProducts());
     }
 
-    async Task LoadSessions()
+    // =========================================================================
+    // PRODUCTS
+    // =========================================================================
+    private async Task LoadProducts()
     {
-        IsLoadingSessions = true;
+        isLoadingProducts = true;
         try
         {
-            Sessions = await InventorySessionApi.GetAll();
+            var bootstrap = await PosApi.Bootstrap();
+            allProducts = bootstrap.Products;
+            allStocks = bootstrap.Stocks;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error loading products for inventory");
         }
         finally
         {
-            IsLoadingSessions = false;
+            isLoadingProducts = false;
         }
     }
 
-    async Task LoadLines(Guid sessionId)
+    private StockResult? GetStockForProduct(Guid productId) =>
+        allStocks.FirstOrDefault(s => s.ProductId == productId);
+
+    private string GetProductName(Guid productId) =>
+        allProducts.FirstOrDefault(p => p.Id == productId)?.CatalogName ?? "Unknown product";
+
+    private string? GetProductBarcode(Guid productId) =>
+        allProducts.FirstOrDefault(p => p.Id == productId)?.CatalogBarcode;
+
+    // =========================================================================
+    // SESSIONS — Load / Select
+    // =========================================================================
+    private async Task LoadSessions()
     {
-        IsLoadingLines = true;
+        isLoadingSessions = true;
+        errorMessage = null;
         try
         {
-            Lines = (await InventoryLineApi.Search(new InventoryLineQuery
-            {
-                InventorySessionId = sessionId,
-                PageSize = 200
-            })).Items;
+            sessions = await InventorySessionApi.GetAll();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Error loading sessions: {ex.Message}";
+            Logger.LogError(ex, "Error loading inventory sessions");
         }
         finally
         {
-            IsLoadingLines = false;
+            isLoadingSessions = false;
         }
     }
 
-    // =====================
-    // SESSIONS
-    // =====================
-
-    async Task CreateSession()
+    private async Task SelectSession(InventorySessionResult session)
     {
-        var result = await InventorySessionApi.Create(new CreateInventorySessionRequest
-        {
-            Notes = "New inventory session"
-        });
-
-        await LoadSessions();
-        SelectedSession = Sessions.FirstOrDefault(s => s.Id == result.Id);
-    }
-
-    async Task SelectSession(InventorySessionResult session)
-    {
-        SelectedSession = session;
+        selectedSession = session;
+        editingLineId = null;
         await LoadLines(session.Id);
     }
 
-    async Task DeleteSession(Guid id)
+    // =========================================================================
+    // SESSIONS — Create
+    // =========================================================================
+    private void OpenCreateSessionModal()
     {
-        if (!await JS.InvokeAsync<bool>("confirm", "Delete this session?"))
-            return;
-
-        await InventorySessionApi.Delete(id);
-        SelectedSession = null;
-        await LoadSessions();
+        newSession = new CreateInventorySessionRequest();
+        showCreateSessionModal = true;
     }
 
-    // =====================
-    // LINES
-    // =====================
+    private void CloseCreateSessionModal() => showCreateSessionModal = false;
 
-    async Task CreateLine()
+    private async Task OnSessionModalKeyDown(KeyboardEventArgs e)
     {
-        if (SelectedSession == null)
-            return;
+        if (e.Key == "Enter") await CreateSession();
+    }
 
-        await InventoryLineApi.Create(new CreateInventoryLineRequest
+    private async Task CreateSession()
+    {
+        if (string.IsNullOrWhiteSpace(newSession.SessionNumber))
         {
-            InventorySessionId = SelectedSession.Id,
-            ProductId = Guid.Empty, // set via modal later
-            SystemQuantity = 0,
-            CountedQuantity = 0
-        });
-
-        await LoadLines(SelectedSession.Id);
-    }
-
-    async Task EditLine(InventoryLineResult line)
-    {
-        await InventoryLineApi.Update(line.Id, new UpdateInventoryLineRequest
-        {
-            CountedQuantity = line.CountedQuantity
-        });
-
-        await LoadLines(SelectedSession!.Id);
-    }
-
-    async Task DeleteLine(Guid id)
-    {
-        if (!await JS.InvokeAsync<bool>("confirm", "Delete this line?"))
+            errorMessage = "Session number is required.";
             return;
+        }
 
-        await InventoryLineApi.Delete(id);
-        await LoadLines(SelectedSession!.Id);
+        isSaving = true;
+        try
+        {
+            var result = await InventorySessionApi.Create(newSession);
+            successMessage = $"Session '{result.SessionNumber}' created.";
+            CloseCreateSessionModal();
+            await LoadSessions();
+            selectedSession = sessions.FirstOrDefault(s => s.Id == result.Id);
+            if (selectedSession != null) await LoadLines(selectedSession.Id);
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Error creating session: {ex.Message}";
+            Logger.LogError(ex, "Error creating inventory session");
+        }
+        finally
+        {
+            isSaving = false;
+        }
     }
+
+    // =========================================================================
+    // SESSIONS — Close / Validate
+    // =========================================================================
+    private async Task CloseSession(Guid id)
+    {
+        isSaving = true;
+        try
+        {
+            await InventorySessionApi.Close(id);
+            successMessage = "Session closed.";
+            await LoadSessions();
+            if (selectedSession?.Id == id)
+                selectedSession = sessions.FirstOrDefault(s => s.Id == id);
+        }
+        catch (Exception ex) { errorMessage = $"Error: {ex.Message}"; }
+        finally { isSaving = false; }
+    }
+
+    private async Task ValidateSession(Guid id)
+    {
+        isSaving = true;
+        try
+        {
+            await InventorySessionApi.Validate(id);
+            successMessage = "Session validated. Stock has been adjusted.";
+            await LoadSessions();
+            if (selectedSession?.Id == id)
+                selectedSession = sessions.FirstOrDefault(s => s.Id == id);
+        }
+        catch (Exception ex) { errorMessage = $"Error: {ex.Message}"; }
+        finally { isSaving = false; }
+    }
+
+    // =========================================================================
+    // SESSIONS — Delete (modal confirm, mirrors product pattern)
+    // =========================================================================
+    private void ConfirmDeleteSession(InventorySessionResult session)
+    {
+        sessionToDelete = session;
+        showDeleteSessionConfirm = true;
+    }
+
+    private void CancelDeleteSession()
+    {
+        sessionToDelete = null;
+        showDeleteSessionConfirm = false;
+    }
+
+    private async Task ConfirmDeleteSessionAction()
+    {
+        if (sessionToDelete == null) return;
+
+        isSaving = true;
+        showDeleteSessionConfirm = false;
+        try
+        {
+            await InventorySessionApi.Delete(sessionToDelete.Id);
+            successMessage = $"Session '{sessionToDelete.SessionNumber}' deleted.";
+            if (selectedSession?.Id == sessionToDelete.Id) { selectedSession = null; lines.Clear(); }
+            sessionToDelete = null;
+            await LoadSessions();
+        }
+        catch (Exception ex) { errorMessage = $"Error deleting session: {ex.Message}"; }
+        finally { isSaving = false; }
+    }
+
+    // =========================================================================
+    // LINES — Load
+    // =========================================================================
+    private async Task LoadLines(Guid sessionId)
+    {
+        isLoadingLines = true;
+        errorMessage = null;
+        try
+        {
+            var result = await InventoryLineApi.Search(new InventoryLineQuery
+            {
+                InventorySessionId = sessionId,
+                Page = 1,
+                PageSize = 100
+            });
+            lines = result.Items?.ToList() ?? new();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Error loading lines: {ex.Message}";
+            Logger.LogError(ex, "Error loading lines for session {Id}", sessionId);
+        }
+        finally
+        {
+            isLoadingLines = false;
+        }
+    }
+
+    // =========================================================================
+    // LINES — Add modal
+    // =========================================================================
+    private void OpenAddLineModal()
+    {
+        barcodeInput = string.Empty;
+        productSearchTerm = string.Empty;
+        lineSelectedProduct = null;
+        newLineCountedQty = 0;
+        newLineNotes = string.Empty;
+        showAddLineModal = true;
+    }
+
+    private void CloseAddLineModal() => showAddLineModal = false;
+
+    private async Task OnBarcodeKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key != "Enter" || string.IsNullOrWhiteSpace(barcodeInput)) return;
+
+        var code = barcodeInput.Trim();
+        var match = allProducts.FirstOrDefault(p =>
+            p.CatalogBarcode == code ||
+            (p.CatalogBarcode?.Contains(code, StringComparison.OrdinalIgnoreCase) ?? false));
+
+        if (match != null)
+            SelectProduct(match);
+        else
+        {
+            errorMessage = $"No product found for barcode: {code}";
+            barcodeInput = string.Empty;
+        }
+    }
+
+    private void SelectProduct(ProductResult product)
+    {
+        if (lines.Any(l => l.ProductId == product.Id))
+        {
+            errorMessage = $"'{product.CatalogName}' is already in this session.";
+            return;
+        }
+        lineSelectedProduct = product;
+        barcodeInput = string.Empty;
+        productSearchTerm = string.Empty;
+        newLineCountedQty = 0;
+    }
+
+    private async Task OnCountedQtyKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await CreateLine();
+    }
+
+    private async Task CreateLine()
+    {
+        if (selectedSession == null || lineSelectedProduct == null) return;
+
+        isSaving = true;
+        try
+        {
+            await InventoryLineApi.Create(new CreateInventoryLineRequest
+            {
+                InventorySessionId = selectedSession.Id,
+                ProductId = lineSelectedProduct.Id,
+                CountedQuantity = newLineCountedQty,
+                Notes = newLineNotes
+            });
+            successMessage = $"'{lineSelectedProduct.CatalogName}' added.";
+            CloseAddLineModal();
+            await LoadLines(selectedSession.Id);
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Error adding line: {ex.Message}";
+            Logger.LogError(ex, "Error creating inventory line");
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    // =========================================================================
+    // LINES — Inline edit
+    // =========================================================================
+    private void StartLineEdit(InventoryLineResult line)
+    {
+        editingLineId = line.Id;
+        editingCountedQty = line.CountedQuantity;
+    }
+
+    private void CancelLineEdit() => editingLineId = null;
+
+    private async Task OnEditKeyDown(KeyboardEventArgs e, InventoryLineResult line)
+    {
+        if (e.Key == "Enter") await SaveLineEdit(line);
+        if (e.Key == "Escape") CancelLineEdit();
+    }
+
+    private async Task SaveLineEdit(InventoryLineResult line)
+    {
+        isSaving = true;
+        try
+        {
+            await InventoryLineApi.Update(line.Id, new UpdateInventoryLineRequest
+            {
+                CountedQuantity = editingCountedQty
+            });
+            successMessage = "Line updated.";
+            editingLineId = null;
+            await LoadLines(selectedSession!.Id);
+        }
+        catch (Exception ex) { errorMessage = $"Error updating line: {ex.Message}"; }
+        finally { isSaving = false; }
+    }
+
+    // =========================================================================
+    // LINES — Delete (modal confirm, mirrors product pattern)
+    // =========================================================================
+    private void ConfirmDeleteLine(InventoryLineResult line)
+    {
+        lineToDelete = line;
+        showDeleteLineConfirm = true;
+    }
+
+    private void CancelDeleteLine()
+    {
+        lineToDelete = null;
+        showDeleteLineConfirm = false;
+    }
+
+    private async Task ConfirmDeleteLineAction()
+    {
+        if (lineToDelete == null) return;
+
+        isSaving = true;
+        showDeleteLineConfirm = false;
+        try
+        {
+            await InventoryLineApi.Delete(lineToDelete.Id);
+            successMessage = "Line deleted.";
+            lineToDelete = null;
+            await LoadLines(selectedSession!.Id);
+        }
+        catch (Exception ex) { errorMessage = $"Error deleting line: {ex.Message}"; }
+        finally { isSaving = false; }
+    }
+
+    // =========================================================================
+    // HELPERS
+    // =========================================================================
+    private string GetSessionBadgeClass(InventoryStatus status) => status switch
+    {
+        InventoryStatus.InProgress => "badge badge-inprogress",
+        InventoryStatus.Completed => "badge badge-completed",
+        InventoryStatus.Validated => "badge success",
+        InventoryStatus.Cancelled => "badge badge-inactive",
+        _ => "badge"
+    };
+
+    private string GetVarianceClass(decimal variance) => variance switch
+    {
+        0 => "variance-ok",
+        > 0 => "variance-pos",
+        _ => "variance-neg"
+    };
 }

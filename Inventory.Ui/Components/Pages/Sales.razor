@@ -1,8 +1,10 @@
 ﻿@page "/sales"
 @using Inventory.Dto.Enums
+@using Inventory.Dto.Sales.Results
 @using Inventory.Dto.Stock.Results
 @using Microsoft.Extensions.Logging
 @using System.Net
+@using System.Globalization
 @inject IJSRuntime JS
 
 @inject ISaleApi SaleApi
@@ -12,12 +14,12 @@
 
 @inject ICashSessionApi CashSessionApi
 @inject NavigationManager Navigation
-@inject IStockApi StockApi
+@* @inject IStockApi StockApi *@
 @* @inject ITicketPrinter TicketPrinter *@
 
 <div class="sale-container">
     <!-- LEFT COLUMN: Cart & Totals -->
-    <div class="sale-left" @onclick="() => FocusBarcodeInput()">
+    <div class="sale-left">
         <!-- Header: Sale Info & Customer -->
         <div class="card header-section">
             <div class="sale-info">
@@ -35,7 +37,7 @@
         </div>
 
         <!-- Cart Table -->
-        <div class="card cart-table" @onclick="() => FocusBarcodeInput()">
+        <div class="card cart-table">
             @if (Lines.Count == 0)
             {
                 <div class="empty-state">
@@ -109,6 +111,11 @@
                                         <td></td>
                                         <td colspan="5">
                                             <span class="adjustment">@adj.Display</span>
+                                            <button>
+                                                <span class="delete-icon" @onclick="() => RemoveAdjustment(line, adj)">
+                                                    ×
+                                                </span>
+                                            </button>
                                         </td>
                                     </tr>
                                 }
@@ -158,6 +165,14 @@
             <div class="tax-info">
                 <strong>Taxes: €@TotalTax.ToString("F2")</strong>
             </div>
+            <button class="btn btn-warning" @onclick="LoadPendingTickets">
+                Pending Tickets
+            </button>
+            <button class="btn btn-warning"
+                    @onclick="SavePending"
+                    disabled="@(Lines.Count == 0 || IsSaving)">
+                Pending
+            </button>
             <button class="btn btn-secondary" @onclick="Reset">Reset</button>
             <button class="btn btn-secondary" @onclick="RemoveSelected" disabled="@(SelectedLine == null)">
                 Delete
@@ -368,7 +383,7 @@
                         <!-- PROGRESS BAR -->
                         <div class="progress-container">
                             <div class="progress-bar">
-                                <div class="progress-fill" style="width: @((paidAmount / TotalAmount * 100).ToString("F0"))%"></div>
+                                <div class="progress-fill" style="width: @(TotalAmount == 0 ? "0" : ((paidAmount / TotalAmount * 100).ToString("F0")))%"></div>
                             </div>
                             <div class="progress-labels">
                                 <span>Paid</span>
@@ -420,7 +435,11 @@
                                         <span style="font-weight: 600;">€@currentPaymentInput</span>
                                     </div>
 
-                                    @if (currentPaymentType == PaymentType.Cash && decimal.TryParse(currentPaymentInput, out var amount) && amount > remainingAmount)
+                                    @if (currentPaymentType == PaymentType.Cash && decimal.TryParse(
+                                                                currentPaymentInput,
+                                                                NumberStyles.Number,
+                                                                CultureInfo.InvariantCulture,
+                                                                out var amount) && amount > remainingAmount)
                                     {
                                         <div class="preview-line" style="color: #28a745;">
                                             <span>Will take:</span>
@@ -431,17 +450,25 @@
                                             <span style="font-size: 16px; font-weight: 700;">€@((amount - remainingAmount).ToString("F2"))</span>
                                         </div>
                                     }
-                                    else if (decimal.TryParse(currentPaymentInput, out var amount2) && amount2 < remainingAmount)
+                                    else if (decimal.TryParse(
+                                    currentPaymentInput,
+                                    NumberStyles.Number,
+                                    CultureInfo.InvariantCulture,
+                                    out var amount2) && amount2 < remainingAmount)
                                     {
                                         <div class="preview-line" style="color: #856404;">
                                             <span>Still due after this payment:</span>
                                             <span style="font-size: 16px; font-weight: 700;">€@((remainingAmount - amount2).ToString("F2"))</span>
                                         </div>
                                     }
-                                    else if (decimal.TryParse(currentPaymentInput, out var amount3) && amount3 == remainingAmount)
+                                    else if (decimal.TryParse(
+                                    currentPaymentInput,
+                                    NumberStyles.Number,
+                                    CultureInfo.InvariantCulture,
+                                    out var amount3) && amount3 == remainingAmount)
                                     {
                                         <div class="preview-line" style="color: #0c5460;">
-                                            <span style="text-align: center; width: 100%;">✅ Exact amount - no change needed</span>
+                                            <span style="text-align: center; width: 100%;">Exact amount - no change needed</span>
                                         </div>
                                     }
                                 </div>
@@ -468,7 +495,16 @@
                                                 <span class="item-type">@GetPaymentTypeName(entry.Type)</span>
                                                 <span class="item-time">@entry.Timestamp.ToString("HH:mm")</span>
                                             </div>
-                                            <span class="item-amount">€@entry.Amount.ToString("F2")</span>
+                                            @if (entry.Type == PaymentType.Cash && entry.AmountReceived > entry.Amount)
+                                            {
+                                                <span class="item-amount">
+                                                    Reçu: €@entry.AmountReceived.ToString("F2") / Appliqué: €@entry.Amount.ToString("F2")
+                                                </span>
+                                            }
+                                            else
+                                            {
+                                                <span class="item-amount">€@entry.Amount.ToString("F2")</span>
+                                            }
                                             <button class="item-delete" @onclick="@(() => RemovePaymentEntry(entry))">
                                                 ×
                                             </button>
@@ -538,12 +574,12 @@
                             </button>
 
                             <!-- ADD PAYMENT BUTTON -->
-                          @*   <button class="btn btn-primary btn-add-payment"
+                            <button class="btn btn-primary btn-add-payment"
                                     @onclick="AddPayment"
                                     disabled="@(string.IsNullOrEmpty(currentPaymentInput) || remainingAmount <= 0)">
                                 <span class="btn-icon">+</span>
                                 Add Payment
-                            </button> *@
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -602,12 +638,71 @@
         </div>
     </div>
 }
+
+
+@if (ShowPendingModal)
+{
+    <div class="pending-modal-overlay" @onclick="() => ShowPendingModal = false">
+        <div class="pending-modal" @onclick:stopPropagation="true">
+            <div class="pending-modal-header">
+                <div>
+                    <h3>Pending Tickets</h3>
+                    <p>Select a ticket to resume the sale</p>
+                </div>
+
+                <button class="pending-close-btn"
+                        @onclick="() => ShowPendingModal = false">
+                    ×
+                </button>
+            </div>
+
+            <div class="pending-modal-body">
+                @if (PendingTickets == null || PendingTickets.Count == 0)
+                {
+                    <div class="pending-empty">
+                        <span>No pending tickets found</span>
+                    </div>
+                }
+                else
+                {
+                    <div class="pending-ticket-list">
+                        @foreach (var sale in PendingTickets)
+                        {
+                            <div class="pending-ticket-card"
+                                 @onclick="() => ResumePending(sale.Id)">
+                                <div class="pending-ticket-left">
+                                    <span class="pending-ticket-label">Invoice</span>
+                                    <strong class="pending-ticket-number">@sale.InvoiceNumber</strong>
+                                </div>
+
+                                <div class="pending-ticket-right">
+                                    <span class="pending-ticket-label">Total</span>
+                                    <strong class="pending-ticket-total">€@sale.TotalAmount.ToString("F2")</strong>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+
+            <div class="pending-modal-footer">
+                <button class="pending-footer-btn"
+                        @onclick="() => ShowPendingModal = false">
+                    Close
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
 @code {
     // STATE
     List<CartLine> Lines = new();
     List<ProductResult> Products = new();
     List<CustomerResult> Customers = new();
     List<StockResult> Stocks = new();
+    List<SaleResult> PendingTickets = new();
+    bool ShowPendingModal;
 
     CustomerResult? SelectedCustomer;
     CustomerResult? TempSelectedCustomer;
@@ -620,6 +715,7 @@
     bool IsSaving;
     bool IsLoadingProducts;
     bool ShowCustomerModal;
+    Guid? CurrentPendingSaleId;
 
     // Payment Modal State
     bool ShowPaymentModal;
@@ -670,6 +766,16 @@
                 (c.Phone?.Contains(CustomerSearchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
                 (c.Email?.Contains(CustomerSearchText, StringComparison.OrdinalIgnoreCase) ?? false)
             ).ToList();
+
+
+    void RemoveAdjustment(CartLine line, CartAdjustment adjustment)
+    {
+        if (line.Adjustments.Contains(adjustment))
+        {
+            line.Adjustments.Remove(adjustment);
+            StateHasChanged();
+        }
+    }
 
     private void ValidateChange()
     {
@@ -1112,30 +1218,62 @@
 
     void AddDiscountPercent(CartLine line)
     {
-        if (decimal.TryParse(NumpadValue, out var value) && value > 0)
+        if (!decimal.TryParse(
+            NumpadValue,
+            NumberStyles.Number,
+            CultureInfo.InvariantCulture,
+            out var value))
+            return;
+
+        if (value <= 0 || value > 100)
+            return;
+
+        RemoveDiscountAdjustments(line);
+
+        line.Adjustments.Add(new CartAdjustment
         {
-            line.Adjustments.Add(new CartAdjustment
-            {
-                Type = AdjustmentType.DiscountPercent,
-                Value = value
-            });
-            NumpadValue = "";
-        }
+            Type = AdjustmentType.DiscountPercent,
+            Value = value
+        });
+
+        NumpadValue = "";
+        StateHasChanged();
     }
 
     void AddDiscountAmount(CartLine line)
     {
-        if (decimal.TryParse(NumpadValue, out var value) && value > 0)
+        if (!decimal.TryParse(
+            NumpadValue,
+            NumberStyles.Number,
+            CultureInfo.InvariantCulture,
+            out var value))
+            return;
+
+        if (value <= 0)
+            return;
+
+        var maxDiscount = line.BaseSalePrice;
+        if (value > maxDiscount)
+            value = maxDiscount;
+
+        RemoveDiscountAdjustments(line);
+
+        line.Adjustments.Add(new CartAdjustment
         {
-            line.Adjustments.Add(new CartAdjustment
-            {
-                Type = AdjustmentType.DiscountAmount,
-                Value = value
-            });
-            NumpadValue = "";
-        }
+            Type = AdjustmentType.DiscountAmount,
+            Value = value
+        });
+
+        NumpadValue = "";
+        StateHasChanged();
     }
 
+    void RemoveDiscountAdjustments(CartLine line)
+    {
+        line.Adjustments.RemoveAll(a =>
+            a.Type == AdjustmentType.DiscountPercent ||
+            a.Type == AdjustmentType.DiscountAmount);
+    }
     // PAYMENT MODAL METHODS
     void OpenPaymentModal()
     {
@@ -1161,6 +1299,10 @@
         currentPaymentInput = "";
         isChangeValidated = false;
         showPaymentPreview = false;
+        paidAmount = 0;
+        changeAmount = 0;
+        remainingAmount = TotalAmount;
+        currentPaymentType = PaymentType.Cash;
         StateHasChanged();
     }
 
@@ -1193,33 +1335,45 @@
         StateHasChanged();
     }
 
-    // PAYMENT ADDING METHODS
-    void AddPayment()
+    async Task AddPayment()
     {
-        if (string.IsNullOrEmpty(currentPaymentInput) ||
-            !decimal.TryParse(currentPaymentInput, out var amount) ||
-            amount <= 0)
+        if (remainingAmount <= 0)
             return;
 
-        // Masquer le preview avant d'ajouter
+        if (string.IsNullOrWhiteSpace(currentPaymentInput))
+            return;
+
+        if (!decimal.TryParse(
+            currentPaymentInput,
+            NumberStyles.Number,
+            CultureInfo.InvariantCulture,
+            out var amount))
+            return;
+
+
+        if (amount <= 0)
+            return;
+
+        if (currentPaymentType != PaymentType.Cash && amount > remainingAmount)
+        {
+            await JS.InvokeVoidAsync("alert", "Payment exceeds remaining balance.");
+            return;
+        }
         showPaymentPreview = false;
 
-        // Logique différente selon le type de paiement et le montant
+        // paiement cash avec rendu monnaie
         if (currentPaymentType == PaymentType.Cash && amount > remainingAmount)
         {
-            // CAS 1: Paiement cash avec trop d'argent
-            AddPaymentWithChange(amount);
+            await AddPaymentWithChange(amount);
         }
         else
         {
-            // CAS 2: Montant normal (inférieur ou égal au restant)
             AddNormalPayment(amount);
         }
 
-        // Validate state after adding payment
         if (!ValidatePaymentState())
         {
-            Console.WriteLine("WARNING: Payment state validation failed!");
+            throw new InvalidOperationException("Payment state validation failed.");
         }
     }
 
@@ -1229,50 +1383,40 @@
         {
             Type = currentPaymentType,
             Amount = amount,
-            Timestamp = DateTime.Now
+            AmountReceived = amount,
+            Timestamp = DateTime.UtcNow
         };
 
         paymentEntries.Add(paymentEntry);
-        remainingAmount -= amount;
-        paidAmount += amount;
 
-        // Réinitialiser l'input
+        RecalculateAll();
+
         currentPaymentInput = "";
         showPaymentPreview = false;
         StateHasChanged();
     }
 
-    void AddPaymentWithChange(decimal amountGiven)
+    async Task AddPaymentWithChange(decimal amountGiven)
     {
-        // CALCULATE THE CORRECT CHANGE
-        decimal change = amountGiven - remainingAmount;
+        var applied = remainingAmount;
 
-        // Ensure change is not negative
-        if (change < 0)
-        {
-            change = 0;
-        }
-
-        // Add payment for the full remaining amount
         var paymentEntry = new PaymentEntry
         {
             Type = currentPaymentType,
-            Amount = remainingAmount,
-            Timestamp = DateTime.Now
+            Amount = applied,
+            AmountReceived = amountGiven,
+            Timestamp = DateTime.UtcNow
         };
 
         paymentEntries.Add(paymentEntry);
-        paidAmount += remainingAmount;
-        remainingAmount = 0;
-        changeAmount = change;
 
-        // AUTO-VALIDATE CHANGE FOR WALK-IN CUSTOMERS
+        RecalculateAll();
+
         if (SelectedCustomer == null && changeAmount > 0)
         {
-            isChangeValidated = true; // ADD THIS LINE
+            isChangeValidated = true;
         }
 
-        // Show change alert
         if (changeAmount > 0)
         {
             var denominations = CalculateChangeDenominations(changeAmount);
@@ -1280,7 +1424,7 @@
                 denominations.Where(d => d.Value > 0)
                              .Select(d => $"{d.Value} × €{d.Key}"));
 
-            ShowChangeAlert(change, denominationText);
+            await ShowChangeAlert(changeAmount, denominationText);
         }
 
         currentPaymentInput = "";
@@ -1288,11 +1432,11 @@
         StateHasChanged();
     }
 
-    private async void ShowChangeAlert(decimal change, string denominationText)
+    private async Task ShowChangeAlert(decimal change, string denominationText)
     {
         var message = $"Payment added successfully!\n\n" +
-                     $"Amount taken: €{paidAmount:F2}\n" +
-                     $"Change due: €{change:F2}";
+                      $"Amount taken: €{paidAmount:F2}\n" +
+                      $"Change due: €{change:F2}";
 
         if (!string.IsNullOrEmpty(denominationText))
         {
@@ -1302,10 +1446,10 @@
         await JS.InvokeVoidAsync("alert", message);
     }
 
-    void PayExactAmount()
+    async Task PayExactAmount()
     {
-        currentPaymentInput = remainingAmount.ToString("F2");
-        AddNormalPayment(remainingAmount);
+        currentPaymentInput = remainingAmount.ToString("F2", CultureInfo.InvariantCulture);
+        await AddPayment();
     }
 
     // PAYMENT MANAGEMENT
@@ -1325,11 +1469,8 @@
 
     private void RecalculateAll()
     {
-        // Recalculate paid amount from scratch
         paidAmount = paymentEntries.Sum(p => p.Amount);
-        remainingAmount = TotalAmount - paidAmount;
-
-        // Recalculate change
+        remainingAmount = Math.Max(0, TotalAmount - paidAmount);
         RecalculateChange();
     }
 
@@ -1355,7 +1496,7 @@
     // UTILITY METHODS
     void SetPaymentAmount(decimal amount)
     {
-        currentPaymentInput = amount.ToString("F2");
+        currentPaymentInput = amount.ToString("F2", CultureInfo.InvariantCulture);
         showPaymentPreview = !string.IsNullOrEmpty(currentPaymentInput);
         StateHasChanged();
     }
@@ -1422,9 +1563,9 @@
             _ => "Other"
         };
     }
+
     private bool ValidatePaymentState()
     {
-        // Check 1: paidAmount should equal sum of all payment entries
         var calculatedPaid = paymentEntries.Sum(p => p.Amount);
         if (Math.Abs(paidAmount - calculatedPaid) > 0.01m)
         {
@@ -1432,31 +1573,29 @@
             return false;
         }
 
-        // Check 2: remainingAmount should be TotalAmount - paidAmount
-        var calculatedRemaining = TotalAmount - paidAmount;
+        var calculatedRemaining = Math.Max(0, TotalAmount - paidAmount);
         if (Math.Abs(remainingAmount - calculatedRemaining) > 0.01m)
         {
             Console.WriteLine($"ERROR: remainingAmount mismatch. UI: {remainingAmount}, Calculated: {calculatedRemaining}");
             return false;
         }
 
-        // Check 3: changeAmount logic
-        var cashTotal = paymentEntries.Where(p => p.Type == PaymentType.Cash).Sum(p => p.Amount);
-        var nonCashTotal = paidAmount - cashTotal;
-        var expectedCashNeeded = TotalAmount - nonCashTotal;
+        var cashReceived = paymentEntries
+            .Where(p => p.Type == PaymentType.Cash)
+            .Sum(p => p.AmountReceived);
 
-        if (cashTotal > expectedCashNeeded)
+        var nonCashApplied = paymentEntries
+            .Where(p => p.Type != PaymentType.Cash)
+            .Sum(p => p.Amount);
+
+        var expectedCashNeeded = Math.Max(0, TotalAmount - nonCashApplied);
+        var expectedChange = cashReceived > expectedCashNeeded
+            ? cashReceived - expectedCashNeeded
+            : 0m;
+
+        if (Math.Abs(changeAmount - expectedChange) > 0.01m)
         {
-            var expectedChange = cashTotal - expectedCashNeeded;
-            if (Math.Abs(changeAmount - expectedChange) > 0.01m)
-            {
-                Console.WriteLine($"ERROR: changeAmount mismatch. UI: {changeAmount}, Expected: {expectedChange}");
-                return false;
-            }
-        }
-        else if (changeAmount > 0)
-        {
-            Console.WriteLine($"ERROR: changeAmount should be 0 when cash payment is not excessive");
+            Console.WriteLine($"ERROR: changeAmount mismatch. UI: {changeAmount}, Expected: {expectedChange}");
             return false;
         }
 
@@ -1466,44 +1605,74 @@
     // COMPLETE PAYMENT - MODIFIED FOR CREDIT LOGIC
     async Task CompletePayment()
     {
-        AddPayment();
-        // CREDIT MODE
-        if (currentPaymentType == PaymentType.Credit)
+        if (Lines.Count == 0)
         {
-            if (SelectedCustomer == null)
+            await JS.InvokeVoidAsync("alert", "No products in sale.");
+            return;
+        }
+
+        // Walk-in: paiement obligatoire
+        if (SelectedCustomer == null)
+        {
+            if (paymentEntries.Count == 0)
             {
-                await JS.InvokeVoidAsync("alert", "Credit requires a customer.");
+                await JS.InvokeVoidAsync("alert", "Walk-in customer must pay before completing the sale.");
                 return;
             }
-            paymentEntries.Clear();
-            paidAmount = 0;
-            remainingAmount = TotalAmount;
+
+            if (!ValidatePaymentState())
+            {
+                await JS.InvokeVoidAsync("alert", "Payment state is invalid.");
+                return;
+            }
+
+            if (remainingAmount > 0)
+            {
+                await JS.InvokeVoidAsync("alert", "Walk-in customer must pay the full amount.");
+                return;
+            }
         }
-        // WALK-IN MUST PAY FULL
-        if (SelectedCustomer == null && remainingAmount > 0)
+        else
         {
-            await JS.InvokeVoidAsync("alert",
-                "Walk-in customer must pay the full amount.");
-            return;
+            // Client sélectionné: si rien n'est payé, tout passe en crédit
+            if (paymentEntries.Count == 0)
+            {
+                paymentEntries.Add(new PaymentEntry
+                {
+                    Type = PaymentType.Credit,
+                    Amount = TotalAmount,
+                    Timestamp = DateTime.UtcNow
+                });
+
+                RecalculateAll();
+            }
+            // Client sélectionné: s'il reste un montant, ajouter le restant en crédit
+            else if (remainingAmount > 0)
+            {
+                paymentEntries.Add(new PaymentEntry
+                {
+                    Type = PaymentType.Credit,
+                    Amount = remainingAmount,
+                    Timestamp = DateTime.UtcNow
+                });
+
+                RecalculateAll();
+            }
+
+            if (!ValidatePaymentState())
+            {
+                await JS.InvokeVoidAsync("alert", "Payment state is invalid.");
+                return;
+            }
         }
-        // SANITY CHECK
-        if (paidAmount + remainingAmount != TotalAmount)
-        {
-            await JS.InvokeVoidAsync("alert", "Invalid payment state.");
-            return;
-        }
+
         IsSaving = true;
+
         try
         {
-            var cashAmount = paymentEntries
-                .Where(p => p.Type == PaymentType.Cash)
-                .Sum(p => p.Amount);
-            var cardAmount = paymentEntries
-                .Where(p => p.Type == PaymentType.Card)
-                .Sum(p => p.Amount);
-
             var request = new CreateCompleteSaleRequest
             {
+                PendingSaleId = CurrentPendingSaleId,
                 CustomerId = SelectedCustomer?.Id,
                 SaleDate = DateTime.UtcNow,
                 ChangeAmount = changeAmount,
@@ -1515,35 +1684,126 @@
                     VatRate = l.TaxRate,
                     DiscountPercent = l.CalculateDiscountPercent()
                 }).ToList(),
-
-                Payments = paymentEntries.Count > 0
-                    ? paymentEntries.Select(entry => new PaymentInfo
-                    {
-                        Amount = entry.Amount,
-                        PaymentMethod = entry.Type.ToString(), // "Cash", "Card", ou "Credit"
-                        Reference = $"{GetPaymentTypeName(entry.Type)} - {entry.Timestamp:HH:mm:ss}"
-                    }).ToList()
-                    : null
+                Payments = paymentEntries.Select(entry => new PaymentInfo
+                {
+                    Amount = entry.Amount,
+                    PaymentMethod = entry.Type.ToString(),
+                    Reference = $"{entry.Type} - {entry.Timestamp:HH:mm:ss}"
+                }).ToList()
             };
 
             var result = await SaleApi.CreateComplete(request);
 
             await JS.InvokeVoidAsync(
-                     "downloadFile",
-                     $"{result.Sale.InvoiceNumber}.pdf",
-                     "application/pdf",
-                     result.PdfBase64
-                 );
+                "downloadFile",
+                $"{result.Sale.InvoiceNumber}.pdf",
+                "application/pdf",
+                result.PdfBase64
+            );
 
+            ResetPayments();
             Reset();
+            CurrentPendingSaleId = null;
             ClosePaymentModal();
+            PendingTickets = await SaleApi.GetPending();
         }
         finally
         {
             IsSaving = false;
         }
     }
-// async Task CompletePayment()
+
+
+    async Task ResumePending(Guid id)
+    {
+        var sale = await SaleApi.GetPendingById(id);
+
+        Lines.Clear();
+
+        foreach (var line in sale.SaleLines)
+        {
+            var product = Products.FirstOrDefault(p => p.Id == line.ProductId);
+
+            Lines.Add(new CartLine
+            {
+                ProductId = line.ProductId,
+                ProductName = product?.CatalogName ?? "Unknown",
+                Quantity = (int)line.Quantity,
+                BaseSalePrice = line.UnitPrice,
+                TaxRate = line.VatRate
+            });
+        }
+
+        SelectedCustomer = Customers.FirstOrDefault(c => c.Id == sale.CustomerId);
+
+        CurrentPendingSaleId = sale.Id;
+
+        ShowPendingModal = false;
+        StateHasChanged();
+    }
+
+    async Task LoadPendingTickets()
+    {
+        if (Lines.Count == 0)
+        {
+            PendingTickets = await SaleApi.GetPending();
+            ShowPendingModal = true;
+        }
+        else
+        {
+            await JS.InvokeVoidAsync("alert", "Cart must be Empty.");
+        }
+    }
+
+    async Task SavePending()
+    {
+        if (Lines.Count == 0)
+            return;
+
+        IsSaving = true;
+
+        try
+        {
+            var request = new CreatePendingSaleRequest
+            {
+                CustomerId = SelectedCustomer?.Id,
+                SaleDate = DateTime.UtcNow,
+                SaleLines = Lines.Select(l => new SaleLineItem
+                {
+                    ProductId = l.ProductId,
+                    Quantity = l.Quantity,
+                    UnitPrice = l.BaseSalePrice,
+                    VatRate = l.TaxRate,
+                    DiscountPercent = l.CalculateDiscountPercent()
+                }).ToList()
+            };
+
+            if (CurrentPendingSaleId.HasValue)
+            {
+                await SaleApi.UpdatePending(CurrentPendingSaleId.Value, request);
+            }
+            else
+            {
+                var created = await SaleApi.CreatePending(request);
+                CurrentPendingSaleId = created.Id;
+            }
+
+            await JS.InvokeVoidAsync("alert", "Sale saved as pending.");
+
+            // RESET COMPLET
+            Lines.Clear();
+            SelectedCustomer = null;
+            SelectedLine = null;
+            CurrentPendingSaleId = null;
+
+            StateHasChanged();
+        }
+        finally
+        {
+            IsSaving = false;
+        }
+    }
+    // async Task CompletePayment()
     // {
     //     bool isCreditSelected = currentPaymentType == PaymentType.Credit;
     //     bool hasNoPayments = paymentEntries.Count == 0;
@@ -1731,30 +1991,25 @@
 
     private void RecalculateChange()
     {
-        // Reset change amount
         changeAmount = 0;
 
-        // Find cash payments
-        var cashPayments = paymentEntries.Where(p => p.Type == PaymentType.Cash).ToList();
+        var cashReceived = paymentEntries
+            .Where(p => p.Type == PaymentType.Cash)
+            .Sum(p => p.AmountReceived);
 
-        if (cashPayments.Any())
+        var nonCashApplied = paymentEntries
+            .Where(p => p.Type != PaymentType.Cash)
+            .Sum(p => p.Amount);
+
+        var totalDueInCash = Math.Max(0, TotalAmount - nonCashApplied);
+
+        if (cashReceived > totalDueInCash)
         {
-            // Calculate total cash paid
-            var totalCashPaid = cashPayments.Sum(p => p.Amount);
-
-            // Find other (non-cash) payments
-            var nonCashPaid = paidAmount - totalCashPaid;
-
-            // Calculate how much should have been paid in cash
-            var expectedCashPayment = TotalAmount - nonCashPaid;
-
-            // If more cash was given than needed, calculate change
-            if (totalCashPaid > expectedCashPayment)
-            {
-                changeAmount = totalCashPaid - expectedCashPayment;
-            }
+            changeAmount = cashReceived - totalDueInCash;
         }
     }
+
+
     string GeneratePaymentReference(decimal cash, decimal card, decimal credit, decimal change)
     {
         var parts = new List<string>();
@@ -1824,7 +2079,8 @@
     class PaymentEntry
     {
         public PaymentType Type { get; set; }
-        public decimal Amount { get; set; }
+        public decimal Amount { get; set; }            // montant appliqué à la vente
+        public decimal AmountReceived { get; set; }    // montant réellement donné
         public DateTime Timestamp { get; set; }
     }
 
@@ -1845,7 +2101,7 @@
 
         public decimal Apply(decimal basePrice)
         {
-            return Type switch
+            var result = Type switch
             {
                 AdjustmentType.PriceOverride => Value,
                 AdjustmentType.DiscountPercent => basePrice * (1 - Value / 100),
@@ -1853,18 +2109,20 @@
                 AdjustmentType.Fee => basePrice + Value,
                 _ => basePrice
             };
+
+            return Math.Max(0, result);
         }
 
         public string Display =>
-            Type switch
-            {
-                AdjustmentType.PriceOverride => $"Prix modifié → {Value:0.00} €",
-                AdjustmentType.DiscountPercent => $"Remise → -{Value} %",
-                AdjustmentType.DiscountAmount => $"Remise → -{Value:0.00} €",
-                AdjustmentType.Fee => $"Frais → +{Value:0.00} €",
-                AdjustmentType.Note => $"Note → {Note}",
-                _ => ""
-            };
+        Type switch
+        {
+            AdjustmentType.PriceOverride => $"Prix modifié → {Value:0.00} €",
+            AdjustmentType.DiscountPercent => $"Remise → -{Value:0.##} %",
+            AdjustmentType.DiscountAmount => $"Remise → -{Value:0.00} €",
+            AdjustmentType.Fee => $"Frais → +{Value:0.00} €",
+            AdjustmentType.Note => $"Note → {Note}",
+            _ => ""
+        };
     }
 
     class CartLine
@@ -1872,7 +2130,7 @@
         public Guid ProductId { get; set; }
         public string ProductName { get; set; } = "";
         public int Quantity { get; set; }
-        public decimal BaseSalePrice { get; set; }
+        public decimal BaseSalePrice { get; set; } // TTC
         public decimal TaxRate { get; set; }
         public bool IsExpanded { get; set; }
         public List<CartAdjustment> Adjustments { get; set; } = new();
@@ -1888,8 +2146,21 @@
             }
         }
 
-        public decimal Amount => Quantity * EffectiveUnitPrice;
-        public decimal TaxAmount => Amount * (TaxRate / 100);
+        public decimal Amount => Quantity * EffectiveUnitPrice; // TTC
+
+        public decimal TaxAmount
+        {
+            get
+            {
+                var divisor = 1m + (TaxRate / 100m);
+                if (divisor <= 0) return 0m;
+
+                var ht = Amount / divisor;
+                return Amount - ht;
+            }
+        }
+
+        public decimal AmountExclVat => Amount - TaxAmount;
 
         public decimal CalculateDiscountPercent()
         {

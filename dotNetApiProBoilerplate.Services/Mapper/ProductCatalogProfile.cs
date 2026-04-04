@@ -41,7 +41,9 @@ namespace Inventory.Services.Mapping
                 .ForMember(dest => dest.Manufacturer,
                     opt => opt.Condition(src => src.Manufacturer != null))
                 .ForMember(dest => dest.Description,
-                    opt => opt.Condition(src => src.Description != null));
+                    opt => opt.Condition(src => src.Description != null))
+                .ForMember(dest => dest.UnitOfMeasure,
+                    opt => opt.Condition(src => src.UnitOfMeasure != null));
 
             // =========================
             // RESULT

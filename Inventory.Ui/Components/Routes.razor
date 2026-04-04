@@ -1,15 +1,21 @@
 ﻿@using Inventory.Ui.Components.Pages
 @using Microsoft.AspNetCore.Components.Authorization
+
 <CascadingAuthenticationState>
     <Router AppAssembly="@typeof(MauiProgram).Assembly">
         <Found Context="routeData">
             <AuthorizeRouteView RouteData="@routeData"
                                 DefaultLayout="@typeof(Layout.MainLayout)">
+                <Authorizing>
+                    {{!-- Shown while GetAuthenticationStateAsync is still pending --}}
+                    <div style="display:flex;justify-content:center;align-items:center;height:100vh;">
+                        <span>Loading...</span>
+                    </div>
+                </Authorizing>
                 <NotAuthorized>
                     <RedirectToLogin />
                 </NotAuthorized>
             </AuthorizeRouteView>
-
             <FocusOnNavigate RouteData="@routeData" Selector="h1" />
         </Found>
     </Router>

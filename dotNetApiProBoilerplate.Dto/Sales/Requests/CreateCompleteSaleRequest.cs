@@ -13,6 +13,8 @@ namespace Inventory.Dto.Sales.Requests
         /// </summary>
         public Guid? CustomerId { get; set; }
 
+        public Guid? PendingSaleId { get; set; }
+
         /// <summary>
         /// Optional Loyalty Card ID to accumulate points
         /// </summary>

@@ -1,4 +1,5 @@
 ﻿using AutoMapper;
+using AutoMapper.QueryableExtensions;
 using Inventory.Domain.Entities;
 using Inventory.Dto.Pages.Results;
 using Inventory.Dto.Queries;
@@ -185,13 +186,22 @@ namespace Inventory.Services
         {
             var tenantId = _tenantContext.TenantId;
 
-            if (query.Page < 1 || query.PageSize < 1 || query.PageSize > 100)
+            if (query.Page < 1)
             {
                 throw new ValidationException(new Dictionary<string, string[]>
                 {
-                    { "Paging", new[] { "Invalid paging parameters." } }
+                    {"Page", new[]{"Page must be greater than or equal to 1."} }
                 });
             }
+
+            if (query.PageSize < 1 || query.PageSize > 100)
+            {
+                throw new ValidationException(new Dictionary<string, string[]>
+                {
+                    {"PageSize",new[]{"PageSize must be between 1 and 100."} }
+                });
+            }
+
 
             var queryable = _readRepo
                             .Query()
@@ -199,36 +209,41 @@ namespace Inventory.Services
                             .ThenInclude(p => p.CatalogProduct)
                             .Where(s => !s.IsDeleted && s.TenantId == tenantId);
 
-
             if (!string.IsNullOrWhiteSpace(query.Search))
             {
                 var search = query.Search.Trim().ToLower();
 
                 queryable = queryable.Where(s =>
-                    s.Product.Name.ToLower().Contains(search) ||
-                    s.Product.CatalogProduct.Name.ToLower().Contains(search)
+                EF.Functions.ILike(s.Product.Name, $"%{search}%") ||
+                EF.Functions.ILike(s.Product.CatalogProduct.Name, $"%{search}%")
                 );
             }
 
-
-            if (query.ProductId.HasValue)
+            queryable = query.SortBy?.ToLower() switch
             {
-                queryable = queryable.Where(s => s.ProductId == query.ProductId.Value);
-            }
+                "name" => query.Desc
+                    ? queryable.OrderByDescending(s => s.Product.Name)
+                    : queryable.OrderBy(s => s.Product.Name),
 
-            queryable = queryable.OrderBy(s => s.ProductId);
+                "barcode" => query.Desc
+                    ? queryable.OrderByDescending(s => s.Product.Barcode)
+                    : queryable.OrderBy(s => s.Product.Barcode),
+
+                _ => queryable.OrderBy(s => s.Product.Name)
+            };
 
             var total = await queryable.CountAsync();
 
             var items = await queryable
                 .Skip((query.Page - 1) * query.PageSize)
                 .Take(query.PageSize)
+                .ProjectTo<StockResult>(_mapper.ConfigurationProvider)
                 .ToListAsync();
 
 
             return new PagedResult<StockResult>
             {
-                Items = _mapper.Map<List<StockResult>>(items),
+                Items = items,
                 TotalCount = total,
                 Page = query.Page,
                 PageSize = query.PageSize

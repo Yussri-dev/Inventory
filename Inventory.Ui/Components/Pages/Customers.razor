@@ -35,44 +35,58 @@
                 <div class="form-row">
                     <div class="form-field">
                         <label>Name *</label>
-                        <InputText @bind-Value="form.Name" disabled="@isLoading" />
+                        <InputText @bind-Value="form.Name"
+                                   class="inputText"
+                                   disabled="@isLoading" />
                         <ValidationMessage For="@(() => form.Name)" />
                     </div>
 
                     <div class="form-field">
                         <label>Email</label>
-                        <InputText type="email" @bind-Value="form.Email" disabled="@isLoading" />
+                        <InputText type="email" @bind-Value="form.Email"
+                                   class="inputText"
+                                   disabled="@isLoading" />
                     </div>
                 </div>
 
                 <div class="form-row">
                     <div class="form-field">
                         <label>Phone</label>
-                        <InputText @bind-Value="form.Phone" disabled="@isLoading" />
+                        <InputText @bind-Value="form.Phone"
+                                   class="inputText"
+                                   disabled="@isLoading" />
                     </div>
 
                     <div class="form-field">
                         <label>Tax Number</label>
-                        <InputText @bind-Value="form.TaxNumber" disabled="@isLoading" />
+                        <InputText @bind-Value="form.TaxNumber"
+                                   class="inputText"
+                                   disabled="@isLoading" />
                     </div>
                 </div>
 
                 <div class="form-row">
                     <div class="form-field">
                         <label>Address</label>
-                        <InputText @bind-Value="form.Address" disabled="@isLoading" />
+                        <InputText @bind-Value="form.Address" 
+                        class="inputText"
+                        disabled="@isLoading" />
                     </div>
 
                     <div class="form-field">
                         <label>Credit Limit</label>
-                        <InputNumber @bind-Value="form.CreditLimit" disabled="@isLoading" />
+                        <InputNumber @bind-Value="form.CreditLimit" 
+                        class="inputText"
+                        disabled="@isLoading" />
                     </div>
                 </div>
 
                 <div class="form-row">
                     <div class="form-field">
                         <label>Notes</label>
-                        <InputTextArea @bind-Value="form.Notes" disabled="@isLoading" />
+                        <InputTextArea @bind-Value="form.Notes" 
+                        class="inputText"
+                        disabled="@isLoading" />
                     </div>
 
                     <div class="form-field">
@@ -121,10 +135,34 @@
     }
     else if (items is null || items.Count == 0)
     {
-        <p>No customers found.</p>
+        <p>@(isSearching ? "No Customer found matching your search." : "No Customer.")</p>
     }
     else
     {
+        <div class="pager">
+            <button class="btn ghost" disabled="@(Page == 1)"
+                    @onclick="() => ChangePage(Page - 1)">
+                Prev
+            </button>
+
+            <span class="muted">
+                Page @Page / @(Math.Ceiling((double)TotalCount / PageSize))
+            </span>
+
+            <button class="btn ghost"
+                    disabled="@(Page* PageSize >= TotalCount)"
+                    @onclick="() => ChangePage(Page + 1)">
+                Next
+            </button>
+        </div>
+        <div class="results-header">
+            <span>@items.Count product(s) found</span>
+            @if (isSearching)
+            {
+                <button class="btn small ghost" @onclick="ClearSearch">Show All</button>
+            }
+        </div>
+
         <table class="table">
             <thead>
                 <tr>
@@ -183,28 +221,71 @@
 
     private bool isLoading;
     private bool isLoadingData;
+    private bool isSearching;
     private bool showDelete;
 
     private string? errorMessage;
     private string? successMessage;
     private string searchTerm = string.Empty;
 
+    int Page = 1;
+    int PageSize = 10;
+    int TotalCount;
+
     private CustomerResult? customerToDelete;
 
     protected override async Task OnInitializedAsync()
-        => await LoadAll();
+        => await LoadData();
 
-    private async Task LoadAll()
-    {
-        isLoadingData = true;
-        items = await Api.GetAll();
-        isLoadingData = false;
-    }
 
     private async Task Search()
     {
-        var result = await Api.Search(new CustomerQuery { Search = searchTerm });
-        items = result.Items.ToList();
+        if (string.IsNullOrWhiteSpace(searchTerm))
+        {
+            isSearching = false;
+            Page = 1;
+            await LoadData();
+            return;
+        }
+        isSearching = true;
+        Page = 1;
+        await LoadData();
+    }
+
+    async Task ChangePage(int newPage)
+    {
+        Page = newPage;
+        await LoadData();
+    }
+    private async Task LoadData()
+    {
+        try
+        {
+            isLoadingData = true;
+            errorMessage = null;
+
+            var query = new CustomerQuery
+            {
+                Page = Page,
+                PageSize = PageSize,
+                Search = isSearching ? searchTerm : null
+            };
+
+            var response = await Api.Search(query);
+
+            items = response.Items?.ToList() ?? new List<CustomerResult>();
+            TotalCount = response.TotalCount;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Failed to load Customers : {ex.Message}";
+            items = new List<CustomerResult>();
+            throw;
+        }
+        finally
+        {
+            isLoadingData = false;
+        }
     }
 
     private async Task HandleSubmit()
@@ -215,7 +296,7 @@
             await Api.Update(editingId.Value, form.ToUpdate(editingId.Value));
 
         Reset();
-        await LoadAll();
+        await LoadData();
     }
 
     private void StartEdit(CustomerResult c)
@@ -234,7 +315,7 @@
     {
         await Api.Delete(customerToDelete!.Id);
         showDelete = false;
-        await LoadAll();
+        await LoadData();
     }
 
     private async Task OnSearchKeyUp(KeyboardEventArgs e)
@@ -248,7 +329,7 @@
     private async Task ClearSearch()
     {
         searchTerm = string.Empty;
-        await LoadAll();
+        await LoadData();
     }
 
     private void CancelDelete() => showDelete = false;

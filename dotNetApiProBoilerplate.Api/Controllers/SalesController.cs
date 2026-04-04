@@ -48,6 +48,30 @@ namespace Inventory.Api.Controllers
             );
         }
 
+        [HttpPost("Pending")]
+        [ProducesResponseType(typeof(SaleResult), StatusCodes.Status201Created)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
+        public async Task<IActionResult> CreatePending(
+            [FromBody] CreatePendingSaleRequest request,
+            CancellationToken cancellationToken)
+        {
+            if (!ModelState.IsValid)
+            {
+                return BadRequest(ModelState);
+            }
+
+            var result = await _saleService.CreatePendingAsync(request);
+
+            return Ok(result);
+        }
+
+        [HttpGet("pending/{id}")]
+        public async Task<IActionResult> GetPendingById(Guid id)
+        {
+            var result = await _saleService.GetPendingByIdAsync(id);
+            return Ok(result);
+        }
         //[HttpGet("{id:guid}/ticket")]
         //public async Task<IActionResult> PrintTicket(Guid id)
         //{
@@ -65,7 +89,7 @@ namespace Inventory.Api.Controllers
         [ProducesResponseType(typeof(SaleResult), StatusCodes.Status201Created)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
-        public async Task<IActionResult> CreateComplete(    [FromBody] CreateCompleteSaleRequest request)
+        public async Task<IActionResult> CreateComplete([FromBody] CreateCompleteSaleRequest request)
         {
             if (!ModelState.IsValid)
                 return BadRequest(ModelState);
@@ -82,6 +106,15 @@ namespace Inventory.Api.Controllers
             });
         }
 
+        [HttpGet("{id:guid}/ticket")]
+        public async Task<IActionResult> GetTicket(Guid id)
+        {
+            var ticket = await _saleService.BuildTicketAsync(id);
+            var pdf = _ticketFormatter.Format(ticket);
+
+            return File(pdf, "application/pdf", $"{ticket.InvoiceNumber}.pdf");
+        }
+
         // =========================
         // GET BY ID
         // =========================
@@ -95,6 +128,26 @@ namespace Inventory.Api.Controllers
         }
 
         // =========================
+        // Get Sale By Customer
+        // =========================
+        [HttpGet("by-customer/{customerId:guid}")]
+        [ProducesResponseType(typeof(PagedResult<SaleResult>), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        public async Task<IActionResult> GetByCustomer(
+            Guid customerId,
+            [FromQuery] CustomerSaleQuery query)
+        {
+            if (customerId == Guid.Empty)
+                return BadRequest("Invalid customer id.");
+
+            query.CustomerId = customerId;
+
+            var result = await _saleService.GetByCustomerAsync(query);
+
+            return Ok(result);
+        }
+
+        // =========================
         // GET ALL
         // =========================
         [HttpGet]
@@ -102,6 +155,16 @@ namespace Inventory.Api.Controllers
         public async Task<IActionResult> GetAll()
         {
             var result = await _saleService.GetAllAsync();
+            return Ok(result);
+        }
+        // =========================
+        // GET ALL PENDING
+        // =========================
+        [HttpGet("pending")]
+        [ProducesResponseType(typeof(List<SaleResult>), StatusCodes.Status200OK)]
+        public async Task<IActionResult> GetPendingAsync()
+        {
+            var result = await _saleService.GetPendingAsync();
             return Ok(result);
         }
 
@@ -121,6 +184,15 @@ namespace Inventory.Api.Controllers
                 return BadRequest(ModelState);
 
             var result = await _saleService.UpdateAsync(id, request);
+            return Ok(result);
+        }
+
+        [HttpPut("pending/{id:guid}")]
+        public async Task<IActionResult> UpdatePending(
+    Guid id,
+    [FromBody] CreatePendingSaleRequest request)
+        {
+            var result = await _saleService.UpdatePendingAsync(id, request);
             return Ok(result);
         }
 
@@ -148,5 +220,13 @@ namespace Inventory.Api.Controllers
             var result = await _saleService.QueryAsync(query);
             return Ok(result);
         }
+
+        [HttpGet("history")]
+        public async Task<IActionResult> GetHistory([FromQuery] SaleHistoryQuery query)
+        {
+            var result = await _saleService.GetHistoryAsync(query);
+            return Ok(result);
+        }
+
     }
 }

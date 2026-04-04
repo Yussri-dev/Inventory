@@ -1,5 +1,6 @@
 ﻿
 using Inventory.Dto.Enums;
+using Inventory.Dto.SaleLines.Results;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
@@ -35,5 +36,7 @@ namespace Inventory.Dto.Sales.Results
         public DateTime SaleDate { get; set; }
 
         public string? Notes { get; set; }
+
+        public List<SaleLineResult> SaleLines { get; set; } = new();
     }
 }

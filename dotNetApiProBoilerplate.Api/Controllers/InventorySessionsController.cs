@@ -1,11 +1,13 @@
 ﻿using Inventory.Dto.InventorySessions.Requests;
 using Inventory.Dto.Queries;
+using Inventory.Services.Features.InventorySessions.Close;
 using Inventory.Services.Features.InventorySessions.Create;
 using Inventory.Services.Features.InventorySessions.Delete;
 using Inventory.Services.Features.InventorySessions.GetAll;
 using Inventory.Services.Features.InventorySessions.GetById;
 using Inventory.Services.Features.InventorySessions.Search;
 using Inventory.Services.Features.InventorySessions.Update;
+using Inventory.Services.Features.InventorySessions.Validate;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -99,6 +101,20 @@ namespace Inventory.Api.Controllers
                 new DeleteInventorySessionCommand(id),
                 cancellationToken
             );
+            return NoContent();
+        }
+
+        [HttpPost("{id:guid}/close")]
+        public async Task<IActionResult> Close(Guid id, CancellationToken cancellationToken)
+        {
+            await _mediator.Send(new CloseInventorySessionCommand(id), cancellationToken);
+            return NoContent();
+        }
+
+        [HttpPost("{id:guid}/validate")]
+        public async Task<IActionResult> Validate(Guid id, CancellationToken cancellationToken)
+        {
+            await _mediator.Send(new ValidateInventorySessionCommand(id), cancellationToken);
             return NoContent();
         }
 

@@ -1,5 +1,6 @@
 ﻿using Inventory.Dto.Auth.Requests;
 using Inventory.Dto.Auth.Results;
+using Inventory.Dto.Enums;
 using Inventory.Services.Features.Auth.ChangePassword;
 using Inventory.Services.Features.Auth.Login;
 using Inventory.Services.Features.Auth.Refresh;
@@ -47,6 +48,39 @@ namespace Inventory.Api.Controllers
         /// <summary>
         /// Register a new user to an existing company (Admin only)
         /// </summary>
+        //[HttpPost("register/user")]
+        //[Authorize(Roles = "Admin,SuperAdmin")]
+        //[ProducesResponseType(typeof(AuthResult), StatusCodes.Status200OK)]
+        //[ProducesResponseType(StatusCodes.Status400BadRequest)]
+        //[ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        //[ProducesResponseType(StatusCodes.Status403Forbidden)]
+        //[ProducesResponseType(StatusCodes.Status409Conflict)]
+        //public async Task<IActionResult> RegisterUser(
+        //    [FromBody] RegisterUserRequest request,
+        //    CancellationToken cancellationToken)
+        //{
+        //    if (!ModelState.IsValid)
+        //        return BadRequest(ModelState);
+
+        //    // Get current admin user ID and tenant ID from token
+        //    var currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        //    var tenantId = User.FindFirstValue("TenantId");
+
+        //    if (string.IsNullOrEmpty(currentUserId) || string.IsNullOrEmpty(tenantId))
+        //        return Unauthorized();
+
+        //    // Auto-set tenant ID and creator from admin's token
+        //    request.TenantId = Guid.Parse(tenantId);
+        //    request.CreatedByUserId = Guid.Parse(currentUserId);
+
+        //    var result = await _mediator.Send(
+        //        new RegisterUserCommand(request),
+        //        cancellationToken
+        //    );
+
+        //    return Ok(result);
+        //}
+
         [HttpPost("register/user")]
         [Authorize(Roles = "Admin,SuperAdmin")]
         [ProducesResponseType(typeof(AuthResult), StatusCodes.Status200OK)]
@@ -55,30 +89,33 @@ namespace Inventory.Api.Controllers
         [ProducesResponseType(StatusCodes.Status403Forbidden)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
         public async Task<IActionResult> RegisterUser(
-            [FromBody] RegisterUserRequest request,
-            CancellationToken cancellationToken)
+    [FromBody] RegisterUserRequest request,
+    CancellationToken cancellationToken)
         {
             if (!ModelState.IsValid)
                 return BadRequest(ModelState);
 
-            // Get current admin user ID and tenant ID from token
             var currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
             var tenantId = User.FindFirstValue("TenantId");
+            var currentRole = User.FindFirstValue(ClaimTypes.Role);
 
-            if (string.IsNullOrEmpty(currentUserId) || string.IsNullOrEmpty(tenantId))
+            if (string.IsNullOrEmpty(currentUserId))
                 return Unauthorized();
 
-            // Auto-set tenant ID and creator from admin's token
-            request.TenantId = Guid.Parse(tenantId);
+            // Rôles qu'un Admin peut créer
+            var allowedRoles = new[] { UserRole.Manager, UserRole.Cashier, UserRole.StockManager, UserRole.Viewer };
+
+            if (currentRole == "Admin" && !allowedRoles.Contains(request.Role))
+                return Forbid(); // Ne peut pas créer Admin ou SuperAdmin
+
+            request.TenantId = Guid.Parse(tenantId!);
             request.CreatedByUserId = Guid.Parse(currentUserId);
 
-            var result = await _mediator.Send(
-                new RegisterUserCommand(request),
-                cancellationToken
-            );
+            var result = await _mediator.Send(new RegisterUserCommand(request), cancellationToken);
 
             return Ok(result);
         }
+
 
         /// <summary>
         /// Login with email and password
@@ -186,6 +223,8 @@ namespace Inventory.Api.Controllers
                 })
             });
         }
+
+
     }
 
    

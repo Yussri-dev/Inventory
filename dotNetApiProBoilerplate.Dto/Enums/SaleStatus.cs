@@ -6,6 +6,7 @@
         Completed,
         PartiallyPaid,
         Cancelled,
-        Refunded
+        Refunded,
+        Pending
     }
 }

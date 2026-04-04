@@ -1,6 +1,5 @@
 ﻿using Inventory.Dto.Sales.Results;
 using Inventory.Dto.Sales.Requests;
-using Inventory.Services.Features.Sales.Create;
 using MediatR;
 
 namespace Inventory.Services.Features.Sales.Create

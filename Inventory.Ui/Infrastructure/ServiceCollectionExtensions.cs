@@ -9,7 +9,8 @@ namespace Inventory.Ui.Infrastructure
     {
         public static IServiceCollection AddSecuredApi<T>(
             this IServiceCollection services,
-            string baseUrl
+            string baseUrl,
+            bool withRefresh = true
         ) where T : class
         {
             var jsonOptions = new JsonSerializerOptions
@@ -40,6 +41,12 @@ namespace Inventory.Ui.Infrastructure
                         HttpClientHandler.DangerousAcceptAnyServerCertificateValidator
                 });
 #endif
+
+            if (withRefresh)
+            {
+                http.AddHttpMessageHandler<RefreshTokenHandler>();
+                http.AddHttpMessageHandler<AuthExpiredHandler>();
+            }
 
             http.AddHttpMessageHandler<AuthHeaderHandler>();
 

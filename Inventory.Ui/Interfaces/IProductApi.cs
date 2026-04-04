@@ -34,5 +34,8 @@ namespace Inventory.Ui.Interfaces
         [Get("/api/v1/products/search")]
         Task<PagedResult<ProductResult>> Search(
             [Query] ProductQuery query);
+
+        [Get("/api/v1/products/{id}/label")]
+        Task<HttpResponseMessage> GetLabel(Guid id);
     }
 }

@@ -29,7 +29,7 @@ namespace Inventory.Api.Controllers
         // CREATE – SuperAdmin only
         // =========================
         [HttpPost]
-        [Authorize(Roles = "SuperAdmin")]
+        ////[Authorize(Roles = "SuperAdmin")]
         [ProducesResponseType(typeof(object), StatusCodes.Status201Created)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status403Forbidden)]
@@ -91,7 +91,7 @@ namespace Inventory.Api.Controllers
         // UPDATE – SuperAdmin only
         // =========================
         [HttpPut("{id:guid}")]
-        [Authorize(Roles = "SuperAdmin")]
+        //[Authorize(Roles = "SuperAdmin")]
         [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status403Forbidden)]
@@ -117,7 +117,7 @@ namespace Inventory.Api.Controllers
         // DELETE – SuperAdmin only
         // =========================
         [HttpDelete("{id:guid}")]
-        [Authorize(Roles = "SuperAdmin")]
+        //[Authorize(Roles = "SuperAdmin")]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status403Forbidden)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]

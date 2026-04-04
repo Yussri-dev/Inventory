@@ -1,8 +1,8 @@
 ﻿@using System.Security.Claims
-@using Inventory.Ui.Services
+@using Inventory.Ui.Authentification
+@using Microsoft.AspNetCore.Components.Authorization
 @inherits LayoutComponentBase
-
-@inject ISecureStorageService StorageService
+@inject AuthenticationStateProvider AuthStateProvider
 @inject NavigationManager NavigationManager
 @inject IJSRuntime JS
 
@@ -21,7 +21,6 @@ else
         <NavMenu UserName="@UserName"
                  IsAuthenticated="@IsLoggedIn"
                  OnLogout="@ConfirmLogout" />
-
         <main class="inv-content">
             @Body
         </main>
@@ -34,57 +33,33 @@ else
     private string? UserName;
 
     protected override async Task OnInitializedAsync()
-        => await InitializeAuthAsync();
-
-    private async Task InitializeAuthAsync()
     {
-        try
+        // Use the CACHED auth state — no direct storage read, no forceLoad redirect
+        var state = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = state.User;
+
+        if (user.Identity?.IsAuthenticated == true)
         {
-            var token = await StorageService.GetTokenAsync();
-            if (string.IsNullOrWhiteSpace(token))
-            {
-                RedirectToLogin();
-                return;
-            }
-
-            var claims = ParseJwtClaims(token);
-
-            UserName =
-                claims.FirstOrDefault(c => c.Type.Equals("email", StringComparison.OrdinalIgnoreCase))?.Value
-                ?? claims.FirstOrDefault(c => c.Type.Equals("name", StringComparison.OrdinalIgnoreCase))?.Value
-                ?? "User";
-
             IsLoggedIn = true;
+            UserName = user.FindFirst("email")?.Value
+                    ?? user.FindFirst("name")?.Value
+                    ?? user.Identity.Name
+                    ?? "User";
         }
-        catch
-        {
-            await StorageService.RemoveTokenAsync();
-            RedirectToLogin();
-        }
-        finally
-        {
-            IsInitialized = true;
-        }
-    }
+        // If not authenticated, AuthorizeRouteView handles the redirect
+        // via <NotAuthorized> — do NOT redirect here
 
-    private static IEnumerable<Claim> ParseJwtClaims(string jwt)
-    {
-        var payload = jwt.Split('.')[1];
-        var json = System.Text.Encoding.UTF8.GetString(
-            Convert.FromBase64String(payload.PadRight(payload.Length + (4 - payload.Length % 4) % 4, '=')));
-        var dict = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, object>>(json) ?? new();
-        return dict.Select(k => new Claim(k.Key, k.Value?.ToString() ?? ""));
+        IsInitialized = true;
     }
-
-    private void RedirectToLogin()
-        => NavigationManager.NavigateTo("/login", true);
 
     private async Task ConfirmLogout()
     {
         if (await JS.InvokeAsync<bool>("confirm", "Log out?"))
         {
-            await StorageService.RemoveTokenAsync();
-            NavigationManager.NavigateTo("/login", true);
+            if (AuthStateProvider is JwtAuthStateProvider jwt)
+                await jwt.LogoutAsync();
+            else
+                NavigationManager.NavigateTo("/login", replace: true);
         }
     }
 }

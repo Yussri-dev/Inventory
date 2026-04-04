@@ -33,6 +33,7 @@
                     <div class="form-field">
                         <label>Name *</label>
                         <InputText placeholder="Supplier name"
+                                   class="inputText"
                                    @bind-Value="form.Name"
                                    disabled="@isLoading" />
                         <ValidationMessage For="@(() => form.Name)" />
@@ -41,6 +42,7 @@
                     <div class="form-field">
                         <label>Email</label>
                         <InputText placeholder="email@example.com"
+                                   class="inputText"
                                    type="email"
                                    @bind-Value="form.Email"
                                    disabled="@isLoading" />
@@ -52,6 +54,7 @@
                     <div class="form-field">
                         <label>Phone</label>
                         <InputText placeholder="+1 234 567 8900"
+                                   class="inputText"
                                    @bind-Value="form.Phone"
                                    disabled="@isLoading" />
                         <ValidationMessage For="@(() => form.Phone)" />
@@ -60,6 +63,7 @@
                     <div class="form-field">
                         <label>Tax Number</label>
                         <InputText placeholder="Tax identification number"
+                                   class="inputText"
                                    @bind-Value="form.TaxNumber"
                                    disabled="@isLoading" />
                         <ValidationMessage For="@(() => form.TaxNumber)" />
@@ -70,6 +74,7 @@
                     <div class="form-field">
                         <label>Country</label>
                         <InputText placeholder="Country"
+                                   class="inputText"
                                    @bind-Value="form.Country"
                                    disabled="@isLoading" />
                         <ValidationMessage For="@(() => form.Country)" />
@@ -78,6 +83,7 @@
                     <div class="form-field">
                         <label>City</label>
                         <InputText placeholder="City"
+                                   class="inputText"
                                    @bind-Value="form.City"
                                    disabled="@isLoading" />
                         <ValidationMessage For="@(() => form.City)" />
@@ -88,6 +94,7 @@
                     <div class="form-field">
                         <label>Bank Account</label>
                         <InputText placeholder="Bank account number"
+                                   class="inputText"
                                    @bind-Value="form.BankAccount"
                                    disabled="@isLoading" />
                         <ValidationMessage For="@(() => form.BankAccount)" />
@@ -157,6 +164,22 @@
     }
     else
     {
+        <div class="pager">
+            <button class="btn ghost" disabled="@(Page == 1)"
+                    @onclick="() => ChangePage(Page - 1)">
+                Prev
+            </button>
+
+            <span class="muted">
+                Page @Page / @(Math.Ceiling((double)TotalCount / PageSize))
+            </span>
+
+            <button class="btn ghost"
+                    disabled="@(Page* PageSize >= TotalCount)"
+                    @onclick="() => ChangePage(Page + 1)">
+                Next
+            </button>
+        </div>
         <div class="results-header">
             <span>@items.Count supplier(s) found</span>
             @if (isSearching)
@@ -251,19 +274,34 @@
     private bool showDelete;
     private SupplierResult? supplierToDelete;
 
+
+    int Page = 1;
+    int PageSize = 10;
+    int TotalCount;
+
     protected override async Task OnInitializedAsync()
     {
-        await LoadAll();
+        await LoadData();
     }
 
-    private async Task LoadAll()
+    private async Task LoadData()
     {
         try
         {
             isLoadingData = true;
             errorMessage = null;
-            items = await Api.GetAll();
-            isSearching = false;
+
+            var query = new SupplierQuery
+            {
+                Page = Page,
+                PageSize = PageSize,
+                Search = isSearching ? searchTerm : null
+            };
+
+            var response = await Api.Search(query);
+
+            items = response.Items?.ToList() ?? new List<SupplierResult>();
+            TotalCount = response.TotalCount;
         }
         catch (Exception ex)
         {
@@ -276,11 +314,18 @@
         }
     }
 
+
+    async Task ChangePage(int newPage)
+    {
+        Page = newPage;
+        await LoadData();
+    }
+
     private async Task Search()
     {
         if (string.IsNullOrWhiteSpace(searchTerm))
         {
-            await LoadAll();
+            await LoadData();
             return;
         }
 
@@ -319,7 +364,7 @@
     private async Task ClearSearch()
     {
         searchTerm = string.Empty;
-        await LoadAll();
+        await LoadData();
     }
 
     private async Task HandleSubmit()
@@ -362,7 +407,7 @@
             }
             else
             {
-                await LoadAll();
+                await LoadData();
             }
         }
         catch (Exception ex)
@@ -407,7 +452,7 @@
             }
             else
             {
-                await LoadAll();
+                await LoadData();
             }
         }
         catch (Exception ex)
@@ -467,7 +512,7 @@
             }
             else
             {
-                await LoadAll();
+                await LoadData();
             }
         }
         catch (Exception ex)

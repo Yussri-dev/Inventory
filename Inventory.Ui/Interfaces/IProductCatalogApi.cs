@@ -34,7 +34,7 @@ namespace Inventory.Ui.Interfaces
         Task<HttpResponseMessage> Delete(Guid id);
 
         [Get("/api/v1/productcatalogs/search")]
-        Task<ApiResponse<PagedResult<ProductCatalogResult>>> Search(
+        Task<PagedResult<ProductCatalogResult>> Search(
             [Query] ProductCatalogQuery query);
     }
 

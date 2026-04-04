@@ -132,6 +132,23 @@ h3 {
             border-radius: 2px;
         }
 
+/* ========================================
+   PAGER
+   ======================================== */
+
+.pager {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.muted {
+    color: var(--muted);
+    font-size: 14px;
+}
+
+
 /* Form Styles */
 .form-grid {
     display: flex;
@@ -708,3 +725,22 @@ p {
             transform: none;
         }
 }
+
+/*==============================================*/
+/*button InputText*/
+/*==============================================*/
+::deep .inputText {
+    background: #ffffff;
+    border: 2px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    font-size: 14px;
+    color: var(--text);
+    transition: 0.2s;
+}
+
+    ::deep .inputText:focus {
+        outline: none;
+        border-color: var(--primary);
+        box-shadow: 0 0 0 3px rgba(13,110,253,0.1);
+    }

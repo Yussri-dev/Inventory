@@ -642,6 +642,9 @@ namespace Inventory.Infrastructure.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
+                    b.Property<int>("BarcodeType")
+                        .HasColumnType("integer");
+
                     b.Property<string>("Brand")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
@@ -680,8 +683,15 @@ namespace Inventory.Infrastructure.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
+                    b.Property<int>("SellingMode")
+                        .HasColumnType("integer");
+
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("UnitOfMeasure")
+                        .IsRequired()
+                        .HasColumnType("text");
 
                     b.HasKey("Id");
 

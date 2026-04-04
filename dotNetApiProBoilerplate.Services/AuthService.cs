@@ -315,15 +315,20 @@ namespace Inventory.Services
 
         private AuthResult GenerateResult(ApplicationUser user)
         {
-            var tenant = user.TenantId != null
-                ? _context.Tenants.FirstOrDefault(t => t.Id == user.TenantId)
+            var tenant = user.TenantId.HasValue
+                ? _context.Tenants.FirstOrDefault(t => t.Id == user.TenantId.Value)
                 : null;
+
+            Guid? tenantIdForToken = user.Role == UserRole.SuperAdmin
+                ? null
+                : user.TenantId;
+
             return new AuthResult
             {
                 AccessToken = _jwt.Generate(
                     user.Id,
                     user.Email!,
-                    user.TenantId,
+                    tenantIdForToken,
                     user.Role.ToString()
                 ),
                 ExpiresAt = DateTime.UtcNow.AddHours(2),
@@ -332,7 +337,6 @@ namespace Inventory.Services
                 TenantId = user.TenantId,
                 FullName = user.FullName,
                 Role = user.Role.ToString(),
-
                 TrialEndDate = tenant?.TrialEndDate,
                 IsTrialActive = tenant?.IsTrialActive ?? false
             };

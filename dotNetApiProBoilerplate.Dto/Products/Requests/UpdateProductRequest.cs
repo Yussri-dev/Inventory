@@ -10,15 +10,15 @@ namespace Inventory.Dto.Products.Requests
 
         public Guid? CatalogProductId { get; set; }
 
-        [Required]
-        [MaxLength(200)]
-        public string Name { get; set; } = null!;
+        //[Required]
+        //[MaxLength(200)]
+        //public string Name { get; set; } = null!;
 
-        [MaxLength(100)]
-        public string? Sku { get; set; }
+        //[MaxLength(100)]
+        //public string? Sku { get; set; }
 
-        [MaxLength(100)]
-        public string? Barcode { get; set; }
+        //[MaxLength(100)]
+        //public string? Barcode { get; set; }
 
         [MaxLength(1000)]
         public string? Description { get; set; }
@@ -26,8 +26,8 @@ namespace Inventory.Dto.Products.Requests
         [MaxLength(100)]
         public string? Category { get; set; }
 
-        [MaxLength(100)]
-        public string? Brand { get; set; }
+        //[MaxLength(100)]
+        //public string? Brand { get; set; }
 
         [Range(0, double.MaxValue)]
         public decimal SalePrice { get; set; }
@@ -50,15 +50,15 @@ namespace Inventory.Dto.Products.Requests
         [Range(0, double.MaxValue)]
         public decimal MaxStockLevel { get; set; }
 
-        [MaxLength(50)]
-        public string? Unit { get; set; }
+        //[MaxLength(50)]
+        //public string? Unit { get; set; }
 
         public ProductStatus IsActive { get; set; }
 
         public bool IsTracked { get; set; }
 
-        [MaxLength(500)]
-        //[Url]
-        public string? ImageUrl { get; set; }
+        //[MaxLength(500)]
+        ////[Url]
+        //public string? ImageUrl { get; set; }
     }
 }

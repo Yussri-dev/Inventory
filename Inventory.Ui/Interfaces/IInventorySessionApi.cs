@@ -29,5 +29,12 @@ namespace Inventory.Ui.Interfaces
         [Get("/api/v1/inventorySessions/search")]
         Task<PagedResult<InventorySessionResult>> Search(
             [Query] InventorySessionQuery query);
+
+        [Post("/api/v1/inventorySessions/{id}/close")]
+        Task Close(Guid id);
+
+        [Post("/api/v1/inventorySessions/{id}/validate")]
+        Task Validate(Guid id);
+
     }
 }

@@ -1,12 +1,17 @@
 ﻿using AutoMapper;
+using AutoMapper.QueryableExtensions;
+using Inventory.Domain.Barcodes;
 using Inventory.Domain.Entities;
+using Inventory.Dto.Pages.Results;
 using Inventory.Dto.ProductCatalogs.Requests;
 using Inventory.Dto.ProductCatalogs.Results;
-using Inventory.Dto.Pages.Results;
+using Inventory.Dto.Products.Results;
 using Inventory.Dto.Queries;
 using Inventory.Infrastructure.Repositories;
 using Inventory.Services.Context;
 using Inventory.Services.Exceptions;
+using Microsoft.EntityFrameworkCore;
+using QuestPDF.Helpers;
 
 namespace Inventory.Services
 {
@@ -34,8 +39,8 @@ namespace Inventory.Services
         // =========================
         public async Task<ProductCatalogResult> CreateAsync(CreateProductCatalogRequest request)
         {
-            if (!_tenantContext.IsSuperAdmin)
-                throw new ForbiddenException("Only system admin can create product catalogs.");
+            var tenantId = _tenantContext.TenantId;
+            var userId = _tenantContext.UserId;
 
             if (string.IsNullOrWhiteSpace(request.Name))
             {
@@ -45,24 +50,73 @@ namespace Inventory.Services
                 });
             }
 
+            if (string.IsNullOrWhiteSpace(request.Barcode))
+            {
+                throw new ValidationException(new Dictionary<string, string[]>
+                {
+                    { "Barcode", new[] { "ProductCatalog barcode must not be empty." } }
+                });
+            }
+
+            // =========================
+            // NORMALISATION CRITIQUE
+            // =========================
+
+            request.Barcode = new string(
+                request.Barcode
+                    .Trim()
+                    .Where(char.IsLetterOrDigit)
+                    .ToArray());
+
+            request.Barcode = EanTools.Normalize(request.Barcode);
+
+            // =========================
+            // DÉTECTION
+            // =========================
+
+            var barcodeType = BarcodeDetector.Detect(request.Barcode);
+
+            // =========================
+            // VALIDATION
+            // =========================
+
+            if (!BarcodeValidator.IsValid(request.Barcode, barcodeType))
+            {
+                throw new ValidationException(new Dictionary<string, string[]>
+                {
+                    { "Barcode", new[] { "Invalid barcode format." } }
+                });
+            }
+
+            // =========================
+            // CONFLIT
+            // =========================
+
             var exists = await _repository.ExistsAsync(c =>
-                c.Barcode == request.Barcode && !c.IsDeleted);
+                c.Barcode == request.Barcode &&
+                !c.IsDeleted &&
+                c.TenantId == tenantId);
 
             if (exists)
                 throw new ConflictException("ProductCatalog with same barcode already exists.");
 
+            // =========================
+            // PERSISTENCE
+            // =========================
+
             var entity = _mapper.Map<ProductCatalog>(request);
 
             entity.Id = Guid.NewGuid();
+            entity.BarcodeType = barcodeType;
             entity.CreatedAt = DateTime.UtcNow;
-            entity.CreatedByUserId = _tenantContext.UserId;
-
+            entity.CreatedByUserId = userId;
+            entity.TenantId = tenantId;
+            entity.UnitOfMeasure = request.UnitOfMeasure;
             await _repository.AddAsync(entity);
             await _unitOfWork.SaveChangesAsync();
 
             return _mapper.Map<ProductCatalogResult>(entity);
         }
-
         // =========================
         // GET BY ID (GLOBAL)
         // =========================
@@ -93,46 +147,74 @@ namespace Inventory.Services
         // =========================
         public async Task<ProductCatalogResult> UpdateAsync(Guid id, UpdateProductCatalogRequest request)
         {
-            if (!_tenantContext.IsSuperAdmin)
-                throw new ForbiddenException("Only system admin can update product catalogs.");
+            var tenantId = _tenantContext.TenantId;
+            var userId = _tenantContext.UserId;
 
-            var catalog = await _repository.GetByIdAsync(id);
+            var catalog = await _repository.Query()
+                .FirstOrDefaultAsync(c =>
+                    c.Id == id &&
+                    !c.IsDeleted &&
+                    c.TenantId == tenantId);
 
-            if (catalog == null || catalog.IsDeleted)
+            if (catalog == null)
                 throw new NotFoundException("ProductCatalog", id);
+
+            // =========================
+            // BARCODE CHANGE LOGIC
+            // =========================
 
             if (!string.IsNullOrWhiteSpace(request.Barcode) &&
                 request.Barcode != catalog.Barcode)
             {
+                request.Barcode = request.Barcode.Trim();
+
+                var type = BarcodeDetector.Detect(request.Barcode);
+
+                if (!BarcodeValidator.IsValid(request.Barcode, type))
+                {
+                    throw new ValidationException(new Dictionary<string, string[]>
+                    {
+                        { "Barcode", new[] { "Invalid barcode format." } }
+                    });
+                }
+
                 var barcodeExists = await _repository.ExistsAsync(c =>
                     c.Barcode == request.Barcode &&
                     c.Id != id &&
-                    !c.IsDeleted);
+                    !c.IsDeleted &&
+                    c.TenantId == tenantId);
 
                 if (barcodeExists)
                     throw new ConflictException("Another ProductCatalog uses this barcode.");
+
+                catalog.BarcodeType = type;
             }
+
+            // =========================
+            // MAPPING SAFE FIELDS
+            // =========================
 
             _mapper.Map(request, catalog);
 
             catalog.ModifiedAt = DateTime.UtcNow;
-            catalog.ModifiedByUserId = _tenantContext.UserId;
+            catalog.ModifiedByUserId = userId;
 
             _repository.Update(catalog);
             await _unitOfWork.SaveChangesAsync();
 
             return _mapper.Map<ProductCatalogResult>(catalog);
         }
-
         // =========================
         // DELETE (SuperAdmin only)
         // =========================
         public async Task<bool> DeleteAsync(Guid id)
         {
-            if (!_tenantContext.IsSuperAdmin)
-                throw new ForbiddenException("Only system admin can delete product catalogs.");
+            var tenantId = _tenantContext.TenantId;
 
-            var catalog = await _repository.GetByIdAsync(id);
+            var catalog = await _repository.Query()
+                .FirstOrDefaultAsync(c => c.Id == id
+                    && !c.IsDeleted
+                    && c.TenantId == tenantId);
 
             if (catalog == null || catalog.IsDeleted)
                 throw new NotFoundException("ProductCatalog", id);
@@ -150,6 +232,7 @@ namespace Inventory.Services
         // =========================
         // QUERY (GLOBAL)
         // =========================
+        /*
         public async Task<PagedResult<ProductCatalogResult>> QueryAsync(ProductCatalogQuery query)
         {
             if (query.Page < 1 || query.PageSize < 1 || query.PageSize > 100)
@@ -200,6 +283,79 @@ namespace Inventory.Services
                 Page = query.Page,
                 PageSize = query.PageSize
             };
+        }
+
+        */
+        public async Task<PagedResult<ProductCatalogResult>> QueryAsync(ProductCatalogQuery query)
+        {
+            var tenantId = _tenantContext.TenantId;
+
+            if (query.Page < 1)
+            {
+                throw new ValidationException(new Dictionary<string, string[]>
+                {
+                    {"Page", new[]{"Page must be greater than or equal to 1."} }
+                });
+            }
+
+            if (query.PageSize < 1 || query.PageSize > 100)
+            {
+                throw new ValidationException(new Dictionary<string, string[]>
+                {
+                    {"PageSize", new[]{"PageSize must be between 1 and 100."} }
+                });
+            }
+
+            var productCatalagQuery = _repository.Query()
+                .Where(s => !s.IsDeleted
+                        && s.TenantId == tenantId);
+                //.AsNoTracking()
+                //.AsQueryable();
+            
+
+            if (!string.IsNullOrWhiteSpace(query.Search))
+            {
+                var search = query.Search.Trim();
+
+                productCatalagQuery = productCatalagQuery.Where(p =>
+                EF.Functions.ILike(p.Name, $"%{search}%") ||
+                EF.Functions.ILike(p.Barcode, $"%{search}%") ||
+                EF.Functions.ILike(p.Brand, $"%{search}%"));
+
+            }
+
+            productCatalagQuery = query.SortBy.ToLower() switch
+            {
+                "name" => query.Desc
+                ? productCatalagQuery.OrderByDescending(p => p.Name)
+                : productCatalagQuery.OrderBy(p => p.Name),
+                "barcode" => query.Desc
+                ? productCatalagQuery.OrderByDescending(p => p.Barcode)
+                : productCatalagQuery.OrderBy(p => p.Barcode),
+
+                _ => query.Desc
+                ? productCatalagQuery.OrderByDescending(p => p.CreatedAt)
+                : productCatalagQuery.OrderBy(p => p.CreatedAt),
+            };
+
+
+
+            var total = await productCatalagQuery.CountAsync();
+
+            var items = await productCatalagQuery
+                .Skip((query.Page - 1) * query.PageSize)
+                .Take(query.PageSize)
+                .ProjectTo<ProductCatalogResult>(_mapper.ConfigurationProvider)
+                .ToListAsync();
+
+            return new PagedResult<ProductCatalogResult>
+            {
+                Items = items,
+                TotalCount = total,
+                Page = query.Page,
+                PageSize = query.PageSize,
+            };
+
         }
     }
 }

@@ -1,5 +1,6 @@
 ﻿using Inventory.Dto.Products.Requests;
 using Inventory.Dto.Queries;
+using Inventory.Services.Features.BarcodeLabels.Generate;
 using Inventory.Services.Features.Products.Create;
 using Inventory.Services.Features.Products.Delete;
 using Inventory.Services.Features.Products.GetAll;
@@ -69,6 +70,25 @@ namespace Inventory.Api.Controllers
                 cancellationToken
             );
             return Ok(results);
+        }
+
+        [HttpGet("{id:guid}/label")]
+        [ProducesResponseType(typeof(FileContentResult), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> GetLabel(
+    Guid id,
+    CancellationToken cancellationToken)
+        {
+            var pdf = await _mediator.Send(
+                new GenerateProductLabelCommand(id),
+                cancellationToken
+            );
+
+            return File(
+                pdf,
+                "application/pdf",
+                $"label-{id}.pdf"
+            );
         }
 
         [HttpPut("{id:guid}")]

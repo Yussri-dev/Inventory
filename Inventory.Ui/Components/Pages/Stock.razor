@@ -8,110 +8,162 @@
 @inject IStockMovementApi StockMovementApi
 
 <h2>Stock</h2>
+<div class="page-container">
+    @if (!string.IsNullOrWhiteSpace(errorMessage))
+    {
+        <div class="alert error">
+            <span>@errorMessage</span>
+            <button @onclick="ClearError">x</button>
+        </div>
+    }
 
-<div class="pager">
-    <button class="btn ghost" disabled="@(Page == 1)"
-            @onclick="() => ChangePage(Page - 1)">
-        Prev
-    </button>
+    @if (!string.IsNullOrWhiteSpace(successMessage))
+    {
+        <div class="alert success">
+            <span>@successMessage</span>
+            <button @onclick="ClearSuccess">x</button>
+        </div>
+    }
 
-    <span class="muted">
-        Page @Page / @(Math.Ceiling((double)TotalCount / PageSize))
-    </span>
+    <div class="card">
+        <h4>Search Product</h4>
+        <div class="search-grid">
+            <input type="text"
+                   placeholder="Search by name or barcode..."
+                   class="search-input"
+                   @bind="searchTerm"
+                   @bind:event="oninput"
+                   @onkeyup="OnSearchKeyUp"
+                   disabled="@isLoading" />
+            <div class="search-actions">
+                <button class="btn primary" @onclick="Search" disabled="@isLoading">
+                    Search
+                </button>
+                <button class="btn ghost" @onclick="ClearSearch" disabled="@isLoading">
+                    Clear
+                </button>
+            </div>
+        </div>
+    </div>
 
-    <button class="btn ghost"
-            disabled="@(Page* PageSize >= TotalCount)"
-            @onclick="() => ChangePage(Page + 1)">
-        Next
-    </button>
-</div>
+    @if (isLoadingData)
+    {
+        <div class="loading-container">
+            <p>Loading Stock ...</p>
+        </div>
+    }
+    else if (Stocks == null || Stocks.Count == 0)
+    {
+        <p>@(isSearching ? "No Product found matching your search." : "No Products")</p>
+    }
+    else
+    {
+        <div class="pager">
+            <button class="btn ghost" disabled="@(Page == 1)"
+                    @onclick="() => ChangePage(Page - 1)">
+                Prev
+            </button>
 
-<div class="card stock-card">
+            <span class="muted">
+                Page @Page / @(Math.Ceiling((double)TotalCount / PageSize))
+            </span>
 
-    <table class="table stock-table">
-        <thead>
-            <tr>
-                <th>#</th>
-                <th>Product</th>
-                <th>Total</th>
-                <th>Reserved</th>
-                <th>Available</th>
-                <th>Last Update</th>
-                <th></th>
-            </tr>
-        </thead>
-
-        <tbody>
-            @foreach (var stock in Stocks)
-            {
-                <tr class="@(SelectedStock?.Id == stock.Id ? "selected" : "")"
-                    @onclick="() => Select(stock)">
-
-                    <td class="mono muted">@stock.ProductId</td>
-                    <td>@stock.Name</td>
-                    <td>@stock.Quantity</td>
-                    <td>@stock.ReservedQuantity</td>
-                    <td class="available @(stock.AvailableQuantity <= 0 ? "danger" : stock.AvailableQuantity < 10 ? "warning" : "ok")">
-                        @stock.AvailableQuantity
-                    </td>
-                    <td>@stock.LastUpdated.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</td>
-                    <td>
-                        <button class="btn small ghost"
-                            @onclick="() => OpenAdjust(stock)"
-                                @onclick:stopPropagation="true">
-                            Adjust
-                        </button>
-                       @*  <button class="btn small ghost"
-                                @onclick="() => OpenHistory(stock)"
-                                @onclick:stopPropagation="true">
-                            History
-                        </button> *@
-                    </td>
-                </tr>
-            }
-        </tbody>
-    </table>
-
-</div>
-
-@if (ShowHistory && SelectedStock != null)
-{
-    <div class="side-drawer">
-        <div class="drawer-header">
-            <h3>Stock history</h3>
-            <button class="btn ghost" @onclick="CloseHistory">✕</button>
+            <button class="btn ghost"
+                    disabled="@(Page* PageSize >= TotalCount)"
+                    @onclick="() => ChangePage(Page + 1)">
+                Next
+            </button>
         </div>
 
-        <p class="muted">@SelectedStock.Name</p>
+        <div class="card stock-card">
 
-        <table class="table history-table">
-            <thead>
-                <tr>
-                    <th>Date</th>
-                    <th>Type</th>
-                    <th>Δ</th>
-                    <th>Before</th>
-                    <th>After</th>
-                </tr>
-            </thead>
-            <tbody>
-                @foreach (var m in Movements)
-                {
+            <table class="table stock-table">
+                <thead>
                     <tr>
-                        <td>@m.MovementDate.ToLocalTime().ToString("dd/MM HH:mm")</td>
-                        <td>@m.Type</td>
-                        <td class="@(m.QuantityChange > 0 ? "ok" : "danger")">
-                            @m.QuantityChange
-                        </td>
-                        <td>@m.QuantityBefore</td>
-                        <td>@m.QuantityAfter</td>
+                        @* <th>#</th> *@
+                        <th>Product</th>
+                        <th>Total</th>
+                        <th>Reserved</th>
+                        <th>Available</th>
+                        <th>Last Update</th>
+                        <th></th>
                     </tr>
-                }
-            </tbody>
-        </table>
-    </div>
-}
+                </thead>
 
+                <tbody>
+                    @foreach (var stock in Stocks)
+                    {
+                        <tr class="@(SelectedStock?.Id == stock.Id ? "selected" : "")"
+                            @onclick="() => Select(stock)">
+
+                            @* <td class="mono muted">@stock.ProductId</td> *@
+                            <td>@stock.Name</td>
+                            <td>@stock.Quantity</td>
+                            <td>@stock.ReservedQuantity</td>
+                            <td class="available @(stock.AvailableQuantity <= 0 ? "danger" : stock.AvailableQuantity < 10 ? "warning" : "ok")">
+                                @stock.AvailableQuantity
+                            </td>
+                            <td>@stock.LastUpdated.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</td>
+                            <td>
+                                <button class="btn small ghost"
+                                        @onclick="() => OpenAdjust(stock)"
+                                        @onclick:stopPropagation="true">
+                                    Adjust
+                                </button>
+                              @*   <button class="btn small ghost"
+                                        @onclick="() => OpenHistory(stock)"
+                                        @onclick:stopPropagation="true">
+                                    History
+                                </button> *@
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+
+        </div>
+    }
+
+
+    @if (ShowHistory && SelectedStock != null)
+    {
+        <div class="side-drawer">
+            <div class="drawer-header">
+                <h3>Stock history</h3>
+                <button class="btn ghost" @onclick="CloseHistory">✕</button>
+            </div>
+
+            <p class="muted">@SelectedStock.Name</p>
+
+            <table class="table history-table">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Type</th>
+                        <th>Δ</th>
+                        <th>Before</th>
+                        <th>After</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var m in Movements)
+                    {
+                        <tr>
+                            <td>@m.MovementDate.ToLocalTime().ToString("dd/MM HH:mm")</td>
+                            <td>@m.Type</td>
+                            <td class="@(m.QuantityChange > 0 ? "ok" : "danger")">
+                                @m.QuantityChange
+                            </td>
+                            <td>@m.QuantityBefore</td>
+                            <td>@m.QuantityAfter</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+
+</div>
 
 <!-- ADJUSTMENT MODAL -->
 @if (ShowAdjustModal && SelectedStock != null)
@@ -152,37 +204,102 @@
 }
 
 @code {
+
+    private string? errorMessage;
+    private string? successMessage;
+    private bool isLoading;
+    private bool isLoadingData;
+    private string searchTerm = string.Empty;
+    private bool isSearching;
+
     int Page = 1;
     int PageSize = 25;
     int TotalCount;
 
     bool ShowHistory;
+
+    private List<StockResult>? Stocks;
+
     List<StockMouvementResult> Movements = new();
-    List<StockResult> Stocks = new();
     StockResult? SelectedStock;
 
     bool ShowAdjustModal;
     decimal NewQuantity;
     string Notes = "Manual stock adjustment";
 
+    private async Task OnSearchKeyUp(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await Search();
+        }
+    }
+    private async Task ClearSearch()
+    {
+        searchTerm = string.Empty;
+        isSearching = false;
+        Page = 1;
+        await LoadData();
+    }
+
+    private void ClearError()
+    {
+        errorMessage = null;
+    }
+
+    private void ClearSuccess()
+    {
+        successMessage = null;
+    }
+
     protected override async Task OnInitializedAsync()
     {
-        await LoadStock();
+        await LoadData();
     }
 
-    async Task LoadStock()
+    private async Task LoadData()
     {
-        var result = await StockApi.Search(new StockQuery
+        try
         {
-            Page = Page,
-            PageSize = PageSize
-        });
+            isLoadingData = true;
+            errorMessage = null;
 
-        Stocks = result.Items;
-        TotalCount = result.TotalCount;
+            var query = new StockQuery
+            {
+                Page = Page,
+                PageSize = PageSize,
+                Search = isSearching ? searchTerm : null
+            };
+
+            var response = await StockApi.Search(query);
+
+            Stocks = response.Items?.ToList() ?? new List<StockResult>();
+            TotalCount = response.TotalCount;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Error loading stock: {ex.Message}";
+            Stocks = new List<StockResult>();
+        }
+        finally
+        {
+            isLoadingData = false;
+        }
     }
 
-
+    private async Task Search()
+    {
+        if (string.IsNullOrWhiteSpace(searchTerm))
+        {
+            isSearching = false;
+            Page = 1;
+            await LoadData();
+            return;
+        }
+        isSearching = true;
+        Page = 1;
+        await LoadData();
+    }
     void Select(StockResult stock)
     {
         SelectedStock = stock;
@@ -205,7 +322,7 @@
     async Task ChangePage(int newPage)
     {
         Page = newPage;
-        await LoadStock();
+        await LoadData();
     }
 
     async Task ConfirmAdjust()
@@ -241,7 +358,7 @@
         });
 
 
-        await LoadStock();
+        await LoadData();
         CloseAdjust();
     }
 

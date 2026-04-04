@@ -4,13 +4,38 @@
     padding: 20px;
 }
 
+/* Card Styles */
 .card {
-    background: white;
-    border-radius: 8px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 16px;
     padding: 24px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-    margin-bottom: 20px;
+    margin-bottom: 24px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+    transition: box-shadow 0.3s;
 }
+
+    .card:hover {
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+    }
+
+    .card h4 {
+        margin: 0 0 20px 0;
+        color: var(--text);
+        font-weight: 600;
+        font-size: 20px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+        .card h4::before {
+            content: "";
+            width: 4px;
+            height: 24px;
+            background: linear-gradient(180deg, var(--primary), #6366f1);
+            border-radius: 2px;
+        }
 
 /* ACTIVE SESSION */
 .session-active {

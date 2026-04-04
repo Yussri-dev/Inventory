@@ -41,7 +41,7 @@ namespace Inventory.Domain.Models
         public string? ProfilePictureUrl { get; set; }
 
         [Required]
-        public Guid TenantId { get; set; }
+        public Guid? TenantId { get; set; }
 
         [ForeignKey(nameof(TenantId))]
         public Tenant? Tenant { get; set; }

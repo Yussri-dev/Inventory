@@ -1,13 +1,5 @@
 ﻿/* Login.razor.css */
 
-.login-container {
-    min-height: 100vh;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    padding: 20px;
-}
 
 .login-card {
     background: white;
@@ -39,7 +31,7 @@
 .logo-circle {
     width: 80px;
     height: 80px;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: #f0f2f8;
     border-radius: 50%;
     display: flex;
     align-items: center;

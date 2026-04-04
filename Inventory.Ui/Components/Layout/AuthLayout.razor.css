@@ -1,0 +1,8 @@
+﻿.auth-center {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #f5f6fa;
+}

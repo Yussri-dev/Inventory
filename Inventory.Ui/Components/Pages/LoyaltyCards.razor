@@ -40,6 +40,7 @@
                     <div class="form-field">
                         <label>Customer *</label>
                         <InputSelect @bind-Value="form.CustomerIdString"
+                                     class="inputText"
                                      disabled="@(isLoading || editingId != null)">
                             <option value="">-- Select customer --</option>
                             @foreach (var c in customers)
@@ -53,6 +54,7 @@
                     <div class="form-field">
                         <label>Card Number *</label>
                         <InputText @bind-Value="form.CardNumber"
+                                   class="inputText"
                                    disabled="true" />
 
                         <ValidationMessage For="@(() => form.CardNumber)" />
@@ -63,6 +65,7 @@
                     <div class="form-field">
                         <label>Expiry Date</label>
                         <InputDate @bind-Value="form.ExpiryDate"
+                                   class="inputText"
                                    disabled="@isLoading" />
                     </div>
 
@@ -78,6 +81,7 @@
                     <div class="form-field">
                         <label>Notes</label>
                         <InputTextArea @bind-Value="form.Notes"
+                                       class="inputText"
                                        disabled="@isLoading" />
                     </div>
                 </div>
@@ -105,6 +109,7 @@
         <div class="search-grid">
             <input type="text"
                    placeholder="Search by card number"
+                   class="inpuText"
                    @bind="searchTerm"
                    @bind:event="oninput"
                    @onkeyup="OnSearchKeyUp" />
@@ -278,7 +283,7 @@
     {
         var timestamp = DateTime.UtcNow.ToString("yyyyMMddHHmmss");
         var random = Random.Shared.Next(1000, 9999);
-        return $"22-{timestamp}-{random}";
+        return $"22{timestamp}{random}";
     }
 
     private void CancelDelete() => showDelete = false;

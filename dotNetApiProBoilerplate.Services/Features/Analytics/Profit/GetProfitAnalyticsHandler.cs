@@ -52,7 +52,10 @@ namespace Inventory.Services.Features.Analytics.Profit
                 .SumAsync(r => r.TotalAmount, ct);
 
             var cost = await _db.PurchaseLines
-                .Where(p => p.TenantId == _tenant.TenantId)
+                .Where(p =>
+                    p.TenantId == _tenant.TenantId &&
+                    p.Purchase.PurchaseDate >= fromUtc &&
+                    p.Purchase.PurchaseDate <= toUtc)
                 .SumAsync(p => p.QuantityReceived * p.UnitPurchasePrice, ct);
 
             var profit = revenue - refunds - cost;

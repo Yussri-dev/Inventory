@@ -1,15 +1,17 @@
 ﻿using AutoMapper;
 using Inventory.Domain.Entities;
 using Inventory.Domain.Models;
+using Inventory.Dto.Enums;
 using Inventory.Dto.Pages.Results;
+using Inventory.Dto.Queries;
 using Inventory.Dto.Sales.Requests;
 using Inventory.Dto.Sales.Results;
-using Inventory.Dto.Queries;
 using Inventory.Infrastructure.Repositories;
-using Inventory.Services.Exceptions;
 using Inventory.Services.Abstractions;
 using Inventory.Services.Context;
-using Inventory.Dto.Enums;
+using Inventory.Services.Exceptions;
+using MediatR;
+using Microsoft.EntityFrameworkCore;
 
 namespace Inventory.Services
 {
@@ -23,7 +25,8 @@ namespace Inventory.Services
         private readonly IRepository<Customer> _customerRepository;
         private readonly IRepository<CustomerTransaction> _customerTransactionRepository;
         private readonly IRepository<CashMovement> _cashMovementRepository;
-        //private readonly IRepository<CashSession> _cashSessionRepository;
+        private readonly IRepository<Tenant> _tenantRepository;
+        private readonly IRepository<CashSession> _cashSessionRepository;
         private readonly IRepository<LoyaltyCard> _loyaltyCardRepository;
         private readonly IRepository<LoyaltyTransaction> _loyaltyTransactionRepository;
         private readonly IRepository<SalesSummaryDaily> _salesSummaryRepository;
@@ -40,6 +43,7 @@ namespace Inventory.Services
             IRepository<Stock> stockRepository,
             IRepository<Payment> paymentRepository,
             IRepository<Customer> customerRepository,
+            IRepository<CashSession> cashSessionRepository,
             IRepository<CustomerTransaction> customerTransactionRepository,
             IRepository<CashMovement> cashMovementRepository,
             IRepository<LoyaltyCard> loyaltyCardRepository,
@@ -49,6 +53,7 @@ namespace Inventory.Services
             IMapper mapper,
             ICashSessionService cashSessionService,
             IDocumentNumberService documentNumberService,
+            IRepository<Tenant> tenantRepository,
             ITenantContext tenantContext)
         {
             _repository = repository;
@@ -66,7 +71,9 @@ namespace Inventory.Services
             _mapper = mapper;
             _documentNumberService = documentNumberService;
             _tenantContext = tenantContext;
+            _tenantRepository = tenantRepository;
             _cashSessionService = cashSessionService;
+            _cashSessionRepository = cashSessionRepository;
         }
 
         // =========================
@@ -94,7 +101,10 @@ namespace Inventory.Services
             sale.CreatedAt = DateTime.UtcNow;
             sale.ModifiedAt = DateTime.UtcNow;
 
+            sale.PaymentStatus = PaymentStatus.Paid;
+
             await _repository.AddAsync(sale);
+
             await _unitOfWork.SaveChangesAsync();
 
             return _mapper.Map<SaleResult>(sale);
@@ -108,102 +118,177 @@ namespace Inventory.Services
             var tenantId = _tenantContext.TenantId;
             var activeCashSessionId = await _cashSessionService.EnsureActiveSessionAsync();
 
-            // =========================
-            // STOCK VALIDATION
-            // =========================
+            var cashSession = await _cashSessionRepository.GetSingleAsync(cs =>
+                cs.Id == activeCashSessionId &&
+                !cs.IsDeleted &&
+                cs.TenantId == tenantId);
+
+            if (cashSession == null)
+                throw new ValidationException("Active cash session not found for the current tenant.");
+
+            Sale sale;
+            var isExistingPending = request.PendingSaleId.HasValue;
+
+            if (isExistingPending)
+            {
+                sale = await _repository.Query()
+                    .Include(s => s.Lines)
+                    .FirstOrDefaultAsync(s =>
+                        s.Id == request.PendingSaleId.Value &&
+                        s.Status == SaleStatus.Pending &&
+                        !s.IsDeleted &&
+                        s.TenantId == tenantId);
+
+                if (sale == null)
+                    throw new NotFoundException("Pending Sale", request.PendingSaleId.Value);
+
+                var existingLines = await _saleLineRepository.GetAsync(l => l.SaleId == sale.Id);
+                foreach (var line in existingLines)
+                    _saleLineRepository.Delete(line);
+            }
+            else
+            {
+                sale = new Sale
+                {
+                    Id = Guid.NewGuid(),
+                    TenantId = tenantId,
+                    InvoiceNumber = await _documentNumberService.GenerateAsync("191125"),
+                    CashSessionId = activeCashSessionId,
+                    SaleDate = request.SaleDate == default ? DateTime.UtcNow : request.SaleDate,
+                    CreatedAt = DateTime.UtcNow,
+                    ModifiedAt = DateTime.UtcNow,
+                    Status = SaleStatus.Pending,
+                    PaymentStatus = PaymentStatus.Pending
+                };
+
+                await _repository.AddAsync(sale);
+            }
+
             foreach (var line in request.Lines)
             {
                 var stock = await _stockRepository.GetSingleAsync(
-                    s => s.ProductId == line.ProductId && !s.IsDeleted && s.TenantId == tenantId);
+                    s => s.ProductId == line.ProductId &&
+                         !s.IsDeleted &&
+                         s.TenantId == tenantId);
 
                 if (stock == null)
                     throw new NotFoundException("Stock", line.ProductId);
 
                 if (stock.Quantity < line.Quantity)
-                    throw new ValidationException(new Dictionary<string, string[]>
-            {
-                { "Stock", new[] { $"Insufficient stock for product {line.ProductId}." } }
-            });
+                    throw new ValidationException($"Insufficient stock for product {line.ProductId}.");
             }
 
-            // =========================
-            // 🔢 TOTALS RECOMPUTATION (VAT INCLUDED PRICES)
-            // =========================
-            var totalAmount = request.Lines.Sum(l => l.UnitPrice * l.Quantity);
+            decimal subtotalAmount = 0m;
+            decimal vatAmount = 0m;
+            decimal totalAmount = 0m;
 
-            var vatAmount = request.Lines.Sum(l =>
+            foreach (var line in request.Lines)
             {
-                var rate = l.VatRate / 100m;
-                var gross = l.UnitPrice * l.Quantity;
-                return gross - (gross / (1 + rate));
-            });
+                var lineGross = line.Quantity * line.UnitPrice;
+                var lineDiscount = lineGross * (line.DiscountPercent / 100m);
+                var lineNetTtc = lineGross - lineDiscount;
 
-            var subtotalAmount = totalAmount - vatAmount;
+                var divisor = 1m + (line.VatRate / 100m);
+                var lineHt = divisor <= 0 ? lineNetTtc : lineNetTtc / divisor;
+                var lineVat = lineNetTtc - lineHt;
 
-            // =========================
-            // 🔒 MONETARY INVARIANTS
-            // =========================
-            if (request.PaidAmount < 0)
+                subtotalAmount += Math.Round(lineHt, 2, MidpointRounding.AwayFromZero);
+                vatAmount += Math.Round(lineVat, 2, MidpointRounding.AwayFromZero);
+                totalAmount += Math.Round(lineNetTtc, 2, MidpointRounding.AwayFromZero);
+            }
+
+            subtotalAmount = Math.Round(subtotalAmount, 2, MidpointRounding.AwayFromZero);
+            vatAmount = Math.Round(vatAmount, 2, MidpointRounding.AwayFromZero);
+            totalAmount = Math.Round(totalAmount, 2, MidpointRounding.AwayFromZero);
+
+            var paidAmount = request.Payments?.Sum(p => p.Amount) ?? 0m;
+
+            if (paidAmount < 0)
                 throw new ValidationException("Paid amount cannot be negative.");
 
             if (request.ChangeAmount < 0)
                 throw new ValidationException("Change amount cannot be negative.");
 
-            if (request.PaidAmount > totalAmount)
-                throw new ValidationException("Paid amount cannot exceed total amount.");
+            if (paidAmount < request.ChangeAmount)
+                throw new ValidationException("Change amount cannot exceed paid amount.");
 
-            if (request.PaidAmount - request.ChangeAmount > totalAmount)
+            if ((paidAmount - request.ChangeAmount) > totalAmount)
                 throw new ValidationException("Invalid payment / change combination.");
 
-            // =========================
-            // SALE
-            // =========================
-            var sale = new Sale
-            {
-                Id = Guid.NewGuid(),
-                TenantId = tenantId,
-                InvoiceNumber = await _documentNumberService.GenerateAsync("191125"),
-                CustomerId = request.CustomerId,
-                CashSessionId = activeCashSessionId,
-                SaleDate = request.SaleDate == default ? DateTime.UtcNow : request.SaleDate,
-                SubtotalAmount = subtotalAmount,
-                VatAmount = vatAmount,
-                TotalAmount = totalAmount,
-                PaidAmount = request.PaidAmount,
-                ChangeAmount = request.ChangeAmount,
-                Status = SaleStatus.Completed,
-                PaymentStatus = request.PaidAmount >= totalAmount
-                    ? PaymentStatus.Paid
-                    : PaymentStatus.Pending,
-                Notes = request.Notes,
-                CreatedAt = DateTime.UtcNow,
-                ModifiedAt = DateTime.UtcNow
-            };
+            sale.CustomerId = request.CustomerId;
+            sale.CashSessionId = activeCashSessionId;
+            sale.SaleDate = request.SaleDate == default ? DateTime.UtcNow : request.SaleDate;
+            sale.SubtotalAmount = subtotalAmount;
+            sale.VatAmount = vatAmount;
+            sale.TotalAmount = totalAmount;
+            sale.PaidAmount = paidAmount;
+            sale.ChangeAmount = request.ChangeAmount;
+            sale.Status = SaleStatus.Completed;
+            sale.PaymentStatus = (paidAmount - request.ChangeAmount) >= totalAmount
+                ? PaymentStatus.Paid
+                : (paidAmount > 0 ? PaymentStatus.PartiallyPaid : PaymentStatus.Pending);
+            sale.Notes = request.Notes;
+            sale.ModifiedAt = DateTime.UtcNow;
 
-            await _repository.AddAsync(sale);
+            _repository.Update(sale);
 
-            // =========================
-            // SALE LINES + STOCK MOVEMENTS
-            // =========================
             foreach (var lineItem in request.Lines)
             {
-                var saleLine = new SaleLine
+                var lineGross = lineItem.Quantity * lineItem.UnitPrice;
+                var lineDiscount = lineGross * (lineItem.DiscountPercent / 100m);
+
+                await _saleLineRepository.AddAsync(new SaleLine
                 {
                     Id = Guid.NewGuid(),
-                    SaleId = sale.Id,
                     TenantId = tenantId,
+                    SaleId = sale.Id,
                     ProductId = lineItem.ProductId,
                     Quantity = lineItem.Quantity,
                     UnitPrice = lineItem.UnitPrice,
                     VatRate = lineItem.VatRate,
                     DiscountPercent = lineItem.DiscountPercent,
-                    DiscountAmount = lineItem.Quantity * lineItem.UnitPrice * (lineItem.DiscountPercent / 100)
-                };
+                    DiscountAmount = Math.Round(lineDiscount, 2, MidpointRounding.AwayFromZero),
+                    CreatedAt = DateTime.UtcNow,
+                    ModifiedAt = DateTime.UtcNow
+                });
+            }
 
-                await _saleLineRepository.AddAsync(saleLine);
+            decimal cashAmount = 0m;
 
+            if (request.Payments != null && request.Payments.Any())
+            {
+                foreach (var paymentInfo in request.Payments)
+                {
+                    if (!Enum.TryParse<PaymentMethod>(paymentInfo.PaymentMethod, true, out var method))
+                        throw new ValidationException($"Invalid payment method: {paymentInfo.PaymentMethod}");
+
+                    await _paymentRepository.AddAsync(new Payment
+                    {
+                        Id = Guid.NewGuid(),
+                        SaleId = sale.Id,
+                        TenantId = tenantId,
+                        Method = method,
+                        Amount = paymentInfo.Amount,
+                        TransactionRef = paymentInfo.Reference,
+                        PaidAt = DateTime.UtcNow,
+                        CreatedAt = DateTime.UtcNow,
+                        ModifiedAt = DateTime.UtcNow
+                    });
+
+                    if (method == PaymentMethod.Cash)
+                        cashAmount += paymentInfo.Amount;
+                }
+            }
+
+            foreach (var lineItem in request.Lines)
+            {
                 var stock = await _stockRepository.GetSingleAsync(
-                    s => s.ProductId == lineItem.ProductId && !s.IsDeleted && s.TenantId == tenantId);
+                    s => s.ProductId == lineItem.ProductId &&
+                         !s.IsDeleted &&
+                         s.TenantId == tenantId);
+
+                if (stock == null)
+                    throw new NotFoundException("Stock", lineItem.ProductId);
 
                 var quantityBefore = stock.Quantity;
                 var quantityAfter = quantityBefore - lineItem.Quantity;
@@ -231,44 +316,6 @@ namespace Inventory.Services
                 _stockRepository.Update(stock);
             }
 
-            // =========================
-            // PAYMENT (DOCUMENT)
-            // =========================
-            // =========================
-            // PAYMENT (DOCUMENT) - SUPPORT MULTIPLE PAYMENTS
-            // =========================
-            decimal cashAmount = 0m;
-
-            if (request.Payments != null && request.Payments.Any())
-            {
-                foreach (var paymentInfo in request.Payments)
-                {
-                    Enum.TryParse<PaymentMethod>(paymentInfo.PaymentMethod, true, out var method);
-
-                    await _paymentRepository.AddAsync(new Payment
-                    {
-                        Id = Guid.NewGuid(),
-                        SaleId = sale.Id,
-                        TenantId = tenantId,
-                        Method = method,
-                        Amount = paymentInfo.Amount,
-                        TransactionRef = paymentInfo.Reference,
-                        PaidAt = DateTime.UtcNow,
-                        IsRefunded = false,
-                        CreatedAt = DateTime.UtcNow,
-                        ModifiedAt = DateTime.UtcNow
-                    });
-
-                    if (method == PaymentMethod.Cash)
-                        cashAmount += paymentInfo.Amount + sale.ChangeAmount;
-                }
-            }
-            // =========================
-            // CASH MOVEMENTS
-            // =========================
-            // =========================
-            // CASH MOVEMENTS
-            // =========================
             if (cashAmount > 0)
             {
                 var last = await _cashMovementRepository.GetLastAsync(
@@ -278,7 +325,10 @@ namespace Inventory.Services
                     m => m.MovementDate);
 
                 var before = last?.BalanceAfter ?? 0m;
-                var after = before + cashAmount;
+                var after = before + cashAmount - sale.ChangeAmount;
+
+                if (after < 0)
+                    throw new ValidationException("Cash drawer cannot go negative.");
 
                 await _cashMovementRepository.AddAsync(new CashMovement
                 {
@@ -286,58 +336,29 @@ namespace Inventory.Services
                     TenantId = tenantId,
                     CashSessionId = activeCashSessionId,
                     Type = CashMovementType.Sale,
-                    Amount = cashAmount,
+                    Amount = cashAmount - sale.ChangeAmount,
                     BalanceBefore = before,
                     BalanceAfter = after,
                     SaleId = sale.Id,
-                    Reason = $"Sale {sale.InvoiceNumber}",
                     MovementDate = DateTime.UtcNow,
                     CreatedAt = DateTime.UtcNow
                 });
-
-                // Handle change immediately after adding cash (while we know balance is positive)
-                if (sale.ChangeAmount > 0)
-                {
-                    var afterCash = after; // Balance after adding cash
-                    var afterChange = afterCash - sale.ChangeAmount;
-
-                    if (afterChange < 0)
-                        throw new ValidationException("Cash drawer cannot go negative after giving change.");
-
-                    await _cashMovementRepository.AddAsync(new CashMovement
-                    {
-                        Id = Guid.NewGuid(),
-                        TenantId = tenantId,
-                        CashSessionId = activeCashSessionId,
-                        Type = CashMovementType.Refund,
-                        Amount = sale.ChangeAmount,
-                        BalanceBefore = afterCash,
-                        BalanceAfter = afterChange,
-                        SaleId = sale.Id,
-                        Reason = $"Change for sale {sale.InvoiceNumber}",
-                        MovementDate = DateTime.UtcNow,
-                        CreatedAt = DateTime.UtcNow
-                    });
-                }
             }
 
-            // =========================
-            // CUSTOMER LEDGER (AUTHORITATIVE)
-            // =========================
             if (sale.CustomerId.HasValue)
             {
-                var lastTx = await _customerTransactionRepository.GetLastAsync(
-                    t => t.CustomerId == sale.CustomerId.Value &&
-                         !t.IsDeleted &&
-                         t.TenantId == tenantId,
-                    t => t.TransactionDate);
-
-                var balance = lastTx?.BalanceAfter ?? 0m;
-
-                var creditAmount = Math.Max(0, sale.TotalAmount - sale.PaidAmount);
+                var creditAmount = Math.Max(0, sale.TotalAmount - (sale.PaidAmount - sale.ChangeAmount));
 
                 if (creditAmount > 0)
                 {
+                    var lastTx = await _customerTransactionRepository.GetLastAsync(
+                        t => t.CustomerId == sale.CustomerId.Value &&
+                             !t.IsDeleted &&
+                             t.TenantId == tenantId,
+                        t => t.TransactionDate);
+
+                    var balance = lastTx?.BalanceAfter ?? 0m;
+
                     await _customerTransactionRepository.AddAsync(new CustomerTransaction
                     {
                         Id = Guid.NewGuid(),
@@ -348,16 +369,12 @@ namespace Inventory.Services
                         Amount = creditAmount,
                         BalanceBefore = balance,
                         BalanceAfter = balance + creditAmount,
-                        Description = $"Credit from sale {sale.InvoiceNumber}",
                         TransactionDate = DateTime.UtcNow,
                         CreatedAt = DateTime.UtcNow
                     });
                 }
             }
 
-            // =========================
-            // COMMIT
-            // =========================
             await _unitOfWork.SaveChangesAsync();
 
             return _mapper.Map<SaleResult>(sale);
@@ -366,6 +383,7 @@ namespace Inventory.Services
         public async Task<SaleTicketResult> BuildTicketAsync(Guid saleId)
         {
             var tenantId = _tenantContext.TenantId;
+
             var sale = await _repository.GetByIdAsync(saleId);
             if (sale == null || sale.TenantId != tenantId)
                 throw new NotFoundException("Sale", saleId);
@@ -381,16 +399,30 @@ namespace Inventory.Services
 
             Customer? customer = null;
             if (sale.CustomerId != null)
-            {
                 customer = await _customerRepository.GetByIdAsync(sale.CustomerId.Value);
-            }
+
+            // ── Récupérer les infos du magasin depuis le Tenant ──────────
+            var tenant = await _tenantRepository.GetByIdAsync(tenantId);
+
             return new SaleTicketResult
             {
                 InvoiceNumber = sale.InvoiceNumber,
                 SaleDate = sale.SaleDate,
 
+                // Infos magasin
+                StoreName = tenant?.Name ?? "",
+                StoreAddress = tenant?.Address,
+                StoreCity = tenant?.City,
+                StorePostalCode = tenant?.PostalCode,
+                StorePhone = tenant?.Phone,
+                StoreTaxNumber = tenant?.TaxNumber,
+                ReceiptHeader = tenant?.ReceiptHeader,
+                ReceiptFooter = tenant?.ReceiptFooter,
+
+                // Client
                 CustomerId = sale.CustomerId ?? Guid.Empty,
                 CustomerName = customer?.Name ?? "Walk-in customer",
+
                 Lines = lines.Select(l => new SaleTicketLineResult
                 {
                     ProductName = l.Product.Name,
@@ -398,13 +430,17 @@ namespace Inventory.Services
                     UnitPrice = l.UnitPrice
                 }).ToList(),
 
+                Payments = payments.Select(p => new TicketPaymentLine
+                {
+                    Method = p.Method.ToString(),
+                    Amount = p.Amount
+                }).ToList(),
+
                 Subtotal = sale.SubtotalAmount,
                 VatAmount = sale.VatAmount,
                 Total = sale.TotalAmount,
-
                 Paid = sale.PaidAmount,
                 Change = sale.ChangeAmount,
-                //PaymentMethod = payments.FirstOrDefault()?.Method.ToString() ?? "Cash"
             };
         }
 
@@ -420,6 +456,58 @@ namespace Inventory.Services
             return _mapper.Map<SaleResult>(sale);
         }
 
+
+        // =========================
+        // Get Sales By Client
+        // =========================
+        public async Task<PagedResult<SaleResult>> GetByCustomerAsync(CustomerSaleQuery query)
+        {
+            var tenantId = _tenantContext.TenantId;
+
+            if (query.Page < 1)
+                throw new ValidationException("Page must be >= 1");
+            if (query.PageSize < 1 || query.PageSize > 100)
+                throw new ValidationException("PageSize must be between 1 and 100");
+
+            // ← BLOQUER si aucun CustomerId fourni
+            if (!query.CustomerId.HasValue)
+                return new PagedResult<SaleResult>
+                {
+                    Items = new List<SaleResult>(),
+                    TotalCount = 0,
+                    Page = query.Page,
+                    PageSize = query.PageSize
+                };
+
+            var sales = _repository.Query()
+                .Where(s =>
+                    !s.IsDeleted &&
+                    s.TenantId == tenantId &&
+                    s.CustomerId == query.CustomerId);
+
+            if (!string.IsNullOrWhiteSpace(query.Search))
+            {
+                var search = query.Search.Trim();
+                sales = sales.Where(s => s.InvoiceNumber.Contains(search));
+            }
+
+            var total = await sales.CountAsync();
+
+            var items = await sales
+                .OrderByDescending(s => s.SaleDate)
+                .Skip((query.Page - 1) * query.PageSize)
+                .Take(query.PageSize)
+                .ToListAsync();
+
+            return new PagedResult<SaleResult>
+            {
+                Items = _mapper.Map<List<SaleResult>>(items),
+                TotalCount = total,
+                Page = query.Page,
+                PageSize = query.PageSize
+            };
+        }
+
         // =========================
         // GET ALL
         // =========================
@@ -431,6 +519,81 @@ namespace Inventory.Services
             return _mapper.Map<List<SaleResult>>(
                 sales.Where(s => !s.IsDeleted && s.TenantId == tenantId).ToList()
             );
+        }
+        // =========================
+        // PENDING
+        // =========================
+        public async Task<SaleResult> CreatePendingAsync(CreatePendingSaleRequest request)
+        {
+            var tenantId = _tenantContext.TenantId;
+            var activeCashSessionId = await _cashSessionService.EnsureActiveSessionAsync();
+
+            decimal subtotalAmount = 0m;
+            decimal vatAmount = 0m;
+            decimal totalAmount = 0m;
+
+            foreach (var line in request.SaleLines)
+            {
+                var lineGross = line.Quantity * line.UnitPrice; // TTC
+                var lineDiscount = lineGross * (line.DiscountPercent / 100m);
+                var lineNetTtc = lineGross - lineDiscount;
+
+                var divisor = 1m + (line.VatRate / 100m);
+                var lineHt = divisor <= 0 ? lineNetTtc : lineNetTtc / divisor;
+                var lineVat = lineNetTtc - lineHt;
+
+                subtotalAmount += Math.Round(lineHt, 2, MidpointRounding.AwayFromZero);
+                vatAmount += Math.Round(lineVat, 2, MidpointRounding.AwayFromZero);
+                totalAmount += Math.Round(lineNetTtc, 2, MidpointRounding.AwayFromZero);
+            }
+
+            subtotalAmount = Math.Round(subtotalAmount, 2, MidpointRounding.AwayFromZero);
+            vatAmount = Math.Round(vatAmount, 2, MidpointRounding.AwayFromZero);
+            totalAmount = Math.Round(totalAmount, 2, MidpointRounding.AwayFromZero);
+
+            var sale = new Sale
+            {
+                Id = Guid.NewGuid(),
+                TenantId = tenantId,
+                InvoiceNumber = await _documentNumberService.GenerateAsync("191125"),
+                CustomerId = request.CustomerId,
+                SaleDate = request.SaleDate ?? DateTime.UtcNow,
+                CashSessionId = activeCashSessionId,
+                TotalAmount = totalAmount,
+                SubtotalAmount = subtotalAmount,
+                VatAmount = vatAmount,
+                Status = SaleStatus.Pending,
+                PaymentStatus = PaymentStatus.Pending,
+                CreatedAt = DateTime.UtcNow,
+                ModifiedAt = DateTime.UtcNow,
+            };
+
+            sale.Lines = new List<SaleLine>();
+
+            foreach (var lineItem in request.SaleLines)
+            {
+                var lineGross = lineItem.Quantity * lineItem.UnitPrice;
+                var lineDiscount = lineGross * (lineItem.DiscountPercent / 100m);
+
+                sale.Lines.Add(new SaleLine
+                {
+                    Id = Guid.NewGuid(),
+                    TenantId = tenantId,
+                    ProductId = lineItem.ProductId,
+                    Quantity = lineItem.Quantity,
+                    UnitPrice = lineItem.UnitPrice, // TTC
+                    VatRate = lineItem.VatRate,
+                    DiscountPercent = lineItem.DiscountPercent,
+                    DiscountAmount = Math.Round(lineDiscount, 2, MidpointRounding.AwayFromZero),
+                    CreatedAt = DateTime.UtcNow,
+                    ModifiedAt = DateTime.UtcNow
+                });
+            }
+
+            await _repository.AddAsync(sale);
+            await _unitOfWork.SaveChangesAsync();
+
+            return _mapper.Map<SaleResult>(sale);
         }
 
         // =========================
@@ -479,6 +642,189 @@ namespace Inventory.Services
         }
 
         // =========================
+        // Get Pending
+        // =========================
+        public async Task<List<SaleResult>> GetPendingAsync()
+        {
+            var tenantId = _tenantContext.TenantId;
+
+            var sales = await _repository.Query()
+                .Include(s => s.Lines)
+                .Where(s =>
+                    s.Status == SaleStatus.Pending &&
+                    !s.IsDeleted &&
+                    s.TenantId == tenantId &&
+                    s.Lines.Any())
+                .OrderByDescending(s => s.CreatedAt)
+                .ToListAsync();
+
+            return _mapper.Map<List<SaleResult>>(sales);
+        }
+
+        // =========================
+        // Get Pending By Id
+        // =========================
+        public async Task<SaleResult> GetPendingByIdAsync(Guid id)
+        {
+            var tenantId = _tenantContext.TenantId;
+
+            var sale = await _repository.Query()
+                .Include(s => s.Lines)
+                .FirstOrDefaultAsync(s =>
+                    s.Id == id &&
+                    s.Status == SaleStatus.Pending &&
+                    !s.IsDeleted &&
+                    s.TenantId == tenantId &&
+                    s.Lines.Any());
+
+            if (sale == null)
+                throw new NotFoundException("Sale", id);
+
+            return _mapper.Map<SaleResult>(sale);
+        }
+
+        public async Task<SaleResult> UpdatePendingAsync(Guid id, CreatePendingSaleRequest request)
+        {
+            var tenantId = _tenantContext.TenantId;
+
+            var sale = await _repository.Query()
+                .Include(s => s.Lines)
+                .FirstOrDefaultAsync(s =>
+                    s.Id == id &&
+                    s.Status == SaleStatus.Pending &&
+                    !s.IsDeleted &&
+                    s.TenantId == tenantId);
+
+            if (sale == null)
+                throw new NotFoundException("Pending Sale", id);
+
+            var existingLines = await _saleLineRepository.GetAsync(l => l.SaleId == sale.Id);
+            foreach (var line in existingLines)
+                _saleLineRepository.Delete(line);
+
+            await _unitOfWork.SaveChangesAsync();
+
+            foreach (var lineItem in request.SaleLines)
+            {
+                await _saleLineRepository.AddAsync(new SaleLine
+                {
+                    Id = Guid.NewGuid(),
+                    TenantId = tenantId,
+                    SaleId = sale.Id,
+                    ProductId = lineItem.ProductId,
+                    Quantity = lineItem.Quantity,
+                    UnitPrice = lineItem.UnitPrice,
+                    VatRate = lineItem.VatRate,
+                    DiscountPercent = lineItem.DiscountPercent,
+                    DiscountAmount = lineItem.Quantity * lineItem.UnitPrice * (lineItem.DiscountPercent / 100),
+                    CreatedAt = DateTime.UtcNow,
+                    ModifiedAt = DateTime.UtcNow
+                });
+            }
+
+            var subtotalAmount = request.SaleLines.Sum(l => l.LineAmountExclVat);
+            var vatAmount = request.SaleLines.Sum(l => l.LineVatAmount);
+            var totalAmount = subtotalAmount + vatAmount;
+
+            sale.CustomerId = request.CustomerId;
+            sale.SaleDate = request.SaleDate ?? DateTime.UtcNow;
+            sale.SubtotalAmount = subtotalAmount;
+            sale.VatAmount = vatAmount;
+            sale.TotalAmount = totalAmount;
+            sale.ModifiedAt = DateTime.UtcNow;
+
+            _repository.Update(sale);
+            await _unitOfWork.SaveChangesAsync();
+
+            return _mapper.Map<SaleResult>(sale);
+        }
+
+        // Add this method to SaleService.cs
+
+        // =========================
+        // SALES HISTORY
+        // =========================
+        public async Task<PagedResult<SaleResult>> GetHistoryAsync(SaleHistoryQuery query)
+        {
+            var tenantId = _tenantContext.TenantId;
+
+            if (query.Page < 1)
+                throw new ValidationException("Page must be >= 1");
+            if (query.PageSize < 1 || query.PageSize > 100)
+                throw new ValidationException("PageSize must be between 1 and 100");
+
+            var sales = _repository.Query()
+                .Where(s => !s.IsDeleted && s.TenantId == tenantId);
+
+            // ── Invoice search ────────────────────────────────────────────────────────
+            if (!string.IsNullOrWhiteSpace(query.Search))
+                sales = sales.Where(s => s.InvoiceNumber.Contains(query.Search.Trim()));
+
+            // ── Date range ────────────────────────────────────────────────────────────
+            if (query.DateFrom.HasValue)
+                sales = sales.Where(s => s.SaleDate >= query.DateFrom.Value);
+
+            if (query.DateTo.HasValue)
+                sales = sales.Where(s => s.SaleDate <= query.DateTo.Value);
+
+            // ── Customer filter ───────────────────────────────────────────────────────
+            if (query.WalkInOnly)
+            {
+                // Walk-in = no customer linked
+                sales = sales.Where(s => s.CustomerId == null);
+            }
+            else if (query.CustomerId.HasValue)
+            {
+                // Specific customer
+                sales = sales.Where(s => s.CustomerId == query.CustomerId.Value);
+            }
+            // else: All → no customer filter applied
+
+            // ── Payment status filter ─────────────────────────────────────────────────
+            if (query.PaymentStatuses != null && query.PaymentStatuses.Any())
+            {
+                var statuses = query.PaymentStatuses
+                    .Select(s => Enum.TryParse<PaymentStatus>(s, true, out var ps) ? ps : (PaymentStatus?)null)
+                    .Where(s => s.HasValue)
+                    .Select(s => s!.Value)
+                    .ToList();
+
+                if (statuses.Any())
+                    sales = sales.Where(s => statuses.Contains(s.PaymentStatus));
+            }
+
+            // ── Sale status filter ────────────────────────────────────────────────────
+            if (query.SaleStatuses != null && query.SaleStatuses.Any())
+            {
+                var statuses = query.SaleStatuses
+                    .Select(s => Enum.TryParse<SaleStatus>(s, true, out var ss) ? ss : (SaleStatus?)null)
+                    .Where(s => s.HasValue)
+                    .Select(s => s!.Value)
+                    .ToList();
+
+                if (statuses.Any())
+                    sales = sales.Where(s => statuses.Contains(s.Status));
+            }
+
+            // ── Count + paginate ──────────────────────────────────────────────────────
+            var total = await sales.CountAsync();
+
+            var items = await sales
+                .OrderByDescending(s => s.SaleDate)
+                .Skip((query.Page - 1) * query.PageSize)
+                .Take(query.PageSize)
+                .ToListAsync();
+
+            return new PagedResult<SaleResult>
+            {
+                Items = _mapper.Map<List<SaleResult>>(items),
+                TotalCount = total,
+                Page = query.Page,
+                PageSize = query.PageSize
+            };
+        }
+
+        // =========================
         // QUERY
         // =========================
         public async Task<PagedResult<SaleResult>> QueryAsync(SaleQuery query)
@@ -486,7 +832,9 @@ namespace Inventory.Services
             var tenantId = _tenantContext.TenantId;
 
             var all = (await _repository.GetAllAsync())
-                .Where(s => !s.IsDeleted && s.TenantId == tenantId && s.InvoiceNumber.Contains(query.Search.Trim()))
+                .Where(s => !s.IsDeleted
+                        && s.TenantId == tenantId
+                        && s.InvoiceNumber.Contains(query.Search.Trim()))
                 .AsQueryable();
 
             var total = all.Count();

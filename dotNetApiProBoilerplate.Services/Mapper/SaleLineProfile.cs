@@ -2,6 +2,7 @@
 using Inventory.Domain.Entities;
 using Inventory.Dto.SaleLines.Requests;
 using Inventory.Dto.SaleLines.Results;
+using Inventory.Dto.Sales.Results;
 
 namespace Inventory.Services.Mapping
 {
@@ -29,6 +30,10 @@ namespace Inventory.Services.Mapping
             // RESULT
             // =========================
             CreateMap<SaleLine, SaleLineResult>();
+
+            CreateMap<Sale, SaleResult>()
+                .ForMember(dest => dest.SaleLines,
+                opt => opt.MapFrom(src => src.Lines));
         }
     }
 }
