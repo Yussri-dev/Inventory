@@ -1,4 +1,5 @@
-﻿using Inventory.Domain.Entities;
+﻿using Inventory.Domain;
+using Inventory.Domain.Entities;
 using Inventory.Domain.Models;
 using Inventory.Infrastructure.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
@@ -41,6 +42,7 @@ namespace Inventory.Infrastructure.Data
             builder.Entity<AuditLog>().HasIndex(e => e.TenantId);
             builder.Entity<Promotion>().HasIndex(e => e.TenantId);
             builder.Entity<SystemConfiguration>().HasIndex(e => e.TenantId);
+            builder.Entity<PackComponent>().HasIndex(e => e.TenantId);
 
             // Additional useful indexes
             builder.Entity<Product>().HasIndex(e => e.Barcode);
@@ -49,6 +51,8 @@ namespace Inventory.Infrastructure.Data
             builder.Entity<Purchase>().HasIndex(e => e.PurchaseDate);
             builder.Entity<Customer>().HasIndex(e => e.Email);
             builder.Entity<Supplier>().HasIndex(e => e.Email);
+            builder.Entity<PackComponent>().HasIndex(e => e.PackCatalaogId);
+            builder.Entity<PackComponent>().HasIndex(e => e.ComponentCatalogId);
 
             // ============================
             // PRODUCT RELATIONSHIPS
@@ -67,6 +71,18 @@ namespace Inventory.Infrastructure.Data
                 .WithMany(pc => pc.TenantProducts)
                 .HasForeignKey(p => p.CatalogProductId)
                 .OnDelete(DeleteBehavior.SetNull);
+
+            builder.Entity<PackComponent>()
+                .HasOne(p => p.PackCatalog)
+                .WithMany(c => c.PackComponents)
+                .HasForeignKey(p => p.PackCatalaogId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            builder.Entity<PackComponent>()
+                .HasOne(p=> p.ComponentCatalog)
+                .WithMany(c => c.UsedInPacks)
+                .HasForeignKey(p => p.ComponentCatalogId)
+                .OnDelete(DeleteBehavior.Restrict);
 
             // ============================
             // SALE RELATIONSHIPS
@@ -361,5 +377,6 @@ namespace Inventory.Infrastructure.Data
         public DbSet<DocumentNumber> DocumentNumbers => Set<DocumentNumber>();
         public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
         public DbSet<SystemConfiguration> SystemConfigurations => Set<SystemConfiguration>();
+        public DbSet<PackComponent> PackComponents => Set<PackComponent>();
     }
 }

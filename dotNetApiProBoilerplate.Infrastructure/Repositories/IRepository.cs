@@ -33,6 +33,9 @@ namespace Inventory.Infrastructure.Repositories
             Expression<Func<T, bool>> predicate,
             params Expression<Func<T, object>>[] includes);
 
+        Task AddRangeAsync(IEnumerable<T> entities);
+
+
         IQueryable<T> Query();
 
     }

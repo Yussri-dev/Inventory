@@ -1,6 +1,7 @@
 ﻿using Inventory.Domain.Abstraction;
 using Inventory.Domain.Barcodes;
 using Inventory.Domain.Enums;
+using Inventory.Domain.Models;
 using System.ComponentModel.DataAnnotations;
 
 namespace Inventory.Domain.Entities
@@ -33,6 +34,13 @@ namespace Inventory.Domain.Entities
         public SellingMode SellingMode {  get; set; }
         public string UnitOfMeasure { get; set; } = "pcs"; // pcs, kg, g, l
 
+        public bool IsPack { get; set; } = false;
+
+        public ICollection<PackComponent> PackComponents { get; set; }
+            = new List<PackComponent>();
+
+        public ICollection<PackComponent> UsedInPacks { get; set; }
+        = new List<PackComponent>();
         // Navigation properties
         public ICollection<Product> TenantProducts { get; set; } = new List<Product>();
     }

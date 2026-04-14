@@ -2,6 +2,7 @@
 using AutoMapper.QueryableExtensions;
 using Inventory.Domain.Barcodes;
 using Inventory.Domain.Entities;
+using Inventory.Domain.Models;
 using Inventory.Dto.Pages.Results;
 using Inventory.Dto.ProductCatalogs.Requests;
 using Inventory.Dto.ProductCatalogs.Results;
@@ -18,17 +19,20 @@ namespace Inventory.Services
     public class ProductCatalogService
     {
         private readonly IRepository<ProductCatalog> _repository;
+        private readonly IRepository<PackComponent> _packComponentRepository; // NOUVEAU
         private readonly IUnitOfWork _unitOfWork;
         private readonly IMapper _mapper;
         private readonly ITenantContext _tenantContext;
 
         public ProductCatalogService(
             IRepository<ProductCatalog> repository,
+            IRepository<PackComponent> packComponentRepository, // NOUVEAU
             IUnitOfWork unitOfWork,
             IMapper mapper,
             ITenantContext tenantContext)
         {
             _repository = repository;
+            _packComponentRepository = packComponentRepository; // NOUVEAU
             _unitOfWork = unitOfWork;
             _mapper = mapper;
             _tenantContext = tenantContext;
@@ -111,11 +115,33 @@ namespace Inventory.Services
             entity.CreatedAt = DateTime.UtcNow;
             entity.CreatedByUserId = userId;
             entity.TenantId = tenantId;
+            entity.IsPack = request.IsPack; // NOUVEAU
             entity.UnitOfMeasure = request.UnitOfMeasure;
+
             await _repository.AddAsync(entity);
             await _unitOfWork.SaveChangesAsync();
 
+            // NOUVEAU — persister les composants pack
+            if (request.IsPack && request.PackComponents.Any())
+            {
+                foreach (var comp in request.PackComponents)
+                {
+                    await _packComponentRepository.AddAsync(new PackComponent
+                    {
+                        Id = Guid.NewGuid(),
+                        PackCatalaogId = entity.Id,
+                        ComponentCatalogId = comp.ComponentCatalogId,
+                        Quantity = comp.Quantity,
+                        TenantId = tenantId,
+                        CreatedAt = DateTime.UtcNow
+                    });
+                }
+                await _unitOfWork.SaveChangesAsync();
+            }
+
             return _mapper.Map<ProductCatalogResult>(entity);
+
+
         }
         // =========================
         // GET BY ID (GLOBAL)
@@ -198,6 +224,32 @@ namespace Inventory.Services
 
             catalog.ModifiedAt = DateTime.UtcNow;
             catalog.ModifiedByUserId = userId;
+
+            catalog.IsPack = request.IsPack;
+
+            var existingComponents = await _packComponentRepository
+                .Query()
+                .Where(pc => pc.PackCatalaogId == id)
+                .ToListAsync();
+
+            foreach (var comp in existingComponents)
+                _packComponentRepository.Delete(comp);
+
+            if (request.IsPack && request.PackComponents.Any())
+            {
+                foreach (var comp in request.PackComponents)
+                {
+                    await _packComponentRepository.AddAsync(new PackComponent
+                    {
+                        Id = Guid.NewGuid(),
+                        PackCatalaogId = id,
+                        ComponentCatalogId = comp.ComponentCatalogId,
+                        Quantity = comp.Quantity,
+                        TenantId = tenantId,
+                        CreatedAt = DateTime.UtcNow
+                    });
+                }
+            }
 
             _repository.Update(catalog);
             await _unitOfWork.SaveChangesAsync();
@@ -298,7 +350,7 @@ namespace Inventory.Services
                 });
             }
 
-            if (query.PageSize < 1 || query.PageSize > 100)
+            if (query.PageSize < 1 || query.PageSize > 1000)
             {
                 throw new ValidationException(new Dictionary<string, string[]>
                 {
@@ -309,9 +361,9 @@ namespace Inventory.Services
             var productCatalagQuery = _repository.Query()
                 .Where(s => !s.IsDeleted
                         && s.TenantId == tenantId);
-                //.AsNoTracking()
-                //.AsQueryable();
-            
+            //.AsNoTracking()
+            //.AsQueryable();
+
 
             if (!string.IsNullOrWhiteSpace(query.Search))
             {
@@ -343,6 +395,8 @@ namespace Inventory.Services
             var total = await productCatalagQuery.CountAsync();
 
             var items = await productCatalagQuery
+                .Include(c => c.PackComponents)
+                    .ThenInclude(pc => pc.ComponentCatalog)
                 .Skip((query.Page - 1) * query.PageSize)
                 .Take(query.PageSize)
                 .ProjectTo<ProductCatalogResult>(_mapper.ConfigurationProvider)

@@ -2,11 +2,13 @@
 @using Inventory.Dto.Enums
 @using Inventory.Dto.Sales.Results
 @using Inventory.Dto.Stock.Results
+@using Inventory.Ui.State
 @using Microsoft.Extensions.Logging
 @using System.Net
 @using System.Globalization
-@inject IJSRuntime JS
 
+@inject IJSRuntime JS
+@inject AppState State
 @inject ISaleApi SaleApi
 @inject IPosApi PosApi
 @inject NavigationManager Nav
@@ -14,8 +16,14 @@
 
 @inject ICashSessionApi CashSessionApi
 @inject NavigationManager Navigation
-@* @inject IStockApi StockApi *@
-@* @inject ITicketPrinter TicketPrinter *@
+
+@if (!string.IsNullOrEmpty(UiAlertMessage))
+{
+    <div class="alert @UiAlertType">
+        <span>@UiAlertMessage</span>
+        <button @onclick="ClearAlert">×</button>
+    </div>
+}
 
 <div class="sale-container">
     <!-- LEFT COLUMN: Cart & Totals -->
@@ -90,10 +98,16 @@
                                 </td>
                                 <td>
                                     @line.ProductName
+                                    @if (line.IsPack && line.PackSize > 1)
+                                    {
+                                        <span style="font-size: 11px; color: #6c757d; display: block;">
+                                            📦 Pack — @line.Quantity × @line.PackSize units = @(line.Quantity* line.PackSize) units total
+                                        </span>
+                                    }
                                     @if (availableQty > 0 && !isOverStock)
                                     {
                                         <span class="stock-available" style="font-size: 11px; color: #28a745;">
-                                            (Stock: @availableQty)
+                                            (Stock: @availableQty packs)
                                         </span>
                                     }
                                 </td>
@@ -208,7 +222,8 @@
                        class="search-input"
                        placeholder="Search products by name..."
                        @bind="SearchText"
-                       @bind:event="oninput" />
+                       @bind:event="oninput"
+                       @bind:after="UpdateFilter" />
                 <span class="search-icon">🔍</span>
             </div>
         </div>
@@ -219,7 +234,7 @@
             {
                 <div class="loading-state">Loading products...</div>
             }
-            else if (FilteredProducts.Count == 0)
+            else if (filteredProductsCache.Count == 0)
             {
                 <div class="empty-state">
                     <p>No products found</p>
@@ -228,7 +243,7 @@
             else
             {
                 <ul class="product-list">
-                    @foreach (var product in FilteredProducts)
+                    @foreach (var product in filteredProductsCache)
                     {
                         var availableQty = GetAvailableQuantity(product.Id);
                         var isOutOfStock = availableQty <= 0;
@@ -700,7 +715,7 @@
     List<CartLine> Lines = new();
     List<ProductResult> Products = new();
     List<CustomerResult> Customers = new();
-    List<StockResult> Stocks = new();
+    // List<StockResult> Stocks = new();
     List<SaleResult> PendingTickets = new();
     bool ShowPendingModal;
 
@@ -727,6 +742,15 @@
     private PaymentType currentPaymentType = PaymentType.Cash;
     private bool isChangeValidated = false;
     static bool _redirectingToLogin = false;
+    bool pendingLoaded = false;
+
+    Dictionary<Guid, StockResult> StockMap = new();
+    Dictionary<Guid, ProductResult> ProductMap = new();
+    Dictionary<string, ProductResult> BarcodeMap = new();
+    Dictionary<Guid, CustomerResult> CustomerMap = new();
+
+    string? UiAlertMessage;
+    string UiAlertType = "info"; // info | success | warning | error
 
     // private bool CanCompletePayment =>
     //     !IsSaving &&
@@ -750,13 +774,44 @@
     decimal TotalAmount => Lines.Sum(l => l.Amount);
     decimal TotalTax => Lines.Sum(l => l.TaxAmount);
 
-    List<ProductResult> FilteredProducts =>
-        string.IsNullOrWhiteSpace(SearchText)
+    // List<ProductResult> FilteredProducts =>
+    //     string.IsNullOrWhiteSpace(SearchText)
+    //         ? Products
+    //         : Products.Where(p =>
+    //             p.CatalogName.Contains(SearchText, StringComparison.OrdinalIgnoreCase) ||
+    //             (p.CatalogBarcode?.Contains(SearchText, StringComparison.OrdinalIgnoreCase) ?? false)
+    //         ).ToList();
+
+    List<ProductResult> filteredProductsCache = new();
+    string lastSearch = "";
+
+    void ShowAlert(string message, string type = "info")
+    {
+        UiAlertMessage = message;
+        UiAlertType = type;
+    }
+
+    void ClearAlert()
+    {
+        UiAlertMessage = null;
+    }
+
+    void UpdateFilter()
+    {
+        if (SearchText == lastSearch)
+        {
+            return;
+        }
+
+        lastSearch = SearchText;
+
+        filteredProductsCache = string.IsNullOrWhiteSpace(SearchText)
             ? Products
             : Products.Where(p =>
-                p.CatalogName.Contains(SearchText, StringComparison.OrdinalIgnoreCase) ||
-                (p.CatalogBarcode?.Contains(SearchText, StringComparison.OrdinalIgnoreCase) ?? false)
-            ).ToList();
+                  p.CatalogName.Contains(SearchText, StringComparison.OrdinalIgnoreCase) ||
+            (p.CatalogBarcode?.Contains(SearchText, StringComparison.OrdinalIgnoreCase) ?? false)
+        ).ToList();
+    }
 
     List<CustomerResult> FilteredCustomers =>
         string.IsNullOrWhiteSpace(CustomerSearchText)
@@ -782,20 +837,29 @@
         isChangeValidated = true;
         StateHasChanged();
     }
+
     // INIT
     protected override async Task OnInitializedAsync()
     {
-        try
+        if (!State.IsCashSessionLoaded)
         {
-            await CashSessionApi.GetActive();
-        }
-        catch
-        {
-            await JS.InvokeVoidAsync(
-                "alert",
-                "No active cash session.\n\nPlease open a cash session before making sales."
-            );
+            try
+            {
+                State.ActiveCashSession = await CashSessionApi.GetActive();
+                State.IsCashSessionLoaded = true;
+            }
+            catch
+            {
+                await JS.InvokeVoidAsync("alert",
+                    "No active cash session.\n\nPlease open one.");
 
+                Navigation.NavigateTo("/cashsessions");
+                return;
+            }
+        }
+
+        if (State.ActiveCashSession == null)
+        {
             Navigation.NavigateTo("/cashsessions");
             return;
         }
@@ -805,31 +869,120 @@
 
     async Task LoadInitialData()
     {
+        if (!State.IsCacheStale)
+        {
+            // Réutilise le cache existant
+            Products = State.Products!;
+            Customers = State.Customers!;
+            ProductMap = State.ProductMap!;
+            CustomerMap = State.CustomerMap!;
+            StockMap = State.StockMap!;
+            BarcodeMap = State.BarcodeMap!;
+            filteredProductsCache = Products;
+            return;
+        }
+
         IsLoadingProducts = true;
+        var bootstrap = await PosApi.Bootstrap();
 
-        try
-        {
-            var bootstrap = await PosApi.Bootstrap();
+        State.Products = bootstrap.Products;
+        State.Customers = bootstrap.Customers;
+        State.ProductMap = bootstrap.Products.ToDictionary(p => p.Id);
+        State.CustomerMap = bootstrap.Customers.ToDictionary(c => c.Id);
+        State.StockMap = bootstrap.Stocks.ToDictionary(s => s.ProductId);
+        State.BarcodeMap = bootstrap.Products
+            .Where(p => !string.IsNullOrWhiteSpace(p.CatalogBarcode))
+            .GroupBy(p => p.CatalogBarcode!)
+            .ToDictionary(g => g.Key, g => g.First());
 
-            Products = bootstrap.Products;
-            Customers = bootstrap.Customers;
-            Stocks = bootstrap.Stocks;
+        State.IsPosLoaded = true;
+        State.LastBootstrapAt = DateTime.UtcNow;
 
-            // optional: server time sync
-            // ServerTime = bootstrap.ServerTime;
-
-            await FocusBarcodeInput();
-        }
-        catch (Refit.ApiException ex) when (ex.StatusCode == HttpStatusCode.Unauthorized)
-        {
-            HandleUnauthorized();
-        }
-        finally
-        {
-            IsLoadingProducts = false;
-            StateHasChanged();
-        }
+        Products = State.Products;
+        Customers = State.Customers;
+        ProductMap = State.ProductMap;
+        CustomerMap = State.CustomerMap;
+        StockMap = State.StockMap;
+        BarcodeMap = State.BarcodeMap;
+        filteredProductsCache = Products;
+        IsLoadingProducts = false;
     }
+
+    // async Task LoadInitialData()
+    // {
+    //     IsLoadingProducts = true;
+
+    //     try
+    //     {
+    //         var bootstrap = await PosApi.Bootstrap();
+
+    //         Products = bootstrap.Products;
+    //         Customers = bootstrap.Customers;
+    //         // Stocks = bootstrap.Stocks;
+
+    //         StockMap = bootstrap.Stocks.ToDictionary(s => s.ProductId, s => s);
+    //         ProductMap = bootstrap.Products.ToDictionary(p => p.Id);
+    //         CustomerMap = bootstrap.Customers.ToDictionary(c => c.Id);
+
+    //         BarcodeMap = bootstrap.Products
+    //             .Where(p => !string.IsNullOrWhiteSpace(p.CatalogBarcode))
+    //             .GroupBy(p => p.CatalogBarcode)
+    //             .ToDictionary(g => g.Key, g => g.First());
+
+    //         filteredProductsCache = Products.ToList();
+    //         lastSearch = "";
+    //         // optional: server time sync
+    //         // ServerTime = bootstrap.ServerTime;
+
+    //         await FocusBarcodeInput();
+    //     }
+    //     catch (Refit.ApiException ex) when (ex.StatusCode == HttpStatusCode.Unauthorized)
+    //     {
+    //         HandleUnauthorized();
+    //     }
+    //     finally
+    //     {
+    //         IsLoadingProducts = false;
+    //         StateHasChanged();
+    //     }
+    // }
+
+    private decimal GetAvailableQuantity(Guid productId)
+    {
+        if (!ProductMap.TryGetValue(productId, out var product))
+        {
+            Console.WriteLine($"Product {productId} NOT in ProductMap");
+            return 0;
+        }
+
+        Console.WriteLine($"Product found: {product.CatalogName}, IsPack={product.IsPack}, ComponentProductId={product.ComponentProductId}");
+
+        if (product.IsPack && product.ComponentProductId.HasValue)
+        {
+            var unitStock = StockMap.TryGetValue(product.ComponentProductId.Value, out var s)
+                ? s.AvailableQuantity : 0;
+
+            Console.WriteLine($"Unit stock: {unitStock}, PackSize: {product.PackSize}");
+
+            return product.PackSize > 0
+                ? Math.Floor(unitStock / product.PackSize)
+                : 0;
+        }
+
+        return StockMap.TryGetValue(productId, out var stock)
+            ? stock.AvailableQuantity : 0;
+    }
+
+    // private decimal GetAvailableQuantity(Guid productId)
+    // {
+    //     // var stock = GetStockForProduct(productId);
+    //     // return stock?.AvailableQuantity ?? 0;
+
+    //     return StockMap.TryGetValue(productId, out var stock)
+    //     ? stock.AvailableQuantity
+    //         : 0;
+    // }
+
 
     // async Task LoadInitialData()
     // {
@@ -909,16 +1062,11 @@
     //     }
     // }
 
-    private StockResult? GetStockForProduct(Guid productId)
-    {
-        return Stocks.FirstOrDefault(s => s.ProductId == productId);
-    }
+    // private StockResult? GetStockForProduct(Guid productId)
+    // {
+    //     return Stocks.FirstOrDefault(s => s.ProductId == productId);
+    // }
 
-    private decimal GetAvailableQuantity(Guid productId)
-    {
-        var stock = GetStockForProduct(productId);
-        return stock?.AvailableQuantity ?? 0;
-    }
     // CUSTOMER MODAL
     void OpenCustomerModal()
     {
@@ -968,9 +1116,11 @@
 
     async Task OnBarcodeScanned(string code)
     {
-        var product = Products.FirstOrDefault(p =>
-            p.CatalogBarcode == code ||
-            p.CatalogBarcode?.Contains(code) == true);
+        // var product = Products.FirstOrDefault(p =>
+        //     p.CatalogBarcode == code ||
+        //     p.CatalogBarcode?.Contains(code) == true);
+
+        var product = BarcodeMap.GetValueOrDefault(code);
 
         if (product == null)
         {
@@ -1082,24 +1232,25 @@
     // CART OPERATIONS
     void AddProduct(ProductResult product, int quantity = 1)
     {
-        // Get available quantity from stock
-        var availableQty = GetAvailableQuantity(product.Id);
+        Console.WriteLine($"Product: {product.CatalogName}");
+        Console.WriteLine($"IsPack: {product.IsPack}");
+        Console.WriteLine($"PackSize: {product.PackSize}");
+        Console.WriteLine($"ComponentProductId: {product.ComponentProductId}");
 
-        // Check if product is out of stock
+        var availableQty = GetAvailableQuantity(product.Id);
+        Console.WriteLine($"AvailableQty calculated: {availableQty}");
+
         if (availableQty <= 0)
         {
-            // Show error message to user
             JS.InvokeVoidAsync("alert", $"⚠️ {product.CatalogName} is out of stock!");
             return;
         }
 
-        // Check if adding more than available
         var existingLine = Lines.FirstOrDefault(l => l.ProductId == product.Id);
         var totalRequested = (existingLine?.Quantity ?? 0) + quantity;
 
         if (totalRequested > availableQty)
         {
-            // Show error with details
             JS.InvokeVoidAsync("alert",
                 $"⚠️ Cannot add {quantity} more of {product.CatalogName}\n" +
                 $"Available: {availableQty}\n" +
@@ -1108,8 +1259,12 @@
             return;
         }
 
-        // Use sale price for sales, not purchase price
-        var salePrice = product.SalePrice; // Assuming ProductResult has SalePrice property
+        var salePrice = product.SalePrice;
+
+        // Label enrichi si c'est un pack
+        var displayName = product.IsPack && product.PackSize > 1
+            ? $"{product.CatalogName} (x{product.PackSize})"
+            : product.CatalogName ?? "Unknown Product";
 
         if (existingLine != null)
         {
@@ -1120,16 +1275,68 @@
             Lines.Add(new CartLine
             {
                 ProductId = product.Id,
-                ProductName = product.CatalogName ?? product.CatalogName ?? "Unknown Product",
-                BaseSalePrice = salePrice, // Changed from BasePurchasePrice to BaseSalePrice
+                ProductName = displayName,
+                BaseSalePrice = salePrice,
                 Quantity = quantity,
-                TaxRate = product.VatRate
+                TaxRate = product.VatRate,
+                IsPack = product.IsPack,        // NOUVEAU
+                PackSize = product.PackSize      // NOUVEAU
             });
         }
 
         SelectedLine = Lines.Last();
         _ = FocusBarcodeInput();
     }
+    // void AddProduct(ProductResult product, int quantity = 1)
+    // {
+    //     // Get available quantity from stock
+    //     var availableQty = GetAvailableQuantity(product.Id);
+
+    //     // Check if product is out of stock
+    //     if (availableQty <= 0)
+    //     {
+    //         // Show error message to user
+    //         JS.InvokeVoidAsync("alert", $"⚠️ {product.CatalogName} is out of stock!");
+    //         return;
+    //     }
+
+    //     // Check if adding more than available
+    //     var existingLine = Lines.FirstOrDefault(l => l.ProductId == product.Id);
+    //     var totalRequested = (existingLine?.Quantity ?? 0) + quantity;
+
+    //     if (totalRequested > availableQty)
+    //     {
+    //         // Show error with details
+    //         JS.InvokeVoidAsync("alert",
+    //             $"⚠️ Cannot add {quantity} more of {product.CatalogName}\n" +
+    //             $"Available: {availableQty}\n" +
+    //             $"Already in cart: {existingLine?.Quantity ?? 0}\n" +
+    //             $"Total requested: {totalRequested}");
+    //         return;
+    //     }
+
+    //     // Use sale price for sales, not purchase price
+    //     var salePrice = product.SalePrice; // Assuming ProductResult has SalePrice property
+
+    //     if (existingLine != null)
+    //     {
+    //         existingLine.Quantity += quantity;
+    //     }
+    //     else
+    //     {
+    //         Lines.Add(new CartLine
+    //         {
+    //             ProductId = product.Id,
+    //             ProductName = product.CatalogName ?? "Unknown Product",
+    //             BaseSalePrice = salePrice, // Changed from BasePurchasePrice to BaseSalePrice
+    //             Quantity = quantity,
+    //             TaxRate = product.VatRate
+    //         });
+    //     }
+
+    //     SelectedLine = Lines.Last();
+    //     _ = FocusBarcodeInput();
+    // }
 
     void Increment(CartLine line)
     {
@@ -1443,7 +1650,9 @@
             message += $"\n\nGive change as:\n{denominationText}";
         }
 
-        await JS.InvokeVoidAsync("alert", message);
+        // await JS.InvokeVoidAsync("alert", message);
+
+        ShowAlert("Out of stock", message);
     }
 
     async Task PayExactAmount()
@@ -1692,7 +1901,11 @@
                 }).ToList()
             };
 
+            var soldLines = Lines.ToList(); // snapshot avant reset
             var result = await SaleApi.CreateComplete(request);
+
+            DeductStockLocally(soldLines); // mise à jour locale immédiate
+                                           // Plus besoin de RefreshPosState() ici
 
             await JS.InvokeVoidAsync(
                 "downloadFile",
@@ -1704,8 +1917,9 @@
             ResetPayments();
             Reset();
             CurrentPendingSaleId = null;
+            pendingLoaded = false;
             ClosePaymentModal();
-            PendingTickets = await SaleApi.GetPending();
+            // PendingTickets = await SaleApi.GetPending();
         }
         finally
         {
@@ -1713,6 +1927,30 @@
         }
     }
 
+    private async Task RefreshPosState()
+    {
+        var bootstrap = await PosApi.Bootstrap();
+
+        State.Products = bootstrap.Products;
+        State.Customers = bootstrap.Customers;
+        State.ProductMap = bootstrap.Products.ToDictionary(p => p.Id);
+        State.CustomerMap = bootstrap.Customers.ToDictionary(c => c.Id);
+        State.StockMap = bootstrap.Stocks.ToDictionary(s => s.ProductId);
+        State.BarcodeMap = bootstrap.Products
+            .Where(p => !string.IsNullOrWhiteSpace(p.CatalogBarcode))
+            .GroupBy(p => p.CatalogBarcode!)
+            .ToDictionary(g => g.Key, g => g.First());
+
+        Products = State.Products;
+        Customers = State.Customers;
+        ProductMap = State.ProductMap;
+        CustomerMap = State.CustomerMap;
+        StockMap = State.StockMap;
+        BarcodeMap = State.BarcodeMap;
+        filteredProductsCache = Products;
+
+        StateHasChanged();
+    }
 
     async Task ResumePending(Guid id)
     {
@@ -1722,7 +1960,7 @@
 
         foreach (var line in sale.SaleLines)
         {
-            var product = Products.FirstOrDefault(p => p.Id == line.ProductId);
+            var product = ProductMap.GetValueOrDefault(line.ProductId);
 
             Lines.Add(new CartLine
             {
@@ -1734,25 +1972,24 @@
             });
         }
 
-        SelectedCustomer = Customers.FirstOrDefault(c => c.Id == sale.CustomerId);
+        SelectedCustomer = sale.CustomerId.HasValue
+            ? CustomerMap.GetValueOrDefault(sale.CustomerId.Value)
+            : null;
 
         CurrentPendingSaleId = sale.Id;
 
         ShowPendingModal = false;
-        StateHasChanged();
     }
 
     async Task LoadPendingTickets()
     {
-        if (Lines.Count == 0)
+        if (!pendingLoaded)
         {
             PendingTickets = await SaleApi.GetPending();
-            ShowPendingModal = true;
+            pendingLoaded = true;
         }
-        else
-        {
-            await JS.InvokeVoidAsync("alert", "Cart must be Empty.");
-        }
+
+        ShowPendingModal = true;
     }
 
     async Task SavePending()
@@ -1781,11 +2018,15 @@
             if (CurrentPendingSaleId.HasValue)
             {
                 await SaleApi.UpdatePending(CurrentPendingSaleId.Value, request);
+                pendingLoaded = false;
+
             }
             else
             {
                 var created = await SaleApi.CreatePending(request);
                 CurrentPendingSaleId = created.Id;
+                pendingLoaded = false;
+
             }
 
             await JS.InvokeVoidAsync("alert", "Sale saved as pending.");
@@ -1795,7 +2036,7 @@
             SelectedCustomer = null;
             SelectedLine = null;
             CurrentPendingSaleId = null;
-
+            pendingLoaded = false;
             StateHasChanged();
         }
         finally
@@ -2067,12 +2308,35 @@
 
         Nav.NavigateTo("/login", replace: true);
     }
-    // ENUMS
-    enum PaymentType
+
+    //deduct
+    private void DeductStockLocally(List<CartLine> soldLines)
     {
-        Cash,
-        Card,
-        Credit
+        foreach (var line in soldLines)
+        {
+            if (!ProductMap.TryGetValue(line.ProductId, out var product))
+                continue;
+
+            if (product.IsPack && product.ComponentProductId.HasValue)
+            {
+                var unitProductId = product.ComponentProductId.Value;
+                var unitsToDeduct = line.Quantity * product.PackSize;
+
+                if (State.StockMap!.TryGetValue(unitProductId, out var unitStock))
+                {
+                    unitStock.Quantity = Math.Max(0, unitStock.Quantity - unitsToDeduct);
+                }
+            }
+            else
+            {
+                if (State.StockMap!.TryGetValue(line.ProductId, out var stock))
+                {
+                    stock.Quantity = Math.Max(0, stock.Quantity - line.Quantity);
+                }
+            }
+        }
+
+        StockMap = State.StockMap!;
     }
 
     // MODELS
@@ -2133,6 +2397,8 @@
         public decimal BaseSalePrice { get; set; } // TTC
         public decimal TaxRate { get; set; }
         public bool IsExpanded { get; set; }
+        public bool IsPack { get; set; }
+        public decimal PackSize { get; set; } = 1m;
         public List<CartAdjustment> Adjustments { get; set; } = new();
 
         public decimal EffectiveUnitPrice

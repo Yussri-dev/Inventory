@@ -56,17 +56,28 @@ namespace Inventory.Ui.Authentification
                 var token = await _storage.GetTokenAsync();
 
                 if (string.IsNullOrWhiteSpace(token))
+                    return Anonymous();
+
+                var claims = JwtParser.Parse(token);
+
+                var expClaim = claims.FirstOrDefault(c => c.Type == "exp")?.Value;
+
+                if (expClaim is null)
+                    return Anonymous();
+
+                var exp = DateTimeOffset.FromUnixTimeSeconds(long.Parse(expClaim));
+
+                if (exp <= DateTimeOffset.UtcNow)
                 {
+                    await _storage.RemoveTokenAsync();
                     return Anonymous();
                 }
 
-                var claims = JwtParser.Parse(token);
                 var identity = new ClaimsIdentity(claims, "jwt");
                 return new AuthenticationState(new ClaimsPrincipal(identity));
             }
-            catch (Exception)
+            catch
             {
-
                 return Anonymous();
             }
         }

@@ -1,13 +1,25 @@
 /* =========================================================
-   GLOBAL RESET & VARIABLES
+   RESET
    ========================================================= */
-
-*,
-*::before,
-*::after {
+*, *::before, *::after {
     box-sizing: border-box;
 }
 
+html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    background: var(--bg);
+    color: var(--text);
+}
+
+/* =========================================================
+   VARIABLES
+   ========================================================= */
 :root {
     --bg: #0f1220;
     --bg-soft: #151833;
@@ -20,98 +32,73 @@
 }
 
 /* =========================================================
-   HARD VIEWPORT LOCK (DESKTOP APP MODE)
+   ROOT LAYOUT
    ========================================================= */
-
-html,
-body {
-    margin: 0;
-    padding: 0;
-    width: 100%;
-    height: 100%;
-    overflow: hidden;
-    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-    background: var(--bg);
-    color: var(--text);
-    -webkit-font-smoothing: antialiased;
-}
-
-/* =========================================================
-   ROOT APP LAYOUT
-   ========================================================= */
-
 .inv-layout {
     display: grid;
-    grid-template-columns: 260px 1fr;
+    grid-template-columns: 240px 1fr;
     height: 100vh;
     width: 100vw;
     overflow: hidden;
-    background: var(--bg);
+    transition: grid-template-columns 0.2s ease;
 }
 
-/* =========================================================
-   SIDEBAR (FIXED)
-   ========================================================= */
+    .inv-layout.sidebar-collapsed {
+        grid-template-columns: 70px 1fr;
+    }
 
-.inv-sidebar,
-.sidebar {
+/* =========================================================
+   SIDEBAR
+   ========================================================= */
+.inv-sidebar {
     height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
     background: var(--bg-soft);
     border-right: 1px solid var(--border);
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-}
-
-/* Hide sidebar on mobile */
-@media (max-width: 900px) {
-    .inv-sidebar,
-    .sidebar {
-        display: none;
-    }
+    flex-shrink: 0;
 }
 
 /* =========================================================
-   MAIN CONTENT AREA (NO SCROLL)
+   MAIN CONTENT
    ========================================================= */
-
-.inv-content,
-.main-content {
-    height: 100%;
-    width: 100%;
+.inv-content {
+    height: 100vh;
     overflow: hidden;
     display: flex;
     flex-direction: column;
     background: var(--bg);
-}
-
-/* Wrapper used by pages */
-.page-wrapper,
-.purchase-container {
-    flex: 1;
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-    padding: 16px;
+    min-width: 0;
 }
 
 /* =========================================================
-   OPTIONAL: LOCAL SCROLL AREAS (ONLY WHEN NEEDED)
+   PAGE WRAPPER  ? chaque page l'utilise
    ========================================================= */
-
-/* Example: table or list that may scroll */
-.scroll-area,
-.cart-table,
-.product-list-container {
+.page-wrapper {
     flex: 1;
+    min-height: 0;
     overflow-y: auto;
     overflow-x: hidden;
+    padding: 24px;
 }
+
+    .page-wrapper::-webkit-scrollbar {
+        width: 5px;
+    }
+
+    .page-wrapper::-webkit-scrollbar-track {
+        background: transparent;
+    }
+
+    .page-wrapper::-webkit-scrollbar-thumb {
+        background: rgba(255,255,255,.1);
+        border-radius: 4px;
+    }
 
 /* =========================================================
    LOADER
    ========================================================= */
-
 .loader {
     position: fixed;
     inset: 0;
@@ -123,33 +110,9 @@ body {
 }
 
 /* =========================================================
-   NAVIGATION / MENU
-   ========================================================= */
-
-.nav-menu,
-.nav-drawer {
-    background: var(--bg-soft);
-    color: var(--text);
-}
-
-    .nav-menu a,
-    .nav-drawer a {
-        color: var(--text);
-        text-decoration: none;
-    }
-
-        .nav-menu a.active,
-        .nav-drawer a.active {
-            background: rgba(79, 70, 229, 0.15);
-            color: #fff;
-        }
-
-/* =========================================================
    BUTTONS
    ========================================================= */
-
-button,
-.btn {
+button, .btn {
     background: var(--primary);
     color: #fff;
     border: none;
@@ -164,101 +127,50 @@ button,
     }
 
 /* =========================================================
-   USER CARD
-   ========================================================= */
-
-.user-card {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-}
-
-.avatar {
-    width: 42px;
-    height: 42px;
-    border-radius: 50%;
-}
-
-.user-info .name {
-    font-weight: 600;
-}
-
-.user-info .status {
-    font-size: 12px;
-    color: var(--text-muted);
-}
-
-/* =========================================================
    MOBILE TOP BAR
    ========================================================= */
-
 .android-topbar {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
     height: 56px;
+    min-height: 56px;
     background: var(--bg-soft);
     display: flex;
     align-items: center;
     justify-content: space-between;
     padding: 0 12px;
-    z-index: 1000;
     border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+}
+
+.topbar-menu-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 18px;
+    cursor: pointer;
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .visible-mobile {
     display: none;
 }
 
-@media (max-width: 900px) {
-    .visible-mobile {
-        display: flex;
-    }
-}
-
 /* =========================================================
-   MOBILE BOTTOM NAV
+   DRAWER BACKDROP
    ========================================================= */
-
-.android-bottom-nav {
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    height: 66px;
-    background: var(--bg-soft);
-    display: flex;
-    justify-content: space-around;
-    align-items: center;
-    border-top: 1px solid var(--border);
-    z-index: 1000;
-}
-
-    .android-bottom-nav .tab {
-        flex: 1;
-        text-align: center;
-        padding: 8px 0;
-        color: var(--text-muted);
-        font-size: 12px;
-    }
-
-        .android-bottom-nav .tab.active {
-            color: #fff;
-        }
-
-/* =========================================================
-   MOBILE DRAWER
-   ========================================================= */
-
 .drawer-backdrop {
     position: fixed;
     inset: 0;
-    background: rgba(0,0,0,0.4);
+    background: rgba(0,0,0,.5);
     opacity: 0;
     pointer-events: none;
     transition: opacity .2s ease;
-    z-index: 999;
+    z-index: 998;
 }
 
     .drawer-backdrop.show {
@@ -266,47 +178,9 @@ button,
         pointer-events: auto;
     }
 
-.nav-drawer {
-    position: fixed;
-    top: 0;
-    left: 0;
-    bottom: 0;
-    width: 280px;
-    transform: translateX(-100%);
-    transition: transform .25s ease;
-    z-index: 1000;
-}
-
-    .nav-drawer.open {
-        transform: translateX(0);
-    }
-
 /* =========================================================
-   MOBILE SAFE AREAS (iOS)
+   AUTH PAGES
    ========================================================= */
-
-@supports (-webkit-touch-callout: none) {
-    .android-topbar {
-        padding-top: env(safe-area-inset-top);
-        height: calc(56px + env(safe-area-inset-top));
-    }
-
-    .android-bottom-nav {
-        padding-bottom: env(safe-area-inset-bottom);
-    }
-}
-
-/* =========================================================
-   PERFORMANCE
-   ========================================================= */
-
-.android-topbar,
-.android-bottom-nav,
-.nav-drawer {
-    will-change: transform;
-    transform: translateZ(0);
-}
-
 .auth-shell {
     position: fixed;
     inset: 0;
@@ -317,11 +191,7 @@ button,
     background: white;
 }
 
-.auth-header {
-    display: none;
-}
-
-.auth-footer {
+.auth-header, .auth-footer {
     display: none;
 }
 
@@ -331,3 +201,96 @@ button,
     justify-content: center;
 }
 
+/* =========================================================
+   RESPONSIVE — MOBILE (max 900px)
+   ========================================================= */
+@media (max-width: 900px) {
+
+    .visible-mobile {
+        display: flex;
+    }
+
+    .inv-layout {
+        grid-template-columns: 1fr;
+    }
+
+        .inv-layout.sidebar-collapsed {
+            grid-template-columns: 1fr;
+        }
+
+    /* sidebar slide-in depuis la gauche */
+    .inv-sidebar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 260px !important;
+        z-index: 999;
+        transform: translateX(-100%);
+        transition: transform .25s ease;
+        box-shadow: 4px 0 24px rgba(0,0,0,.4);
+    }
+
+        .inv-sidebar.open {
+            transform: translateX(0);
+        }
+
+    .page-wrapper {
+        padding: 16px;
+    }
+}
+
+/* =========================================================
+   PERFORMANCE
+   ========================================================= */
+.inv-sidebar {
+    will-change: transform;
+}
+
+/* =========================================================
+   RECEIPT PRINT
+   ========================================================= */
+#receipt {
+    display: none;
+}
+
+@media print {
+    body * {
+        visibility: hidden;
+    }
+
+    #receipt, #receipt * {
+        visibility: visible;
+    }
+
+    #receipt {
+        position: absolute;
+        left: 0;
+        top: 0;
+        display: block !important;
+        font-family: 'Courier New', monospace;
+        font-size: 12px;
+        max-width: 300px;
+        background: #fff;
+        color: #000;
+    }
+
+        #receipt h3 {
+            text-align: center;
+            margin: 10px 0;
+            font-size: 14px;
+        }
+
+        #receipt hr {
+            border: none;
+            border-top: 1px dashed #000;
+            margin: 10px 0;
+        }
+
+        #receipt p {
+            margin: 5px 0;
+        }
+
+        #receipt div {
+            margin: 3px 0;
+        }
+}

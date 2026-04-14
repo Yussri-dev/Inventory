@@ -1,4 +1,24 @@
-﻿:root {
+﻿/* ========================================
+   RESET & BASE
+   ======================================== */
+*, *::before, *::after {
+    box-sizing: border-box;
+}
+
+html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+}
+
+/* ========================================
+   VARIABLES
+   ======================================== */
+:root {
     --bg: #ffffff;
     --panel: #ffffff;
     --border: #e9ecef;
@@ -11,20 +31,31 @@
 /* ========================================
    LAYOUT
    ======================================== */
-
 .inv-layout {
     display: grid;
-    grid-template-columns: 260px 1fr;
-    min-height: 100vh;
-    background: var(--bg);
+    grid-template-columns: 240px 1fr;
+    height: 100vh;
+    width: 100vw;
+    overflow: hidden;
+    transition: grid-template-columns 0.2s ease;
 }
 
+    .inv-layout.sidebar-collapsed {
+        grid-template-columns: 70px 1fr;
+    }
+
+/* ========================================
+   SIDEBAR
+   ======================================== */
 .inv-sidebar {
+    height: 100vh;
+    overflow: hidden;
     background: #ffffff;
     border-right: 1px solid var(--border);
     padding: 16px;
     display: flex;
     flex-direction: column;
+    flex-shrink: 0;
 }
 
 .inv-brand {
@@ -33,6 +64,7 @@
     margin-bottom: 24px;
     font-weight: 800;
     color: var(--text);
+    align-items: center;
 }
 
 .logo {
@@ -43,18 +75,31 @@
     display: grid;
     place-items: center;
     color: white;
+    flex-shrink: 0;
 }
 
 /* ========================================
    SIDEBAR MENU
    ======================================== */
-
 .inv-menu {
     display: flex;
     flex-direction: column;
     gap: 6px;
     flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(0,0,0,.1) transparent;
 }
+
+    .inv-menu::-webkit-scrollbar {
+        width: 4px;
+    }
+
+    .inv-menu::-webkit-scrollbar-thumb {
+        background: rgba(0,0,0,.1);
+        border-radius: 4px;
+    }
 
 .inv-link {
     padding: 12px;
@@ -62,6 +107,9 @@
     color: var(--muted);
     text-decoration: none;
     transition: 0.2s;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
     .inv-link.active,
@@ -73,6 +121,7 @@
 .inv-footer {
     border-top: 1px solid var(--border);
     padding-top: 12px;
+    flex-shrink: 0;
 }
 
 .logout {
@@ -92,33 +141,105 @@
     }
 
 /* ========================================
-   CONTENT
+   MAIN CONTENT
    ======================================== */
-
 .inv-content {
-    padding: 24px;
-    color: var(--text);
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
     background: #ffffff;
+    color: var(--text);
+    min-width: 0; /* fix grid overflow */
+    margin: 20px;
 }
 
 /* ========================================
-   RESPONSIVE
+   PAGE WRAPPER (used in every page)
    ======================================== */
+.page-wrapper {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 24px;
+    min-height: 0; /* fix flexbox overflow */
+}
 
-@media(max-width:900px) {
-    .inv-layout {
-        grid-template-columns: 1fr;
+    .page-wrapper::-webkit-scrollbar {
+        width: 6px;
     }
 
-    .inv-sidebar {
+    .page-wrapper::-webkit-scrollbar-track {
+        background: transparent;
+    }
+
+    .page-wrapper::-webkit-scrollbar-thumb {
+        background: rgba(0,0,0,.15);
+        border-radius: 4px;
+    }
+
+/* ========================================
+   MOBILE HAMBURGER BUTTON
+   ======================================== */
+.menu-btn {
+    position: fixed;
+    top: 12px;
+    left: 12px;
+    z-index: 1000;
+    background: #0d1117;
+    color: white;
+    border: 1px solid rgba(255,255,255,.1);
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 18px;
+    cursor: pointer;
+}
+
+@media (min-width: 901px) {
+    .menu-btn {
         display: none;
     }
 }
 
 /* ========================================
-   RECEIPT PRINT STYLING
+   RESPONSIVE — MOBILE
    ======================================== */
+@media (max-width: 900px) {
+    .inv-layout {
+        grid-template-columns: 1fr;
+    }
 
+        .inv-layout.sidebar-collapsed {
+            grid-template-columns: 1fr;
+        }
+
+    .inv-sidebar {
+        position: fixed;
+        left: -100%;
+        top: 0;
+        width: 260px;
+        z-index: 999;
+        transition: left 0.25s ease;
+        box-shadow: 4px 0 20px rgba(0,0,0,.1);
+    }
+
+        .inv-sidebar.open {
+            left: 0;
+        }
+
+    .inv-content {
+        width: 100vw;
+    }
+
+    .page-wrapper {
+        padding: 16px;
+        padding-top: 64px; /* espace pour le menu-btn */
+    }
+}
+
+/* ========================================
+   RECEIPT PRINT
+   ======================================== */
 #receipt {
     display: none;
 }
@@ -128,7 +249,8 @@
         visibility: hidden;
     }
 
-    #receipt, #receipt * {
+    #receipt,
+    #receipt * {
         visibility: visible;
     }
 

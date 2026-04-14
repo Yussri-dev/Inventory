@@ -49,25 +49,65 @@
 }
 
 /* ── Table container ──────────────────────────────────────── */
+/* Cart Table */
 .cart-table {
-    overflow-x: auto;
+    flex: 1;
     overflow-y: auto;
-    max-height: 520px;
-    padding: 0;
+    height: 650px;
+    max-height: 650px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
 }
 
-    .cart-table .empty-state {
-        padding: 60px 20px;
-        text-align: center;
-        color: var(--muted);
+.table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+    .table thead th {
+        background: #f5f5f5;
+        padding: 12px;
+        text-align: left;
+        font-weight: 600;
+        border-bottom: 2px solid #e0e0e0;
+        position: sticky;
+        top: 0;
+        z-index: 1;
     }
 
-    .cart-table .loading-state {
-        padding: 60px 20px;
-        text-align: center;
-        color: var(--muted);
-        font-style: italic;
+    .table tbody tr {
+        border-bottom: 1px solid #f0f0f0;
+        cursor: pointer;
+        transition: background 0.2s;
     }
+
+        .table tbody tr:nth-child(even) {
+            background: #fafafa;
+        }
+
+        .table tbody tr:hover {
+            background: #f0f0f0;
+        }
+
+        .table tbody tr.selected {
+            background: #e3f2fd !important;
+        }
+
+    .table td {
+        padding: 12px;
+        vertical-align: middle;
+        box-sizing: border-box;
+    }
+
+
+.card {
+    background: white;
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    margin-bottom: 15px;
+    box-sizing: border-box;
+}
 
 /* ── Status badges ────────────────────────────────────────── */
 .status-badge {
@@ -348,6 +388,22 @@ input[type="checkbox"] {
 /* ── text-right utility ───────────────────────────────────── */
 .text-right {
     text-align: right;
+}
+
+/* ========================================
+   PAGER
+   ======================================== */
+
+.pager {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.muted {
+    color: var(--muted);
+    font-size: 14px;
 }
 
 /* ── Responsive ───────────────────────────────────────────── */

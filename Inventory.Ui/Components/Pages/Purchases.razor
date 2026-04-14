@@ -5,15 +5,32 @@
 @using Inventory.Dto.ProductCatalogs.Results
 @using Inventory.Dto.Purchases.Requests
 @using Inventory.Dto.PurchaseLines.Requests
+@using Inventory.Dto.Stock.Results
 @using Inventory.Dto.Suppliers.Results
 @using Inventory.Dto.Queries
+@using Inventory.Ui.State
+@using Microsoft.Extensions.Logging
 
 @inject IJSRuntime JS
-@inject IProductApi ProductApi
-@inject IProductCatalogApi CatalogApi
+@inject IPosApi PosApi
+@inject AppState State
+
+@* @inject IProductApi ProductApi *@
+@* @inject IProductCatalogApi CatalogApi *@
 @inject IPurchaseApi PurchaseApi
-@inject ISupplierApi SupplierApi
+@* @inject ISupplierApi SupplierApi *@
+
+@inject ILogger<Purchases> Logger
 @inject NavigationManager Navigation
+@inject ICashSessionApi CashSessionApi
+
+@if (!string.IsNullOrEmpty(UiAlertMessage))
+{
+    <div class="alert @UiAlertType">
+        <span>@UiAlertType</span>
+        <button @onclick="ClearAlert">x</button>
+    </div>
+}
 
 <div class="purchase-container">
 
@@ -169,7 +186,7 @@
     </div>
 
     <!-- RIGHT COLUMN: Product Search & Numpad -->
-    <div class="purchase-right" >
+    <div class="purchase-right">
 
         <!-- Barcode Scanner Section -->
         <div class="card search-section">
@@ -193,10 +210,12 @@
                        class="search-input"
                        placeholder="Search products by name..."
                        @bind="SearchText"
-                       @bind:event="oninput" />
+                       @bind:event="onchange"
+                       @bind:after="UpdateFilter" />
                 <span class="search-icon">🔍</span>
             </div>
         </div>
+
 
         <!-- Products List -->
         <div class="card product-list-container">
@@ -204,7 +223,7 @@
             {
                 <div class="loading-state">Loading products...</div>
             }
-            else if (FilteredProducts.Count == 0)
+            else if (filteredProductsCache.Count == 0)
             {
                 <div class="empty-state">
                     <p>No products found</p>
@@ -213,9 +232,9 @@
             else
             {
                 <ul class="product-list">
-                    @foreach (var product in FilteredProducts)
+                    @foreach (var product in filteredProductsCache)
                     {
-                        var catalog = GetCatalogProduct(product.CatalogProductId);
+                        var catalog = GetCatalogProduct(product.Id);
                         <li class="product-item"
                             @onclick="() => SelectAndAddProduct(product)">
                             <strong>@(product.CatalogName ?? catalog?.Name ?? "Unknown")</strong>
@@ -247,7 +266,7 @@
 </div>
 
 <!-- Supplier Selection Modal -->
-@if (ShowSupplierModal)
+@* @if (ShowSupplierModal)
 {
     <div class="modal-overlay" @onclick="CloseSupplierModal">
         <div class="modal-content" @onclick:stopPropagation="true">
@@ -305,12 +324,75 @@
     </div>
 }
 
+ *@
+@if (ShowSupplierModal)
+{
+    <div class="modal-overlay" @onclick="CloseSupplierModal">
+        <div class="modal-content" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <h3>Select Supplier</h3>
+                <button class="modal-close" @onclick="CloseSupplierModal">×</button>
+            </div>
+
+            <div class="modal-body">
+                <div class="search-box">
+                    <input type="text"
+                           class="search-input"
+                           placeholder="Search suppliers..."
+                           @bind="SupplierSearchText"
+                           @bind:event="oninput"
+                           autofocus />
+                    <span class="search-icon">🔍</span>
+                </div>
+
+                <ul class="supplier-list">
+                    @if (FilteredSuppliers.Count == 0)
+                    {
+                        <li class="empty-state">No suppliers found</li>
+                    }
+                    else
+                    {
+                        @foreach (var supplier in FilteredSuppliers)
+                        {
+                            <li class="supplier-item @(TempSelectedSupplier?.Id == supplier.Id ? "selected" : "")"
+                                @onclick="() => TempSelectedSupplier = supplier">
+                                <strong>@supplier.Name</strong>
+                                @if (!string.IsNullOrEmpty(supplier.Phone))
+                                {
+                                    <span class="muted">📞 @supplier.Phone</span>
+                                }
+                                @if (!string.IsNullOrEmpty(supplier.Email))
+                                {
+                                    <span class="muted">✉ @supplier.Email</span>
+                                }
+                            </li>
+                        }
+                    }
+                </ul>
+            </div>
+
+            <div class="modal-footer">
+                <button class="btn btn-secondary" @onclick="CloseSupplierModal">Cancel</button>
+                <button class="btn btn-primary" @onclick="ConfirmSupplierSelection">
+                    OK
+                </button>
+            </div>
+        </div>
+    </div>
+}
 @code {
     // STATE
     List<CartLine> Lines = new();
     List<ProductResult> Products = new();
     List<ProductCatalogResult> CatalogProducts = new();
     List<SupplierResult> Suppliers = new();
+
+    List<ProductResult> filteredProductsCache = new();
+
+    Dictionary<Guid, StockResult> StockMap = new();
+    Dictionary<Guid, ProductResult> ProductMap = new();
+    Dictionary<string, ProductResult> BarcodeMap = new();
+    Dictionary<Guid, SupplierResult> SupplierMap = new();
 
     SupplierResult? SelectedSupplier;
     SupplierResult? TempSelectedSupplier;
@@ -324,6 +406,38 @@
     bool IsLoadingProducts;
     bool ShowSupplierModal;
 
+    string? UiAlertMessage;
+    string UiAlertType = "info";
+    string lastSearch = "";
+
+    void UpdateFilter()
+    {
+        if (SearchText == lastSearch)
+        {
+            return;
+        }
+
+        lastSearch = SearchText;
+
+        filteredProductsCache = string.IsNullOrWhiteSpace(SearchText)
+            ? Products
+            : Products.Where(p =>
+                  p.CatalogName.Contains(SearchText, StringComparison.OrdinalIgnoreCase) ||
+            (p.CatalogBarcode?.Contains(SearchText, StringComparison.OrdinalIgnoreCase) ?? false)
+        ).ToList();
+    }
+
+    void ShowAlert(string message, string type = "info")
+    {
+        UiAlertMessage = message;
+        UiAlertType = type;
+    }
+
+    void ClearAlert()
+    {
+        UiAlertMessage = null;
+    }
+
     ElementReference barcodeInputRef;
 
     string NumpadValue = "";
@@ -335,18 +449,18 @@
     decimal TotalAmount => Lines.Sum(l => l.Amount);
     decimal TotalTax => Lines.Sum(l => l.TaxAmount);
 
-    List<ProductResult> FilteredProducts =>
-        string.IsNullOrWhiteSpace(SearchText)
-            ? Products
-            : Products.Where(p =>
-            {
-                var catalog = GetCatalogProduct(p.CatalogProductId);
-                var name = p.CatalogName ?? catalog?.Name ?? "";
-                var barcode = p.CatalogBarcode ?? catalog?.Barcode ?? "";
+    // List<ProductResult> FilteredProducts =>
+    //     string.IsNullOrWhiteSpace(SearchText)
+    //         ? Products
+    //         : Products.Where(p =>
+    //         {
+    //             var catalog = GetCatalogProduct(p.CatalogProductId);
+    //             var name = p.CatalogName ?? catalog?.Name ?? "";
+    //             var barcode = p.CatalogBarcode ?? catalog?.Barcode ?? "";
 
-                return name.Contains(SearchText, StringComparison.OrdinalIgnoreCase) ||
-                       barcode.Contains(SearchText, StringComparison.OrdinalIgnoreCase);
-            }).ToList();
+    //             return name.Contains(SearchText, StringComparison.OrdinalIgnoreCase) ||
+    //                    barcode.Contains(SearchText, StringComparison.OrdinalIgnoreCase);
+    //         }).ToList();
 
     List<SupplierResult> FilteredSuppliers =>
         string.IsNullOrWhiteSpace(SupplierSearchText)
@@ -363,6 +477,7 @@
         await LoadInitialData();
     }
 
+    /*
     async Task LoadInitialData()
     {
         IsLoadingProducts = true;
@@ -373,41 +488,83 @@
             try
             {
                 CatalogProducts = await CatalogApi.GetAll();
-            }
+                }
             catch (Exception ex)
             {
                 Console.WriteLine($"Catalog API failed: {ex.Message}");
-            }
+                }
 
             // Load suppliers
             try
             {
                 Suppliers = await SupplierApi.GetAll();
-            }
+                }
             catch (Exception ex)
             {
                 Console.WriteLine($"Supplier API failed: {ex.Message}");
-            }
+                }
 
             // Load products
             try
             {
                 Products = await ProductApi.GetAll();
-            }
+                }
             catch (Exception ex)
             {
                 Console.WriteLine($"Product API failed: {ex.Message}");
-            }
+                }
 
             await FocusBarcodeInput();
-        }
+            }
         finally
         {
             IsLoadingProducts = false;
             StateHasChanged();
+            }
         }
-    }
+    */
 
+    async Task LoadInitialData()
+    {
+        if (!State.IsCacheStale)
+        {
+            Products = State.Products!;
+            Suppliers = State.Suppliers!;
+            ProductMap = State.ProductMap!;
+            SupplierMap = State.SupplierMap!;
+            StockMap = State.StockMap!;
+            BarcodeMap = State.BarcodeMap!;
+            filteredProductsCache = Products;
+            return;
+        }
+
+        IsLoadingProducts = true;
+
+        var bootstrap = await PosApi.Bootstrap();
+
+        State.Products = bootstrap.Products;
+        State.Suppliers = bootstrap.Suppliers;
+        State.SupplierMap = bootstrap.Suppliers.ToDictionary(s => s.Id);
+        State.ProductMap = bootstrap.Products.ToDictionary(p => p.Id);
+        State.CustomerMap = bootstrap.Customers.ToDictionary(c => c.Id);
+        State.StockMap = bootstrap.Stocks.ToDictionary(s => s.ProductId);
+        State.BarcodeMap = bootstrap.Products
+            .Where(p => !string.IsNullOrWhiteSpace(p.CatalogBarcode))
+            .GroupBy(p => p.CatalogBarcode!)
+            .ToDictionary(g => g.Key, g => g.First());
+
+        State.IsPosLoaded = true;
+        State.LastBootstrapAt = DateTime.UtcNow;
+
+        Products = State.Products;
+        Suppliers = State.Suppliers;
+        ProductMap = State.ProductMap;
+        SupplierMap = State.SupplierMap;
+        StockMap = State.StockMap;
+        BarcodeMap = State.BarcodeMap;
+        filteredProductsCache = Products;
+        IsLoadingProducts = false;
+    }
     ProductCatalogResult? GetCatalogProduct(Guid catalogProductId)
     {
         return CatalogProducts.FirstOrDefault(c => c.Id == catalogProductId);
@@ -438,6 +595,29 @@
     }
 
     // BARCODE SCANNING
+
+    async Task OnBarcodeScanned(string code)
+    {
+        // var product = Products.FirstOrDefault(p =>
+        //     p.CatalogBarcode == code ||
+        //     p.CatalogBarcode?.Contains(code) == true);
+
+        var product = BarcodeMap.GetValueOrDefault(code);
+
+        if (product == null)
+        {
+            await JS.InvokeVoidAsync(
+                "alert",
+                $"Unknown barcode: {code}"
+            );
+            return;
+        }
+
+        AddProduct(product, GetQuantityFromNumpad());
+        NumpadValue = "";
+        await FocusBarcodeInput();
+    }
+
     async Task OnBarcodeKeyDown(KeyboardEventArgs e)
     {
         if (e.Key == "Enter" && !string.IsNullOrWhiteSpace(BarcodeInput))
@@ -445,60 +625,71 @@
             var code = BarcodeInput.Trim();
             BarcodeInput = "";
 
-            // Search in ProductResult denormalized fields
-            var product = Products.FirstOrDefault(p =>
-                p.CatalogBarcode == code ||
-                (p.CatalogBarcode?.Contains(code) ?? false));
-
-            // If not found in denormalized fields, search in catalog
-            if (product == null)
-            {
-                var catalog = CatalogProducts.FirstOrDefault(c =>
-                    c.Barcode == code ||
-                    (c.Barcode?.Contains(code) ?? false));
-
-                if (catalog != null)
-                {
-                    product = Products.FirstOrDefault(p => p.CatalogProductId == catalog.Id);
-                }
-            }
-
-            if (product != null)
-            {
-                AddProduct(product, GetQuantityFromNumpad());
-                await FocusBarcodeInput();
-                NumpadValue = "";
-                return;
-            }
-
-            await SearchAndAddByBarcode(code);
+            await OnBarcodeScanned(code);
         }
     }
 
-    async Task SearchAndAddByBarcode(string searchTerm)
-    {
-        try
-        {
-            var result = await ProductApi.Search(new ProductQuery
-            {
-                Search = searchTerm,
-                PageSize = 10
-            });
+    // async Task OnBarcodeKeyDown(KeyboardEventArgs e)
+    // {
+    //     if (e.Key == "Enter" && !string.IsNullOrWhiteSpace(BarcodeInput))
+    //     {
+    //         var code = BarcodeInput.Trim();
+    //         BarcodeInput = "";
 
-            var product = result.Items.FirstOrDefault();
+    //         // Search in ProductResult denormalized fields
+    //         var product = Products.FirstOrDefault(p =>
+    //             p.CatalogBarcode == code ||
+    //             (p.CatalogBarcode?.Contains(code) ?? false));
 
-            if (product != null)
-            {
-                AddProduct(product, 1);
-            }
+    //         // If not found in denormalized fields, search in catalog
+    //         if (product == null)
+    //         {
+    //             var catalog = CatalogProducts.FirstOrDefault(c =>
+    //                 c.Barcode == code ||
+    //                 (c.Barcode?.Contains(code) ?? false));
 
-            await FocusBarcodeInput();
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Search error: {ex.Message}");
-        }
-    }
+    //             if (catalog != null)
+    //             {
+    //                 product = Products.FirstOrDefault(p => p.CatalogProductId == catalog.Id);
+    //             }
+    //         }
+
+    //         if (product != null)
+    //         {
+    //             AddProduct(product, GetQuantityFromNumpad());
+    //             await FocusBarcodeInput();
+    //             NumpadValue = "";
+    //             return;
+    //         }
+
+    //         await SearchAndAddByBarcode(code);
+    //     }
+    // }
+
+    // async Task SearchAndAddByBarcode(string searchTerm)
+    // {
+    //     try
+    //     {
+    //         var result = await ProductApi.Search(new ProductQuery
+    //         {
+    //             Search = searchTerm,
+    //             PageSize = 10
+    //         });
+
+    //         var product = result.Items.FirstOrDefault();
+
+    //         if (product != null)
+    //         {
+    //             AddProduct(product, 1);
+    //         }
+
+    //         await FocusBarcodeInput();
+    //     }
+    //     catch (Exception ex)
+    //     {
+    //         Console.WriteLine($"Search error: {ex.Message}");
+    //     }
+    // }
 
     // NUMPAD
     void PressKey(string key) => NumpadValue += key;
@@ -527,7 +718,7 @@
     void AddProduct(ProductResult product, int quantity = 1)
     {
         var existingLine = Lines.FirstOrDefault(l => l.ProductId == product.Id);
-        var catalog = GetCatalogProduct(product.CatalogProductId);
+        var catalog = GetCatalogProduct(product.Id);
 
         if (existingLine != null)
         {
@@ -668,7 +859,10 @@
                 }).ToList()
             };
 
+            var purchasedLines = Lines.ToList(); // snapshot avant reset
             await PurchaseApi.CreateComplete(request);
+
+            AddStockLocally(purchasedLines); // mise à jour locale immédiate
             Reset();
         }
         finally
@@ -733,6 +927,30 @@
                 AdjustmentType.Fee => $"Frais → +{Value:0.00} €",
                 _ => ""
             };
+    }
+
+    private void AddStockLocally(List<CartLine> purchasedLines)
+    {
+        foreach (var line in purchasedLines)
+        {
+            if (State.StockMap == null) continue;
+
+            if (State.StockMap.TryGetValue(line.ProductId, out var stock))
+            {
+                // Le produit a déjà un stock — on incrémente
+                stock.Quantity += line.Quantity;
+            }
+            else
+            {
+                // Pas encore de stock enregistré localement — on ne peut pas créer
+                // un StockResult sans Id serveur, donc on invalide le cache
+                State.InvalidatePos();
+                return;
+            }
+        }
+
+        // Sync local refs
+        StockMap = State.StockMap!;
     }
 
     class CartLine

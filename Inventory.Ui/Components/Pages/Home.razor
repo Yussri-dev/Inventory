@@ -4,7 +4,8 @@
 @using System.Globalization
 @using Microsoft.Extensions.Logging
 @using System.Net
-
+@using Dto.Enums
+@using ApexCharts
 @inject NavigationManager Nav
 @inject ILogger<Home> Logger
 @inject IAnalyticsApi AnalyticsApi
@@ -15,135 +16,167 @@
 
     <!-- PERIOD SELECTOR -->
     <div class="period-selector">
-        <button @onclick="() => SelectPeriod(Period.Today)">Today</button>
-        <button @onclick="() => SelectPeriod(Period.Week)">This Week</button>
-        <button @onclick="() => SelectPeriod(Period.Month)">This Month</button>
-        <button @onclick="() => SelectPeriod(Period.Year)">This Year</button>
+        <button class="@(SelectedPeriod == Period.Today ? "active" : "")" @onclick="() => SelectPeriod(Period.Today)">Today</button>
+        <button class="@(SelectedPeriod == Period.Week ? "active" : "")" @onclick="() => SelectPeriod(Period.Week)">This Week</button>
+        <button class="@(SelectedPeriod == Period.Month ? "active" : "")" @onclick="() => SelectPeriod(Period.Month)">This Month</button>
+        <button class="@(SelectedPeriod == Period.Year ? "active" : "")" @onclick="() => SelectPeriod(Period.Year)">This Year</button>
     </div>
 
-    <!-- KPI SUMMARY -->
-    <div class="kpi-grid">
-        <div class="kpi-card">
-            <div class="kpi-label">Revenue</div>
-            <div class="kpi-value positive">
-                €@Profit.TotalRevenue.ToString("N2")
-            </div>
-        </div>
-
-        <div class="kpi-card">
-            <div class="kpi-label">Refunds</div>
-            <div class="kpi-value negative">
-                €@Profit.TotalRefunds.ToString("N2")
-            </div>
-        </div>
-
-        <div class="kpi-card">
-            <div class="kpi-label">Cost</div>
-            <div class="kpi-value">
-                €@Profit.TotalCost.ToString("N2")
-            </div>
-        </div>
-
-        <div class="kpi-card">
-            <div class="kpi-label">Profit</div>
-            <div class="kpi-value @(Profit.GrossProfit >= 0 ? "positive" : "negative")">
-                €@Profit.GrossProfit.ToString("N2")
-            </div>
-        </div>
-
-        <div class="kpi-card">
-            <div class="kpi-label">Margin</div>
-            <div class="kpi-value">
-                @Profit.ProfitMargin.ToString("N2")%
-            </div>
-        </div>
-    </div>
-
-    <!-- LOSS PRODUCTS -->
-    <h2>⚠️ Loss Products</h2>
-
-    @if (LossProducts.Any())
+    @if (IsLoading)
     {
-        <table class="table">
-            <thead>
-                <tr>
-                    <th>Product</th>
-                    <th>Returned Qty</th>
-                    <th>Lost Revenue</th>
-                    <th>Reason</th>
-                </tr>
-            </thead>
-            <tbody>
-                @foreach (var p in LossProducts)
-                {
-                    <tr>
-                        <td>@p.ProductName</td>
-                        <td>@p.ReturnedQuantity</td>
-                        <td class="negative">€@p.LostRevenue.ToString("N2")</td>
-                        <td>@p.LossReason</td>
-                    </tr>
-                }
-            </tbody>
-        </table>
+        <div class="loading-state">
+            <div class="spinner"></div>
+            <span>Loading analytics…</span>
+        </div>
     }
     else
     {
-        <p>No loss products for this period.</p>
+        <!-- KPI SUMMARY -->
+        <div class="kpi-grid">
+            <div class="kpi-card">
+                <div class="kpi-label">Revenue</div>
+                <div class="kpi-value positive">€@Profit.TotalRevenue.ToString("N2")</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">Refunds</div>
+                <div class="kpi-value negative">€@Profit.TotalRefunds.ToString("N2")</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">Cost</div>
+                <div class="kpi-value">€@Profit.TotalCost.ToString("N2")</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">Profit</div>
+                <div class="kpi-value @(Profit.GrossProfit >= 0 ? "positive" : "negative")">
+                    €@Profit.GrossProfit.ToString("N2")
+                </div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">Margin</div>
+                <div class="kpi-value">@Profit.ProfitMargin.ToString("N2")%</div>
+            </div>
+        </div>
+
+        <!-- CHARTS ROW -->
+        <div class="charts-row">
+
+            <!-- Donut: Revenue Breakdown -->
+            <div class="chart-card">
+                <div class="chart-title">Revenue Breakdown</div>
+                @if (donutSeries.Any())
+                {
+                    <ApexChart TItem="ChartSlice"
+                               Options="@donutOptions"
+                               Height="280">
+                        <ApexPointSeries TItem="ChartSlice"
+                                         Items="donutSeries"
+                                         SeriesType="SeriesType.Donut"
+                                         XValue="s => s.Label"
+                                         YValue="s => s.Value" />
+                    </ApexChart>
+                }
+                else
+                {
+                    <div class="empty-state">No data for this period.</div>
+                }
+            </div>
+
+            <!-- Bar: Profit Summary -->
+            <div class="chart-card chart-card--wide">
+                <div class="chart-title">Profit Summary</div>
+                @if (barSeries.Any())
+                {
+                    <ApexChart TItem="ChartBar"
+                               Options="@barOptions"
+                               Height="280">
+                        <ApexPointSeries TItem="ChartBar"
+                                         Name="Revenue"
+                                         Items="barSeries"
+                                         SeriesType="SeriesType.Bar"
+                                         XValue="b => b.Label"
+                                         YValue="b => b.Revenue" />
+                        <ApexPointSeries TItem="ChartBar"
+                                         Name="Cost"
+                                         Items="barSeries"
+                                         SeriesType="SeriesType.Bar"
+                                         XValue="b => b.Label"
+                                         YValue="b => b.Cost" />
+                        <ApexPointSeries TItem="ChartBar"
+                                         Name="Profit"
+                                         Items="barSeries"
+                                         SeriesType="SeriesType.Bar"
+                                         XValue="b => b.Label"
+                                         YValue="b => b.Profit" />
+                    </ApexChart>
+                }
+                else
+                {
+                    <div class="empty-state">No data for this period.</div>
+                }
+            </div>
+
+        </div>
+
+        <!-- LOSS PRODUCTS -->
+        <h2>⚠️ Loss Products</h2>
+
+        @if (LossProducts.Any())
+        {
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Product</th>
+                        <th>Returned Qty</th>
+                        <th>Lost Revenue</th>
+                        <th>Reason</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var p in LossProducts)
+                    {
+                        <tr>
+                            <td>@p.ProductName</td>
+                            <td>@p.ReturnedQuantity</td>
+                            <td class="negative">€@p.LostRevenue.ToString("N2")</td>
+                            <td>@p.LossReason</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+        else
+        {
+            <div class="empty-state">No loss products for this period.</div>
+        }
+
+        <!-- WEEKLY REPORT -->
+        <h2>📈 Weekly Report (@Weekly.Week)</h2>
+
+        <div class="kpi-grid kpi-grid--5">
+            <div class="kpi-card">
+                <div class="kpi-label">Revenue</div>
+                <div class="kpi-value">€@Weekly.Revenue.ToString("N2")</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">Expenses</div>
+                <div class="kpi-value">€@Weekly.Expenses.ToString("N2")</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">Profit</div>
+                <div class="kpi-value @(Weekly.Profit >= 0 ? "positive" : "negative")">
+                    €@Weekly.Profit.ToString("N2")
+                </div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">Sales</div>
+                <div class="kpi-value">@Weekly.SalesCount</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">Returns</div>
+                <div class="kpi-value">@Weekly.ReturnsCount</div>
+            </div>
+        </div>
     }
-
-    <!-- WEEKLY REPORT -->
-    <h2>📈 Weekly Report (@Weekly.Week)</h2>
-
-    <div class="kpi-grid">
-        <div class="kpi-card">
-            <div class="kpi-label">Revenue</div>
-            <div class="kpi-value">
-                €@Weekly.Revenue.ToString("N2")
-            </div>
-        </div>
-
-        <div class="kpi-card">
-            <div class="kpi-label">Expenses</div>
-            <div class="kpi-value">
-                €@Weekly.Expenses.ToString("N2")
-            </div>
-        </div>
-
-        <div class="kpi-card">
-            <div class="kpi-label">Profit</div>
-            <div class="kpi-value @(Weekly.Profit >= 0 ? "positive" : "negative")">
-                €@Weekly.Profit.ToString("N2")
-            </div>
-        </div>
-
-        <div class="kpi-card">
-            <div class="kpi-label">Sales</div>
-            <div class="kpi-value">
-                @Weekly.SalesCount
-            </div>
-        </div>
-
-        <div class="kpi-card">
-            <div class="kpi-label">Returns</div>
-            <div class="kpi-value">
-                @Weekly.ReturnsCount
-            </div>
-        </div>
-
-        <div class="kpi-card">
-            <div class="kpi-label">Cash Opening</div>
-            <div class="kpi-value">
-                €@Weekly.CashOpening.ToString("N2")
-            </div>
-        </div>
-
-        <div class="kpi-card">
-            <div class="kpi-label">Cash Closing</div>
-            <div class="kpi-value">
-                €@Weekly.CashClosing.ToString("N2")
-            </div>
-        </div>
-    </div>
 
 </div>
 
@@ -152,6 +185,9 @@
     // =========================
     // STATE
     // =========================
+    static Dictionary<string, ProfitAnalyticsResult> ProfitCache = new();
+    static Dictionary<string, List<LossProductResult>> LossCache = new();
+    static Dictionary<string, WeeklyReportResult> WeeklyCache = new();
 
     ProfitAnalyticsResult Profit = new();
     List<LossProductResult> LossProducts = new();
@@ -160,12 +196,107 @@
     Period SelectedPeriod = Period.Today;
     DateOnly From;
     DateOnly To;
+    bool IsLoading = true;
 
-    // redirect guard (CRITICAL)
+    string GetKey() => $"{From}-{To}";
     static bool _redirectingToLogin = false;
 
     // =========================
-    // INIT
+    // CHART MODELS
+    // =========================
+
+    public class ChartSlice
+    {
+        public string Label { get; set; } = "";
+        public decimal Value { get; set; }
+    }
+
+    public class ChartBar
+    {
+        public string Label { get; set; } = "";
+        public decimal Revenue { get; set; }
+        public decimal Cost { get; set; }
+        public decimal Profit { get; set; }
+    }
+
+    List<ChartSlice> donutSeries = new();
+    List<ChartBar> barSeries = new();
+
+    // =========================
+    // CHART OPTIONS
+    // =========================
+
+    ApexChartOptions<ChartSlice> donutOptions = new()
+    {
+        Chart = new Chart
+        {
+            Background = "transparent",
+            ForeColor = "#94a3b8",
+            Toolbar = new Toolbar { Show = false }
+        },
+        Theme = new Theme { Mode = Mode.Dark },
+        Colors = new List<string> { "#4f46e5", "#f59e0b", "#ef4444" },
+        Legend = new Legend
+        {
+            Position = LegendPosition.Bottom,
+            Labels = new LegendLabels { Colors = new ApexCharts.Color("#94a3b8") }
+        },
+        Tooltip = new Tooltip
+        {
+            Y = new TooltipY
+            {
+                Formatter = "function(val){ return '€' + val.toFixed(2); }"
+            }
+        },
+        PlotOptions = new PlotOptions
+        {
+            Pie = new PlotOptionsPie { Donut = new PlotOptionsDonut { Size = "68%" } }
+        }
+    };
+
+    ApexChartOptions<ChartBar> barOptions = new()
+    {
+        Chart = new Chart
+        {
+            Background = "transparent",
+            ForeColor = "#94a3b8",
+            Toolbar = new Toolbar { Show = false }
+        },
+        Theme = new Theme { Mode = Mode.Dark },
+        Colors = new List<string> { "#4f46e5", "#f59e0b", "#22c55e" },
+        Legend = new Legend { Position = LegendPosition.Top },
+        Tooltip = new Tooltip
+        {
+            Y = new TooltipY
+            {
+                Formatter = "function(val){ return '€' + val.toFixed(2); }"
+            }
+        },
+        PlotOptions = new PlotOptions
+        {
+            Bar = new PlotOptionsBar
+            {
+                BorderRadius = 6,
+                ColumnWidth = "55%",
+                BorderRadiusApplication = BorderRadiusApplication.End
+            }
+        },
+        Xaxis = new XAxis { Labels = new XAxisLabels { Style = new AxisLabelStyle { Colors = "#94a3b8" } } },
+        Yaxis = new List<YAxis>
+        {
+            new YAxis
+            {
+                Labels = new YAxisLabels
+                {
+                    Style     = new AxisLabelStyle { Colors = new ApexCharts.Color("#94a3b8") },
+                    Formatter = "function(val){ return '€' + val.toFixed(0); }"
+                }
+            }
+        }
+    };
+
+    // =========================
+    // LIFECYCLE
     // =========================
 
     protected override async Task OnInitializedAsync()
@@ -175,7 +306,7 @@
     }
 
     // =========================
-    // PERIOD HANDLING
+    // PERIOD
     // =========================
 
     void SelectPeriod(Period period)
@@ -188,24 +319,19 @@
     void ComputePeriod()
     {
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
-
         switch (SelectedPeriod)
         {
             case Period.Today:
-                From = today;
-                To = today;
+                From = To = today;
                 break;
-
             case Period.Week:
                 From = today.AddDays(-(int)today.DayOfWeek + 1);
                 To = From.AddDays(6);
                 break;
-
             case Period.Month:
                 From = new DateOnly(today.Year, today.Month, 1);
                 To = From.AddMonths(1).AddDays(-1);
                 break;
-
             case Period.Year:
                 From = new DateOnly(today.Year, 1, 1);
                 To = new DateOnly(today.Year, 12, 31);
@@ -214,58 +340,91 @@
     }
 
     // =========================
-    // LOAD ANALYTICS (SAFE)
+    // LOAD
     // =========================
 
     async Task LoadAnalytics()
     {
+        IsLoading = true;
+        StateHasChanged();
+
+        var key = GetKey();
+
+        if (ProfitCache.ContainsKey(key))
+        {
+            Profit = ProfitCache[key];
+            LossProducts = LossCache[key];
+            Weekly = WeeklyCache[key];
+            BuildChartData();
+            IsLoading = false;
+            StateHasChanged();
+            return;
+        }
+
         try
         {
-            Profit = await AnalyticsApi.GetProfitAsync(From, To);
-
+            var profit = await AnalyticsApi.GetProfitAsync(From, To);
             var loss = await AnalyticsApi.GetLossProductsAsync(From, To, 10);
-            LossProducts = loss.Items.ToList();
-
             var now = DateTime.UtcNow;
-            var week = ISOWeek.GetWeekOfYear(now);
-            var year = now.Year;
+            var weekly = await AnalyticsApi.GetWeeklyAsync(now.Year, ISOWeek.GetWeekOfYear(now));
 
-            Weekly = await AnalyticsApi.GetWeeklyAsync(year, week);
+            ProfitCache[key] = profit;
+            LossCache[key] = loss.Items.ToList();
+            WeeklyCache[key] = weekly;
+
+            Profit = profit;
+            LossProducts = LossCache[key];
+            Weekly = weekly;
+
+            BuildChartData();
         }
         catch (Refit.ApiException ex) when (ex.StatusCode == HttpStatusCode.Unauthorized)
         {
             HandleUnauthorized();
         }
+        finally
+        {
+            IsLoading = false;
+            StateHasChanged();
+        }
     }
 
     // =========================
-    // AUTH REDIRECT (NO LOOP)
+    // CHART DATA
+    // =========================
+
+    void BuildChartData()
+    {
+        // Donut — only show slices with value > 0
+        donutSeries = new List<ChartSlice>
+        {
+            new() { Label = "Revenue", Value = Profit.TotalRevenue },
+            new() { Label = "Cost",    Value = Profit.TotalCost    },
+            new() { Label = "Refunds", Value = Profit.TotalRefunds }
+        }.Where(s => s.Value > 0).ToList();
+
+        // Bar — single group for selected period
+        barSeries = new List<ChartBar>
+        {
+            new()
+            {
+                Label   = SelectedPeriod.ToString(),
+                Revenue = Profit.TotalRevenue,
+                Cost    = Profit.TotalCost,
+                Profit  = Profit.GrossProfit
+            }
+        };
+    }
+
+    // =========================
+    // AUTH
     // =========================
 
     void HandleUnauthorized()
     {
-        if (_redirectingToLogin)
-            return;
-
-        if (Nav.Uri.Contains("/login"))
-            return;
-
+        if (_redirectingToLogin || Nav.Uri.Contains("/login")) return;
         _redirectingToLogin = true;
-
         Logger.LogWarning("Unauthorized → redirecting to login");
-
         Nav.NavigateTo("/login", replace: true);
-    }
-
-    // =========================
-    // MODELS
-    // =========================
-
-    enum Period
-    {
-        Today,
-        Week,
-        Month,
-        Year
     }
 }

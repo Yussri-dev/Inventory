@@ -1,6 +1,11 @@
 ﻿@page "/productCatalogs"
 @inject IProductCatalogApi Api
 @using Inventory.Dto.Enums
+@using Inventory.Dto.PackComponent.Requests
+@using Inventory.Dto.ProductCatalogs.Results
+@using Inventory.Dto.ProductCatalogs.Requests
+@using Inventory.Ui.State
+@inject AppState State
 
 <h3>Product Catalogs</h3>
 <div class="page-container">
@@ -26,6 +31,8 @@
         <EditForm Model="form" OnValidSubmit="HandleSubmit">
             <DataAnnotationsValidator />
             <div class="form-grid">
+
+                <!-- BASE FIELDS -->
                 <div class="form-row">
                     <div class="form-field">
                         <label>Name *</label>
@@ -44,6 +51,7 @@
                         <ValidationMessage For="@(() => form.Barcode)" />
                     </div>
                 </div>
+
                 <div class="form-row">
                     <div class="form-field">
                         <label>Brand</label>
@@ -62,6 +70,7 @@
                         <ValidationMessage For="@(() => form.Manufacturer)" />
                     </div>
                 </div>
+
                 <div class="form-row">
                     <div class="form-field">
                         <label>Unit of Measure</label>
@@ -70,11 +79,12 @@
                                      disabled="@isLoading">
                             <option value="@UnitOfMeasure.pcs">Pieces</option>
                             <option value="@UnitOfMeasure.l">Litre</option>
-                            <option value="@UnitOfMeasure.m">metre</option>
+                            <option value="@UnitOfMeasure.m">Metre</option>
                         </InputSelect>
                         <ValidationMessage For="@(() => form.UnitOfMeasure)" />
                     </div>
                 </div>
+
                 <div class="form-field">
                     <label>Description</label>
                     <InputTextArea placeholder="Product description (optional)"
@@ -84,6 +94,67 @@
                                    disabled="@isLoading" />
                     <ValidationMessage For="@(() => form.Description)" />
                 </div>
+
+                <!-- PACK SECTION -->
+                <div class="form-field">
+                    <label>
+                        <InputCheckbox @bind-Value="form.IsPack" disabled="@isLoading" />
+                        This product is a pack
+                    </label>
+                </div>
+
+                @if (form.IsPack)
+                {
+                    <div class="card" style="background: #f8f9fa; padding: 12px;">
+                        <h5>📦 Pack Configuration</h5>
+
+                        <div class="form-row">
+                            <div class="form-field">
+                                <label>Unit product (contained in this pack) *</label>
+                                <InputSelect @bind-Value="form.ComponentCatalogId"
+                                             class="inputText"
+                                             disabled="@isLoading">
+                                    <option value="@Guid.Empty">-- Select unit product --</option>
+                                    @foreach (var cat in UnitCatalogs)
+                                    {
+                                        <option value="@cat.Id">
+                                            @cat.Name
+                                            @if (!string.IsNullOrEmpty(cat.Barcode))
+                                            {
+                                                <text> [@cat.Barcode]</text>
+                                            }
+                                        </option>
+                                    }
+                                </InputSelect>
+                                @if (form.IsPack && form.ComponentCatalogId == Guid.Empty)
+                                {
+                                    <small style="color: red;">Please select the unit product</small>
+                                }
+                            </div>
+                            <div class="form-field">
+                                <label>Quantity of units in this pack *</label>
+                                <InputNumber @bind-Value="form.PackQuantity"
+                                             class="inputText"
+                                             placeholder="ex: 6"
+                                             disabled="@isLoading" />
+                                @if (form.IsPack && form.PackQuantity <= 0)
+                                {
+                                    <small style="color: red;">Quantity must be greater than 0</small>
+                                }
+                            </div>
+                        </div>
+
+                        @if (form.ComponentCatalogId != Guid.Empty && form.PackQuantity > 0)
+                        {
+                            var unit = UnitCatalogs.FirstOrDefault(c => c.Id == form.ComponentCatalogId);
+                            <div style="margin-top: 8px; padding: 8px; background: #e8f5e9; border-radius: 4px; font-size: 13px;">
+                                ✅ <strong>@form.Name</strong> contains
+                                <strong>@form.PackQuantity</strong> × <strong>@(unit?.Name ?? "")</strong>
+                            </div>
+                        }
+                    </div>
+                }
+
                 <div class="actions-end">
                     @if (editingId == null)
                     {
@@ -115,12 +186,8 @@
                    @onkeyup="OnSearchKeyUp"
                    disabled="@isLoading" />
             <div class="search-actions">
-                <button class="btn primary" @onclick="Search" disabled="@isLoading">
-                    Search
-                </button>
-                <button class="btn ghost" @onclick="ClearSearch" disabled="@isLoading">
-                    Clear
-                </button>
+                <button class="btn primary" @onclick="Search" disabled="@isLoading">Search</button>
+                <button class="btn ghost" @onclick="ClearSearch" disabled="@isLoading">Clear</button>
             </div>
         </div>
     </div>
@@ -137,23 +204,21 @@
     }
     else
     {
-
         <div class="pager">
             <button class="btn ghost" disabled="@(Page == 1)"
                     @onclick="() => ChangePage(Page - 1)">
                 Prev
             </button>
-
             <span class="muted">
                 Page @Page / @(Math.Ceiling((double)TotalCount / PageSize))
             </span>
-
             <button class="btn ghost"
                     disabled="@(Page* PageSize >= TotalCount)"
                     @onclick="() => ChangePage(Page + 1)">
                 Next
             </button>
         </div>
+
         <div class="results-header">
             <span>@items.Count product(s) found</span>
             @if (isSearching)
@@ -170,6 +235,7 @@
                     <th>Brand</th>
                     <th>Manufacturer</th>
                     <th>Unit</th>
+                    <th>Pack</th>
                     <th style="width:160px"></th>
                 </tr>
             </thead>
@@ -178,7 +244,15 @@
                 {
                     <tr>
                         <td>
-                            <div class="product-name">@p.Name</div>
+                            <div class="product-name">
+                                @p.Name
+                                @if (p.IsPack)
+                                {
+                                    <span class="badge" style="background:#6f42c1; color:white; font-size:10px; padding:2px 6px; border-radius:4px; margin-left:6px;">
+                                        PACK
+                                    </span>
+                                }
+                            </div>
                             @if (!string.IsNullOrEmpty(p.Description))
                             {
                                 <div class="product-desc">@p.Description</div>
@@ -188,6 +262,19 @@
                         <td>@(p.Brand ?? "-")</td>
                         <td>@(p.Manufacturer ?? "-")</td>
                         <td>@(p.UnitOfMeasure ?? "-")</td>
+                        <td>
+                            @if (p.IsPack && p.PackComponents.Any())
+                            {
+                                var comp = p.PackComponents.First();
+                                <span style="font-size:12px;">
+                                    📦 @comp.Quantity × @comp.ComponentName
+                                </span>
+                            }
+                            else
+                            {
+                                <span class="muted">-</span>
+                            }
+                        </td>
                         <td class="actions-end">
                             <button class="btn small ghost"
                                     @onclick="() => StartEdit(p)"
@@ -220,12 +307,11 @@
             </div>
         </div>
     }
-
 </div>
 
-@code
-{
+@code {
     private List<ProductCatalogResult>? items;
+    private List<ProductCatalogResult> allCatalogs = new(); // pour le select des unités
     private Guid? editingId;
     private ProductCatalogForm form = new();
     private bool isLoading;
@@ -241,10 +327,33 @@
     int PageSize = 10;
     int TotalCount;
 
+    // Catalogues unitaires disponibles pour le select pack (exclus les packs eux-mêmes)
+    List<ProductCatalogResult> UnitCatalogs =>
+        allCatalogs.Where(c => !c.IsPack).ToList();
+
     protected override async Task OnInitializedAsync()
     {
         Page = 1;
+        await LoadAllCatalogsForSelect();
         await LoadData();
+    }
+
+    // Charger tous les catalogs pour le select (sans pagination)
+    private async Task LoadAllCatalogsForSelect()
+    {
+        try
+        {
+            var response = await Api.Search(new ProductCatalogQuery
+            {
+                Page = 1,
+                PageSize = 1000
+            });
+            allCatalogs = response.Items?.ToList() ?? new();
+        }
+        catch
+        {
+            allCatalogs = new();
+        }
     }
 
     private async Task LoadData()
@@ -253,8 +362,6 @@
         {
             isLoadingData = true;
             errorMessage = null;
-            // items = await Api.GetAll();
-            // isSearching = false;
 
             var query = new ProductCatalogQuery
             {
@@ -264,21 +371,22 @@
             };
 
             var response = await Api.Search(query);
-
-            items = response.Items?.ToList() ?? new List<ProductCatalogResult>();
+            items = response.Items?.ToList() ?? new();
             TotalCount = response.TotalCount;
+
+            // Mettre à jour le cache local aussi
+            await LoadAllCatalogsForSelect();
         }
         catch (Exception ex)
         {
             errorMessage = $"Failed to load products: {ex.Message}";
-            items = new List<ProductCatalogResult>();
+            items = new();
         }
         finally
         {
             isLoadingData = false;
         }
     }
-
 
     private async Task Search()
     {
@@ -300,74 +408,42 @@
         Page = newPage;
         await LoadData();
     }
-    // private async Task Search()
-    // {
-    //     if (string.IsNullOrWhiteSpace(searchTerm))
-    //     {
-    //         await LoadData();
-    //         return;
-    //     }
-
-    //     try
-    //     {
-    //         isLoadingData = true;
-    //         errorMessage = null;
-
-    //         var query = new ProductCatalogQuery
-    //         {
-    //             Search = searchTerm
-    //         };
-
-    //         var response = await Api.Search(query);
-
-    //         if (!response.IsSuccessStatusCode || response.Content is null)
-    //         {
-    //             items = new List<ProductCatalogResult>();
-    //             errorMessage = $"Search failed ({response.StatusCode})";
-    //             return;
-    //         }
-
-    //         items = response.Content.Items?.ToList()
-    //                 ?? new List<ProductCatalogResult>();
-
-    //         isSearching = true;
-    //     }
-    //     catch (Exception ex)
-    //     {
-    //         errorMessage = $"Search failed: {ex.Message}";
-    //         items = new List<ProductCatalogResult>();
-    //     }
-    //     finally
-    //     {
-    //         isLoadingData = false;
-    //     }
-    // }
-
 
     private async Task OnSearchKeyUp(KeyboardEventArgs e)
     {
         if (e.Key == "Enter")
-        {
             await Search();
-        }
     }
 
     private async Task ClearSearch()
     {
         searchTerm = string.Empty;
+        isSearching = false;
+        Page = 1;
         await LoadData();
     }
 
     private async Task HandleSubmit()
     {
+        // Validation pack
+        if (form.IsPack)
+        {
+            if (form.ComponentCatalogId == Guid.Empty)
+            {
+                errorMessage = "Please select the unit product for this pack.";
+                return;
+            }
+            if (form.PackQuantity <= 0)
+            {
+                errorMessage = "Pack quantity must be greater than 0.";
+                return;
+            }
+        }
+
         if (editingId == null)
-        {
             await Create();
-        }
         else
-        {
             await Update();
-        }
     }
 
     private async Task Create()
@@ -385,22 +461,27 @@
                 Manufacturer = form.Manufacturer,
                 Description = form.Description,
                 UnitOfMeasure = form.UnitOfMeasure,
-                CreatedAt = DateTime.UtcNow
+                CreatedAt = DateTime.UtcNow,
+                IsPack = form.IsPack,
+                PackComponents = form.IsPack && form.ComponentCatalogId != Guid.Empty
+                    ? new List<CreatePackComponentRequest>
+                    {
+                        new()
+                        {
+                            ComponentCatalogId = form.ComponentCatalogId,
+                            Quantity = form.PackQuantity
+                        }
+                    }
+                    : new List<CreatePackComponentRequest>()
             };
 
             await Api.Create(request);
+            InvalidatePosCache();
             successMessage = $"Product '{form.Name}' created successfully.";
             ResetForm();
 
-            // Refresh the current view (search or all)
-            if (isSearching)
-            {
-                await Search();
-            }
-            else
-            {
-                await LoadData();
-            }
+            if (isSearching) await Search();
+            else await LoadData();
         }
         catch (Exception ex)
         {
@@ -430,22 +511,27 @@
                 Manufacturer = form.Manufacturer,
                 Description = form.Description,
                 ModifiedAt = DateTime.UtcNow,
-                UnitOfMeasure = form.UnitOfMeasure
+                UnitOfMeasure = form.UnitOfMeasure,
+                IsPack = form.IsPack,
+                PackComponents = form.IsPack && form.ComponentCatalogId != Guid.Empty
+                    ? new List<CreatePackComponentRequest>
+                    {
+                        new()
+                        {
+                            ComponentCatalogId = form.ComponentCatalogId,
+                            Quantity = form.PackQuantity
+                        }
+                    }
+                    : new List<CreatePackComponentRequest>()
             };
 
             await Api.Update(editingId.Value, request);
+            InvalidatePosCache();
             successMessage = $"Product '{form.Name}' updated successfully.";
             ResetForm();
 
-            // Refresh the current view (search or all)
-            if (isSearching)
-            {
-                await Search();
-            }
-            else
-            {
-                await LoadData();
-            }
+            if (isSearching) await Search();
+            else await LoadData();
         }
         catch (Exception ex)
         {
@@ -455,6 +541,11 @@
         {
             isLoading = false;
         }
+    }
+
+    private void InvalidatePosCache()
+    {
+        State.InvalidatePos();
     }
 
     private void ConfirmDelete(ProductCatalogResult product)
@@ -482,19 +573,12 @@
 
             var productName = productToDelete.Name;
             await Api.Delete(productToDelete.Id);
-
+            InvalidatePosCache();
             successMessage = $"Product '{productName}' deleted successfully.";
             productToDelete = null;
 
-            // Refresh the current view (search or all)
-            if (isSearching)
-            {
-                await Search();
-            }
-            else
-            {
-                await LoadData();
-            }
+            if (isSearching) await Search();
+            else await LoadData();
         }
         catch (Exception ex)
         {
@@ -515,13 +599,25 @@
         form.Manufacturer = p.Manufacturer;
         form.Description = p.Description;
         form.UnitOfMeasure = p.UnitOfMeasure;
+        form.IsPack = p.IsPack;
+
+        // Restaurer le composant si c'est un pack
+        if (p.IsPack && p.PackComponents.Any())
+        {
+            var comp = p.PackComponents.First();
+            form.ComponentCatalogId = comp.ComponentCatalogId;
+            form.PackQuantity = comp.Quantity;
+        }
+        else
+        {
+            form.ComponentCatalogId = Guid.Empty;
+            form.PackQuantity = 0;
+        }
+
         ClearMessages();
     }
 
-    private void CancelEdit()
-    {
-        ResetForm();
-    }
+    private void CancelEdit() => ResetForm();
 
     private void ResetForm()
     {
@@ -529,21 +625,9 @@
         form = new ProductCatalogForm();
     }
 
-    private void ClearError()
-    {
-        errorMessage = null;
-    }
-
-    private void ClearSuccess()
-    {
-        successMessage = null;
-    }
-
-    private void ClearMessages()
-    {
-        errorMessage = null;
-        successMessage = null;
-    }
+    private void ClearError() => errorMessage = null;
+    private void ClearSuccess() => successMessage = null;
+    private void ClearMessages() { errorMessage = null; successMessage = null; }
 
     private sealed class ProductCatalogForm
     {
@@ -555,17 +639,21 @@
         [StringLength(100, ErrorMessage = "Barcode cannot exceed 100 characters")]
         public string Barcode { get; set; } = string.Empty;
 
-        [StringLength(100, ErrorMessage = "Brand cannot exceed 100 characters")]
+        [StringLength(100)]
         public string? Brand { get; set; }
 
-        [StringLength(100, ErrorMessage = "Manufacturer cannot exceed 100 characters")]
+        [StringLength(100)]
         public string? Manufacturer { get; set; }
 
-        [StringLength(1000, ErrorMessage = "Description cannot exceed 1000 characters")]
+        [StringLength(1000)]
         public string? Description { get; set; }
 
-        [StringLength(10, ErrorMessage = "Unit of Measure cannot exceed 10 characaters")]
-        public string UnitOfMeasure { get; set; } = "Pcs";
+        [StringLength(10)]
+        public string UnitOfMeasure { get; set; } = "pcs";
 
+        // Pack fields
+        public bool IsPack { get; set; } = false;
+        public Guid ComponentCatalogId { get; set; } = Guid.Empty;
+        public decimal PackQuantity { get; set; } = 0;
     }
 }

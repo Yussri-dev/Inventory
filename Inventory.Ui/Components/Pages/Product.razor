@@ -6,9 +6,11 @@
 @using Inventory.Dto.Products.Results
 @using Inventory.Dto.ProductCatalogs.Results
 @using Inventory.Dto.Queries
+@using Inventory.Ui.State
 @inject IJSRuntime JS
 @inject IProductApi ProductApi
 @inject IProductCatalogApi CatalogApi
+@inject AppState State
 
 <link href="css/product.css" rel="stylesheet" />
 
@@ -183,10 +185,10 @@
         <div class="search-grid">
             <input type="text"
                    placeholder="Search by name, SKU, or barcode..."
-                   @bind="searchTerm"
-                   @bind:event="oninput"
-                   @onkeyup="OnSearchKeyUp"
+                   value="@searchTerm"
+                   @oninput="OnSearchInput"
                    disabled="@isLoading" />
+
             <div class="search-actions">
                 <button class="btn primary" @onclick="Search" disabled="@isLoading">
                     Search
@@ -252,7 +254,15 @@
                     var catalogProduct = GetCatalogProduct(p.CatalogProductId);
                     <tr>
                         <td>
-                            <div class="product-name">@(catalogProduct?.Name ?? "Unknown Product")</div>
+                            <div class="product-name">
+                                @(catalogProduct?.Name ?? "Unknown Product")
+                                @if (catalogProduct?.IsPack == true)
+                                {
+                                    <span class="badge" style="background:#6f42c1; color:white; font-size:10px; padding:2px 6px; border-radius:4px; margin-left:6px;">
+                                        PACK
+                                    </span>
+                                }
+                            </div>
                             @if (!string.IsNullOrEmpty(catalogProduct?.Description))
                             {
                                 <div class="product-desc">@catalogProduct.Description</div>
@@ -260,6 +270,13 @@
                             @if (!string.IsNullOrEmpty(catalogProduct?.Brand))
                             {
                                 <div class="product-desc">Brand: @catalogProduct.Brand</div>
+                            }
+                            @if (catalogProduct?.IsPack == true && catalogProduct.PackComponents.Any())
+                            {
+                                var comp = catalogProduct.PackComponents.First();
+                                <div class="product-desc" style="color:#6f42c1;">
+                                    📦 @comp.Quantity × @comp.ComponentName
+                                </div>
                             }
                         </td>
                         <td>@(catalogProduct?.Manufacturer ?? "-")</td>
@@ -338,6 +355,8 @@
     private string searchTerm = string.Empty;
     private bool isSearching;
 
+    private CancellationTokenSource? _debounceCts;
+
     int Page = 1;
     int PageSize = 10;
     int TotalCount;
@@ -353,12 +372,17 @@
     {
         try
         {
-            catalogProducts = await CatalogApi.GetAll();
+            var response = await CatalogApi.Search(new ProductCatalogQuery
+            {
+                Page = 1,
+                PageSize = 1000
+            });
+            catalogProducts = response.Items?.ToList() ?? new();
         }
         catch (Exception ex)
         {
             errorMessage = $"Failed to load product catalog: {ex.Message}";
-            catalogProducts = new List<ProductCatalogResult>();
+            catalogProducts = new();
         }
     }
 
@@ -393,7 +417,7 @@
             {
                 Page = Page,
                 PageSize = PageSize,
-                Search = isSearching ? searchTerm : null
+                Search = isSearching ? searchTerm.Trim() : null
             };
 
             var response = await ProductApi.Search(query);
@@ -423,6 +447,7 @@
     {
         if (e.Key == "Enter")
         {
+            _debounceCts?.Cancel();
             await Search();
         }
     }
@@ -435,6 +460,34 @@
         await LoadData();
     }
 
+    private async Task OnSearchInput(ChangeEventArgs e)
+    {
+        searchTerm = e.Value?.ToString() ?? string.Empty;
+
+        _debounceCts?.Cancel();
+        _debounceCts = new CancellationTokenSource();
+
+        try
+        {
+            await Task.Delay(400, _debounceCts.Token);
+
+            if (string.IsNullOrWhiteSpace(searchTerm))
+            {
+                isSearching = false;
+                Page = 1;
+                await LoadData();
+            }
+            else
+            {
+                isSearching = true;
+                Page = 1;
+                await LoadData();
+            }
+        }
+        catch (TaskCanceledException)
+        {
+        }
+    }
 
     private async Task HandleSubmit()
     {
@@ -477,7 +530,7 @@
 
 
             await ProductApi.Create(request);
-
+            State.InvalidatePos();
             var catalogProduct = GetCatalogProduct(form.CatalogProductId);
             successMessage = $"Product '{catalogProduct?.Name ?? "Unknown"}' created successfully.";
             ResetForm();
@@ -525,7 +578,7 @@
             };
 
             await ProductApi.Update(editingId.Value, request);
-
+            State.InvalidatePos();
             var catalogProduct = GetCatalogProduct(form.CatalogProductId);
             successMessage = $"Product '{catalogProduct?.Name ?? "Unknown"}' updated successfully.";
             ResetForm();
@@ -576,7 +629,7 @@
             var productName = catalogProduct?.Name ?? "Unknown product";
 
             await ProductApi.Delete(productToDelete.Id);
-
+            State.InvalidatePos();
             successMessage = $"Product '{productName}' deleted successfully.";
             productToDelete = null;
 

@@ -1,5 +1,7 @@
 ﻿using AutoMapper;
 using Inventory.Domain.Entities;
+using Inventory.Domain.Models;
+using Inventory.Dto.PackComponent.Results;
 using Inventory.Dto.ProductCatalogs.Requests;
 using Inventory.Dto.ProductCatalogs.Results;
 
@@ -16,9 +18,9 @@ namespace Inventory.Services.Mapping
                 .ForMember(dest => dest.Id, opt => opt.Ignore())
                 .ForMember(dest => dest.CreatedAt, opt => opt.Ignore())
                 .ForMember(dest => dest.ModifiedAt, opt => opt.Ignore())
-
-                // Navigation
-                .ForMember(dest => dest.TenantProducts, opt => opt.Ignore());
+                .ForMember(dest => dest.TenantProducts, opt => opt.Ignore())
+                .ForMember(dest => dest.PackComponents, opt => opt.Ignore())
+                .ForMember(dest => dest.UsedInPacks, opt => opt.Ignore());
 
             // =========================
             // UPDATE
@@ -27,11 +29,9 @@ namespace Inventory.Services.Mapping
                 .ForMember(dest => dest.Id, opt => opt.Ignore())
                 .ForMember(dest => dest.CreatedAt, opt => opt.Ignore())
                 .ForMember(dest => dest.ModifiedAt, opt => opt.Ignore())
-
-                // Navigation
                 .ForMember(dest => dest.TenantProducts, opt => opt.Ignore())
-
-                // Strings — update contrôlé
+                .ForMember(dest => dest.PackComponents, opt => opt.Ignore())
+                .ForMember(dest => dest.UsedInPacks, opt => opt.Ignore())
                 .ForMember(dest => dest.Barcode,
                     opt => opt.Condition(src => !string.IsNullOrWhiteSpace(src.Barcode)))
                 .ForMember(dest => dest.Name,
@@ -48,7 +48,24 @@ namespace Inventory.Services.Mapping
             // =========================
             // RESULT
             // =========================
-            CreateMap<ProductCatalog, ProductCatalogResult>();
+            CreateMap<ProductCatalog, ProductCatalogResult>()
+                .ForMember(dest => dest.IsPack,
+                    opt => opt.MapFrom(src => src.IsPack))
+                .ForMember(dest => dest.PackComponents,
+                    opt => opt.MapFrom(src => src.PackComponents));
+
+            // =========================
+            // PACK COMPONENT RESULT
+            // =========================
+            CreateMap<PackComponent, PackComponentResult>()
+                .ForMember(dest => dest.ComponentName,
+                    opt => opt.MapFrom(src => src.ComponentCatalog != null
+                        ? src.ComponentCatalog.Name
+                        : string.Empty))
+                .ForMember(dest => dest.ComponentBarCode,
+                    opt => opt.MapFrom(src => src.ComponentCatalog != null
+                        ? src.ComponentCatalog.Barcode
+                        : null));
         }
     }
 }

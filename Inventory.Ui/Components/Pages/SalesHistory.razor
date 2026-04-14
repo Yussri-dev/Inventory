@@ -9,39 +9,38 @@
 
 <div class="sale-container">
 
+    @* Alert messages *@
+    @if (!string.IsNullOrWhiteSpace(errorMessage))
+    {
+        <div class="alert error" style="margin: 0.5rem 0;">
+            <span>@errorMessage</span>
+            <button @onclick="() => errorMessage = null">×</button>
+        </div>
+    }
+
     @* ── LEFT COLUMN: Results ── *@
     <div class="sale-left">
 
         @* Header *@
         <div class="card header-section">
-            <div class="sale-info">
-                <div>
-                    <strong class="title">Sales History</strong>
-                    <span class="muted">@totalCount result(s)</span>
-                </div>
-                <div style="display:flex; gap:0.5rem; align-items:center;">
-                    @if (isFiltered)
-                    {
-                        <span class="stock-indicator low">Filtered</span>
-                    }
-                    <button class="btn btn-secondary" @onclick="ResetFilters" disabled="@isLoadingData">
-                        Reset
-                    </button>
-                    <button class="btn btn-primary" @onclick="ApplyFilters" disabled="@isLoadingData">
-                        @(isLoadingData ? "Loading..." : "Search")
-                    </button>
-                </div>
+            <div class="pager">
+                <button class="btn ghost"
+                        disabled="@(currentPage <= 1 || isLoadingData)"
+                        @onclick="PreviousPage">
+                    Prev
+                </button>
+
+                <span class="muted">
+                    Page @currentPage of @(TotalPages == 0 ? 1 : TotalPages)
+                </span>
+
+                <button class="btn ghost"
+                        disabled="@(currentPage >= TotalPages || isLoadingData)"
+                        @onclick="NextPage">
+                    Next
+                </button>
             </div>
         </div>
-
-        @* Alert messages *@
-        @if (!string.IsNullOrWhiteSpace(errorMessage))
-        {
-            <div class="alert error" style="margin: 0.5rem 0;">
-                <span>@errorMessage</span>
-                <button @onclick="() => errorMessage = null">×</button>
-            </div>
-        }
 
         @* Sales Table *@
         <div class="card cart-table">
@@ -124,7 +123,7 @@
         </div>
 
         @* Pagination *@
-        <div class="actions-footer">
+        @*  <div class="actions-footer">
             <button class="btn btn-secondary"
                     disabled="@(currentPage <= 1 || isLoadingData)"
                     @onclick="PreviousPage">
@@ -138,12 +137,13 @@
                     @onclick="NextPage">
                 Next ›
             </button>
-        </div>
+        </div> *@
+
+
     </div>
 
     @* ── RIGHT COLUMN: Filters ── *@
     <div class="sale-right">
-
         @* Date Range Filter *@
         <div class="card search-section">
             <label style="font-weight:600; display:block; margin-bottom:0.5rem;">📅 Date Range</label>
@@ -237,6 +237,25 @@
             }
         </div>
 
+        @* Search and Reset *@
+        <div class="card search-section">
+            <div>
+                <strong class="title">Sales History</strong>
+                <span class="muted">@totalCount result(s)</span>
+            </div>
+            <div style="display:flex; gap:0.5rem; align-items:center;">
+                @if (isFiltered)
+                {
+                    <span class="stock-indicator low">Filtered</span>
+                }
+                <button class="btn btn-secondary" @onclick="ResetFilters" disabled="@isLoadingData">
+                    Reset
+                </button>
+                <button class="btn btn-primary" @onclick="ApplyFilters" disabled="@isLoadingData">
+                    @(isLoadingData ? "Loading..." : "Search")
+                </button>
+            </div>
+        </div>
         @* Payment Status Filter *@
         <div class="card search-section">
             <label style="font-weight:600; display:block; margin-bottom:0.5rem;">💳 Payment Status</label>

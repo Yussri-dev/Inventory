@@ -1,4 +1,6 @@
-﻿namespace Inventory.Dto.ProductCatalogs.Results
+﻿using Inventory.Dto.PackComponent.Results;
+
+namespace Inventory.Dto.ProductCatalogs.Results
 {
     public class ProductCatalogResult
     {
@@ -17,5 +19,7 @@
 
         public DateTime CreatedAt { get; set; }
         public DateTime? ModifiedAt { get; set; }
+        public bool IsPack { get; set; }
+        public List<PackComponentResult> PackComponents { get; set; } = new();
     }
 }

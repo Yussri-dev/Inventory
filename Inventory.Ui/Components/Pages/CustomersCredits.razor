@@ -659,11 +659,17 @@
                 successMessage = $"✅ Refund of €{paymentAmount:N2} issued to {selectedCustomer.Name}!";
             }
 
+            var justProcessedId = selectedCustomer.CustomerId;
             CloseModal();
+
+            await LoadCustomersAsync();
+
+            if (expandedCustomerId == justProcessedId)
+                customerDetail = await CustomerTransactionsApi.GetCustomerDetail(justProcessedId);
 
             await Task.Delay(3000);
             successMessage = null;
-            await LoadCustomersAsync();
+            StateHasChanged();
 
 
             // Reload detail if expanded

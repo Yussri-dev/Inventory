@@ -1,4 +1,5 @@
-﻿using System.ComponentModel.DataAnnotations;
+﻿using Inventory.Dto.PackComponent.Requests;
+using System.ComponentModel.DataAnnotations;
 
 namespace Inventory.Dto.ProductCatalogs.Requests
 {
@@ -21,6 +22,8 @@ namespace Inventory.Dto.ProductCatalogs.Requests
         [MaxLength(10)]
         public string UnitOfMeasure { get; set; } = "pcs"; // pcs, kg, g, l
 
+        public bool IsPack { get; set; } = false;
+        public List<CreatePackComponentRequest> PackComponents { get; set; } = new ();
         public DateTime CreatedAt { get; set; }
         public DateTime? ModifiedAt { get; set; }
     }

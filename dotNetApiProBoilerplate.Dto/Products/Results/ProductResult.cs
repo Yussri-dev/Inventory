@@ -29,5 +29,10 @@ namespace Inventory.Dto.Products.Results
         // Flags
         public ProductStatus Status { get; init; }
         public bool IsTracked { get; init; }
+
+        public bool IsPack { get; set; }
+        public decimal PackSize { get; set; } = 1m;
+        public Guid? ComponentProductId { get; set; }
     }
+
 }

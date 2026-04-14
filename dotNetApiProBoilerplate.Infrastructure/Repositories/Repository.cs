@@ -84,5 +84,10 @@ namespace Inventory.Infrastructure.Repositories
         {
             return _context.Set<T>().AsNoTracking().AsQueryable();
         }
+
+        public async Task AddRangeAsync(IEnumerable<T> entities)
+        {
+            await _context.Set<T>().AddRangeAsync(entities);
+        }
     }
 }

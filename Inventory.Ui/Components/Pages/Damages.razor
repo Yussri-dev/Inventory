@@ -171,10 +171,10 @@
         await FocusBarcode();
     }
 
-    async Task RemoveLine(DamageResult d)
+    async Task RemoveLine(DamageResult damageResult)
     {
-        drafts.Remove(d);
-
+        drafts.Remove(damageResult);
+        await SaveDraftsToLocalStorage();
         await FocusBarcode();
     }
 
@@ -294,6 +294,7 @@
         await FocusBarcode();
         StateHasChanged();
     }
+
     // async Task AddDraft()
     // {
     //     create.EstimatedValue = EstimatedValue;
@@ -337,9 +338,9 @@
             await DamageApi.Create(request);
         }
 
-        // drafts.Clear();
-        drafts = new List<DamageResult>();
+        drafts.Clear();
 
+        await JS.InvokeVoidAsync("localStorage.removeItem", DraftStorageKey);
         await JS.InvokeVoidAsync("alert", "All damages validated and stock updated.");
 
 

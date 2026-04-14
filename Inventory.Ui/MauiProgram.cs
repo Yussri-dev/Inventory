@@ -3,6 +3,7 @@ using Inventory.Ui.Authentification;
 using Inventory.Ui.Infrastructure;
 using Inventory.Ui.Interfaces;
 using Inventory.Ui.Services;
+using Inventory.Ui.State;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.Extensions.Logging;
 using Refit;
@@ -55,6 +56,11 @@ public static class MauiProgram
         builder.Services.AddOpenApi<IAuthApiOpen>(apiBaseUrl);
 
         // =========================
+        // STATES
+        // =========================
+        builder.Services.AddSingleton<AppState>();
+
+        // =========================
         // SECURED APIs (JWT + REFRESH)
         // =========================
         builder.Services.AddSecuredApi<IAuthApi>(apiBaseUrl, withRefresh: false);
@@ -86,6 +92,8 @@ public static class MauiProgram
         builder.Services.AddSecuredApi<IPosApi>(apiBaseUrl);
 
         builder.Services.AddSecuredApi<ILoyaltyCardsApi>(apiBaseUrl);
+
+        //builder.Services.AddBlazoredLocalStorage();
 
         //#if WINDOWS
         //builder.Services.AddSingleton<ITicketPrinter, WindowsTicketPrinter>();

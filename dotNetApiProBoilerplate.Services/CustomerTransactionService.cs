@@ -78,6 +78,16 @@ namespace Inventory.Services
         public async Task<List<CustomerTransactionResult>> GetAllAsync()
         {
             var tenantId = _tenantContext.TenantId;
+            var transactions = await _customerTransactionRepository.GetAsync(
+                t => !t.IsDeleted && t.TenantId == tenantId);
+
+            return _mapper.Map<List<CustomerTransactionResult>>(transactions);
+        }
+
+        /*
+        public async Task<List<CustomerTransactionResult>> GetAllAsync()
+        {
+            var tenantId = _tenantContext.TenantId;
             var transactions = await _customerTransactionRepository.GetAllAsync();
 
             var activeTransactions = transactions
@@ -86,6 +96,7 @@ namespace Inventory.Services
 
             return _mapper.Map<List<CustomerTransactionResult>>(activeTransactions);
         }
+        */
 
         public async Task<CustomerTransactionResult> UpdateAsync(Guid id, UpdateCustomerTransactionRequest request)
         {
@@ -141,7 +152,10 @@ namespace Inventory.Services
                 });
             }
 
-            var all = await _customerTransactionRepository.GetAllAsync();
+            var all = (await _customerTransactionRepository.GetAsync(
+                p => !p.IsDeleted && p.TenantId == tenantId))
+                .AsQueryable();
+            
             var filtered = all
                 .Where(p => !p.IsDeleted && p.TenantId == tenantId)
                 .AsQueryable();
@@ -283,6 +297,7 @@ namespace Inventory.Services
             return _mapper.Map<CustomerTransactionResult>(paymentTx);
         }
 
+        /*
         public async Task<List<CustomerCreditResult>> GetCustomersWithBalanceAsync()
         {
             var tenantId = _tenantContext.TenantId;
@@ -298,6 +313,37 @@ namespace Inventory.Services
 
             return customers
                 .Where(c => !c.IsDeleted && c.TenantId == tenantId)
+                .Select(c => new CustomerCreditResult
+                {
+                    CustomerId = c.Id,
+                    Name = c.Name,
+                    Balance = lastBalances.TryGetValue(c.Id, out var b) ? b : 0m
+                })
+                .ToList();
+        }
+        */
+
+        public async Task<List<CustomerCreditResult>> GetCustomersWithBalanceAsync()
+        {
+            var tenantId = _tenantContext.TenantId;
+
+            var customers = await _customerRepository.GetAsync(
+                c => !c.IsDeleted && c.TenantId == tenantId);
+
+            var transactions = await _customerTransactionRepository.GetAsync(
+                t => !t.IsDeleted && t.TenantId == tenantId);
+
+            // Tiebreak sur Id pour garantir un ordre déterministe
+            var lastBalances = transactions
+                .GroupBy(t => t.CustomerId)
+                .Select(g => g
+                    .OrderByDescending(t => t.TransactionDate)
+                    .ThenByDescending(t => t.CreatedAt)
+                    .ThenByDescending(t => t.Id)
+                    .First())
+                .ToDictionary(t => t.CustomerId, t => t.BalanceAfter);
+
+            return customers
                 .Select(c => new CustomerCreditResult
                 {
                     CustomerId = c.Id,
@@ -423,17 +469,30 @@ namespace Inventory.Services
             if (customer == null || customer.IsDeleted || customer.TenantId != tenantId)
                 throw new NotFoundException("Customer", customerId);
 
-            // Get all transactions
-            var transactions = (await _customerTransactionRepository.GetAllAsync())
-                .Where(t => t.CustomerId == customerId && !t.IsDeleted && t.TenantId == tenantId)
+            //// Get all transactions
+            //var transactions = (await _customerTransactionRepository.GetAllAsync())
+            //    .Where(t => t.CustomerId == customerId && !t.IsDeleted && t.TenantId == tenantId)
+            //    .OrderByDescending(t => t.TransactionDate)
+            //    .ToList();
+
+            //// Get sales for this customer
+            //var sales = (await _saleRepository.GetAllAsync())
+            //    .Where(s => s.CustomerId == customerId && !s.IsDeleted && s.TenantId == tenantId)
+            //    .OrderByDescending(s => s.SaleDate)
+            //    .ToList();
+
+            var transactions = (await _customerTransactionRepository.GetAsync(
+                    t => t.CustomerId == customerId && !t.IsDeleted && t.TenantId == tenantId))
                 .OrderByDescending(t => t.TransactionDate)
+                .ThenByDescending(t => t.CreatedAt)
+                .ThenByDescending(t => t.Id)
                 .ToList();
 
-            // Get sales for this customer
-            var sales = (await _saleRepository.GetAllAsync())
-                .Where(s => s.CustomerId == customerId && !s.IsDeleted && s.TenantId == tenantId)
+            var sales = (await _saleRepository.GetAsync(
+                    s => s.CustomerId == customerId && !s.IsDeleted && s.TenantId == tenantId))
                 .OrderByDescending(s => s.SaleDate)
                 .ToList();
+
 
             var currentBalance = transactions.FirstOrDefault()?.BalanceAfter ?? 0m;
 

@@ -315,6 +315,8 @@ namespace Inventory.Services
                 .AsNoTracking()
                 .Where(p => !p.IsDeleted && p.TenantId == tenantId)
                 .Include(p => p.CatalogProduct)
+                    .ThenInclude(c => c.PackComponents)          
+                        .ThenInclude(pc => pc.ComponentCatalog)  
                 .AsQueryable();
 
             // SEARCH

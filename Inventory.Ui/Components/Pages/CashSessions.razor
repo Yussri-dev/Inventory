@@ -3,7 +3,9 @@
 @using Inventory.Dto.CashSessions.Requests
 @using Inventory.Dto.CashSessions.Results
 @using Inventory.Dto.Enums
+@using Inventory.Ui.State
 
+@inject AppState State
 @inject ICashSessionApi CashSessionApi
 @inject NavigationManager Navigation
 
@@ -426,24 +428,29 @@
     {
         try
         {
-            // Charger la session active
-            try
+            if (!State.IsCashSessionLoaded)
             {
-                ActiveSession = await CashSessionApi.GetActive();
-            }
-            catch
-            {
-                ActiveSession = null;
+                try
+                {
+                    State.ActiveCashSession = await CashSessionApi.GetActive();
+                }
+                catch
+                {
+                    State.ActiveCashSession = null;
+                }
+
+                State.IsCashSessionLoaded = true;
             }
 
-            // Charger les sessions récentes
+            ActiveSession = State.ActiveCashSession;
+
             var allSessions = await CashSessionApi.GetAll();
+
             RecentSessions = allSessions
                 .Where(s => s.Status == CashSessionStatus.Closed)
                 .OrderByDescending(s => s.OpenedAt)
                 .Take(5)
                 .ToList();
-
         }
         catch (Exception ex)
         {
@@ -480,8 +487,16 @@
             };
 
             ActiveSession = await CashSessionApi.Create(request);
+
+            State.ActiveCashSession = ActiveSession;
+            State.IsCashSessionLoaded = true;
+
             CloseCreateModal();
-            await LoadData();
+
+            RecentSessions = RecentSessions
+            .OrderByDescending(s => s.OpenedAt)
+            .Take(5)
+            .ToList();
         }
         catch (Exception ex)
         {
@@ -534,9 +549,24 @@
             };
 
             await CashSessionApi.Close(ActiveSession.Id, request);
+
+            State.ActiveCashSession = null;
+            State.IsCashSessionLoaded = true;
+
             CloseCloseModal();
+
+            var closedSession = ActiveSession;
+
             ActiveSession = null;
-            await LoadData();
+
+            if (closedSession != null)
+            {
+                closedSession.Status = CashSessionStatus.Closed;
+                closedSession.ClosedAt = DateTime.UtcNow;
+
+                RecentSessions.Insert(0, closedSession);
+                RecentSessions = RecentSessions.Take(5).ToList();
+            }
         }
         catch (Exception ex)
         {

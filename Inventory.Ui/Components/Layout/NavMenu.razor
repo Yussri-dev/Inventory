@@ -1,10 +1,15 @@
 ﻿@using Microsoft.AspNetCore.Components.Routing
 
-<aside class="inv-sidebar">
+@if (isSidebarOpen)
+{
+    <div class="sidebar-overlay" @onclick="ToggleSidebar"></div>
+}
 
+<aside class="inv-sidebar @(isSidebarOpen ? "open" : "") @(IsCollapsed ? "collapsed" : "")">
     <div class="inv-brand">
         <div class="inv-logo">INV</div>
         <span class="inv-brand-name">Inventory</span>
+        <button class="collapse-btn" @onclick="ToggleCollapse">☰</button>
     </div>
 
     <nav class="inv-nav">
@@ -12,111 +17,160 @@
         @if (IsAuthenticated)
         {
             <div class="inv-menu">
-                <NavLink href="" Match="NavLinkMatch.All" class="inv-link">
-                    <svg class="inv-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" /><polyline points="9 22 9 12 15 12 15 22" /></svg>
+
+                <!-- HOME -->
+                <NavLink href="" Match="NavLinkMatch.All" class="inv-link" @onclick="CloseSidebar">
+                    <svg class="inv-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
+                        <polyline points="9 22 9 12 15 12 15 22" />
+                    </svg>
                     <span>Home</span>
                 </NavLink>
 
                 <div class="inv-sep">Sales</div>
-                <NavLink href="sales" class="inv-link">
-                    <svg class="inv-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="21" r="1" /><circle cx="20" cy="21" r="1" /><path d="M1 1h4l2.68 13.39a2 2 0 002 1.61h9.72a2 2 0 001.99-1.85L23 6H6" /></svg>
+
+                <!-- POS -->
+                <NavLink href="sales" class="inv-link" @onclick="CloseSidebar">
+                    <svg class="inv-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="9" cy="21" r="1" />
+                        <circle cx="20" cy="21" r="1" />
+                        <path d="M1 1h4l2.68 13.39a2 2 0 002 1.61h9.72a2 2 0 001.99-1.85L23 6H6" />
+                    </svg>
                     <span>Point of Sale</span>
                 </NavLink>
 
-                
-                <NavLink href="purchases" class="inv-link">
-                    <svg class="inv-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z" /><line x1="3" y1="6" x2="21" y2="6" /><path d="M16 10a4 4 0 01-8 0" /></svg>
+                <NavLink href="purchases" class="inv-link" @onclick="CloseSidebar">
+                    <svg class="inv-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 2l7 4v6c0 5-3.5 9-7 10-3.5-1-7-5-7-10V6l7-4z" />
+                    </svg>
                     <span>Purchases</span>
                 </NavLink>
 
-                <NavLink href="returns" class="inv-link">
-                    <svg class="inv-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10" /><path d="M3.51 15a9 9 0 102.13-9.36L1 10" /></svg>
+                <NavLink href="returns" class="inv-link" @onclick="CloseSidebar">
+                    <svg class="inv-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="1 4 1 10 7 10" />
+                        <path d="M3.51 15a9 9 0 101.49-9L1 10" />
+                    </svg>
                     <span>Returns</span>
                 </NavLink>
 
-                <NavLink href="Damages" class="inv-link">
-                    <svg class="inv-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
-                        <line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg>
+                <NavLink href="damages" class="inv-link" @onclick="CloseSidebar">
+                    <svg class="inv-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="18" y1="6" x2="6" y2="18" />
+                        <line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
                     <span>Damages</span>
                 </NavLink>
 
-                <NavLink href="saleshistory" class="inv-link">
-                    <svg class="inv-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /></svg>
+                <NavLink href="saleshistory" class="inv-link" @onclick="CloseSidebar">
+                    <svg class="inv-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+                    </svg>
                     <span>Sales History</span>
                 </NavLink>
 
-                <NavLink href="customersales" class="inv-link">
-                    <svg class="inv-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 00-3-3.87" /><path d="M16 3.13a4 4 0 010 7.75" /></svg>
+                <NavLink href="customersales" class="inv-link" @onclick="CloseSidebar">
+                    <svg class="inv-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="9" cy="7" r="4" />
+                        <path d="M17 11l2 2 4-4" />
+                    </svg>
                     <span>Sales by Customer</span>
                 </NavLink>
 
                 <div class="inv-sep">Customers</div>
 
-                <NavLink href="customers" class="inv-link">
-                    <svg class="inv-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 00-3-3.87" /><path d="M16 3.13a4 4 0 010 7.75" /></svg>
+                <NavLink href="customers" class="inv-link" @onclick="CloseSidebar">
+                    <svg class="inv-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" />
+                        <circle cx="9" cy="7" r="4" />
+                    </svg>
                     <span>Customers</span>
                 </NavLink>
 
-                <NavLink href="customer-credits" class="inv-link">
-                    <svg class="inv-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="4" width="22" height="16" rx="2" ry="2" /><line x1="1" y1="10" x2="23" y2="10" /></svg>
+                <NavLink href="customer-credits" class="inv-link" @onclick="CloseSidebar">
+                    <svg class="inv-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="1" y="4" width="22" height="16" rx="2" />
+                        <line x1="1" y1="10" x2="23" y2="10" />
+                    </svg>
                     <span>Customer Credits</span>
-                </NavLink>
-
-                <NavLink href="LoyaltyCards" class="inv-link">
-                    <svg class="inv-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 12 20 22 4 22 4 12" /><rect x="2" y="7" width="20" height="5" /><path d="M12 22V7" /><path d="M12 7H7.5a2.5 2.5 0 010-5C11 2 12 7 12 7z" /><path d="M12 7h4.5a2.5 2.5 0 000-5C13 2 12 7 12 7z" /></svg>
-                    <span>Loyalty Cards</span>
                 </NavLink>
 
                 <div class="inv-sep">Catalogue</div>
 
-                <NavLink href="productCatalogs" class="inv-link">
-                    <svg class="inv-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z" /></svg>
+                <NavLink href="productCatalogs" class="inv-link" @onclick="CloseSidebar">
+                    <svg class="inv-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M4 19.5A2.5 2.5 0 016.5 17H20" />
+                        <path d="M4 4h16v13H6.5A2.5 2.5 0 004 19.5V4z" />
+                    </svg>
                     <span>Product Catalogs</span>
                 </NavLink>
 
-                <NavLink href="products" class="inv-link">
-                    <svg class="inv-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6" /><line x1="8" y1="12" x2="21" y2="12" /><line x1="8" y1="18" x2="21" y2="18" /><line x1="3" y1="6" x2="3.01" y2="6" /><line x1="3" y1="12" x2="3.01" y2="12" /><line x1="3" y1="18" x2="3.01" y2="18" /></svg>
+                <NavLink href="products" class="inv-link" @onclick="CloseSidebar">
+                    <svg class="inv-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="8" y1="6" x2="21" y2="6" />
+                        <line x1="8" y1="12" x2="21" y2="12" />
+                        <line x1="8" y1="18" x2="21" y2="18" />
+                        <line x1="3" y1="6" x2="3.01" y2="6" />
+                        <line x1="3" y1="12" x2="3.01" y2="12" />
+                        <line x1="3" y1="18" x2="3.01" y2="18" />
+                    </svg>
                     <span>Products</span>
                 </NavLink>
 
-                <NavLink href="stock" class="inv-link">
-                    <svg class="inv-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2" /><path d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2" /><line x1="12" y1="12" x2="12" y2="16" /><line x1="10" y1="14" x2="14" y2="14" /></svg>
+                <NavLink href="stock" class="inv-link" @onclick="CloseSidebar">
+                    <svg class="inv-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="2" y="7" width="20" height="14" rx="2" />
+                        <path d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2" />
+                    </svg>
                     <span>Stock</span>
                 </NavLink>
 
-                <NavLink href="inventory" class="inv-link">
-                    <svg class="inv-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10" /><line x1="12" y1="20" x2="12" y2="4" /><line x1="6" y1="20" x2="6" y2="14" /></svg>
+                <NavLink href="inventory" class="inv-link" @onclick="CloseSidebar">
+                    <svg class="inv-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M3 6l9-4 9 4-9 4-9-4z" />
+                        <path d="M3 10l9 4 9-4" />
+                        <path d="M3 14l9 4 9-4" />
+                    </svg>
                     <span>Inventory</span>
                 </NavLink>
 
                 <div class="inv-sep">Finance</div>
 
-                <NavLink href="suppliers" class="inv-link">
-                    <svg class="inv-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="3" width="15" height="13" /><polygon points="16 8 20 8 23 11 23 16 16 16 16 8" /><circle cx="5.5" cy="18.5" r="2.5" /><circle cx="18.5" cy="18.5" r="2.5" /></svg>
+                <NavLink href="suppliers" class="inv-link" @onclick="CloseSidebar">
+                    <svg class="inv-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="1" y="3" width="15" height="13" />
+                        <polygon points="16 8 20 8 23 11 23 16 16 16 16 8" />
+                    </svg>
                     <span>Suppliers</span>
                 </NavLink>
 
-                <NavLink href="cashSessions" class="inv-link">
-                    <svg class="inv-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23" /><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6" /></svg>
+                <NavLink href="cashSessions" class="inv-link" @onclick="CloseSidebar">
+                    <svg class="inv-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="2" y="6" width="20" height="12" rx="2" />
+                        <circle cx="12" cy="12" r="3" />
+                    </svg>
                     <span>Cash Sessions</span>
                 </NavLink>
-            </div>
 
+            </div>
         }
+
     </nav>
 
     @if (IsAuthenticated)
     {
         <div class="inv-footer">
             <div class="inv-user">
-                <div class="inv-avatar">@(UserName?.Length > 0 ? UserName[0].ToString().ToUpper() : "U")</div>
+                <div class="inv-avatar">
+                    @(UserName?.Length > 0 ? UserName[0].ToString().ToUpper() : "U")
+                </div>
                 <div class="inv-user-info">
                     <div class="inv-user-name">@UserName</div>
                     <div class="inv-user-role">Admin</div>
                 </div>
             </div>
+
             <button class="inv-logout" @onclick="OnLogout">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" /></svg>
                 Logout
             </button>
         </div>
@@ -128,4 +182,24 @@
     [Parameter] public string? UserName { get; set; }
     [Parameter] public bool IsAuthenticated { get; set; }
     [Parameter] public EventCallback OnLogout { get; set; }
+
+    private bool isSidebarOpen;
+    public bool IsCollapsed { get; private set; }
+
+    public void ToggleSidebar()
+    {
+        isSidebarOpen = !isSidebarOpen;
+        StateHasChanged();
+    }
+
+
+    void ToggleCollapse()
+    {
+        IsCollapsed = !IsCollapsed;
+    }
+
+    void CloseSidebar()
+    {
+        isSidebarOpen = false;
+    }
 }

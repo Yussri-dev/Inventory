@@ -45,6 +45,17 @@ var app = builder.Build();
 
 app.UseMiddleware<ExceptionHandlingMiddleware>();
 
+
+
+app.Use(async (context, next) =>
+{
+    var route = context.Request.Path.ToString();
+
+    RequestMetrics.PerRoute.AddOrUpdate(route, 1, (_, count) => count + 1);
+
+    await next();
+});
+
 // Development-only configuration
 if (app.Environment.IsDevelopment())
 {
@@ -74,13 +85,9 @@ app.UseAuthorization();
 // Activates attribute-based routing
 app.MapControllers();
 
-app.Use(async (context, next) =>
+app.MapGet("/metrics/requests", () =>
 {
-    Console.WriteLine(
-        $"HTTP {context.Request.Method} {context.Request.Path}"
-    );
-
-    await next();
+    return new { total = RequestMetrics.PerRoute };
 });
 
 // Start the HTTP server and begin listening for requests
