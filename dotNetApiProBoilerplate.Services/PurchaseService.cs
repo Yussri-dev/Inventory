@@ -61,8 +61,8 @@ namespace Inventory.Services
             _tenantContext = tenantContext;
             _cashMovementRepository = cashMovementRepository;
             _cashSessionService = cashSessionService;
-            _productRepository = productRepository;  
-            _packService = packService;              
+            _productRepository = productRepository;
+            _packService = packService;
         }
 
         // =========================
@@ -72,11 +72,23 @@ namespace Inventory.Services
         {
             var tenantId = _tenantContext.TenantId;
 
+            if (request == null)
+                throw new ValidationException("Request cannot be null.");
+
             if (request.TotalAmountInclVat <= 0 || request.TotalAmountExclVat <= 0)
                 throw new ValidationException(new Dictionary<string, string[]>
-                {
-                    { "Amount", new[] { "Amounts must be greater than 0." } }
-                });
+        {
+            { "Amount", new[] { "Amounts must be greater than 0." } }
+        });
+
+            // ── Supplier validation ─────────────────────────────────────
+            var supplier = await _supplierRepository.GetSingleAsync(s =>
+                s.Id == request.SupplierId &&
+                !s.IsDeleted &&
+                s.TenantId == tenantId);
+
+            if (supplier == null)
+                throw new NotFoundException("Supplier", request.SupplierId);
 
             var entity = _mapper.Map<Purchase>(request);
 
@@ -84,9 +96,14 @@ namespace Inventory.Services
             entity.TenantId = tenantId;
             entity.PurchaseNumber = await _documentNumberService.GenerateAsync("PURCHASE");
             entity.PurchaseDate = request.PurchaseDate == default ? DateTime.UtcNow : request.PurchaseDate;
-            entity.Status = PurchaseStatus.Received;
+            entity.Status = PurchaseStatus.Pending; // FIX: header should not be "Received"
             entity.CreatedAt = DateTime.UtcNow;
             entity.ModifiedAt = DateTime.UtcNow;
+
+            // ── Normalize money ─────────────────────────────────────────
+            entity.TotalAmountExclVat = Math.Round(entity.TotalAmountExclVat, 2);
+            entity.TotalVatAmount = Math.Round(entity.TotalVatAmount, 2);
+            entity.TotalAmountInclVat = Math.Round(entity.TotalAmountInclVat, 2);
 
             await _repository.AddAsync(entity);
             await _unitOfWork.SaveChangesAsync();
@@ -102,45 +119,89 @@ namespace Inventory.Services
             var tenantId = _tenantContext.TenantId;
             var activeCashSessionId = await _cashSessionService.EnsureActiveSessionAsync();
 
-            // ── Résolution des lignes (pack → unité) ─────────────────────────────────
+            if (request == null)
+                throw new ValidationException("Request cannot be null.");
+
+            if (request.Lines == null || !request.Lines.Any())
+                throw new ValidationException("Purchase must contain at least one line.");
+
+            // ── Supplier validation ─────────────────────────────────────
+            var supplier = await _supplierRepository.GetSingleAsync(s =>
+                s.Id == request.SupplierId &&
+                !s.IsDeleted &&
+                s.TenantId == tenantId);
+
+            if (supplier == null)
+                throw new NotFoundException("Supplier", request.SupplierId);
+
+            // ── PRELOAD PRODUCTS (NO N+1) ───────────────────────────────
+            var productIds = request.Lines.Select(l => l.ProductId).Distinct().ToList();
+
+            var products = await _productRepository.Query()
+                .Include(p => p.CatalogProduct)
+                .Where(p => productIds.Contains(p.Id) && p.TenantId == tenantId)
+                .ToListAsync();
+
+            var productMap = products.ToDictionary(p => p.Id);
+
+            var catalogIds = products
+                .Select(p => p.CatalogProductId)
+                .Distinct()
+                .ToList();
+
+            // récupérer les composants des packs
+            var componentCatalogIds = catalogIds
+                .Where(c => _packService.IsPack(c))
+                .Select(c => _packService.GetComponentCatalogId(c))
+                .Where(c => c.HasValue)
+                .Select(c => c.Value)
+                .ToList();
+
+            // merge
+            var allCatalogIds = catalogIds
+                .Concat(componentCatalogIds)
+                .Distinct()
+                .ToList();
+
+            // charger tous les produits nécessaires
+            var unitProducts = await _productRepository.Query()
+                .Where(p => allCatalogIds.Contains(p.CatalogProductId) && p.TenantId == tenantId)
+                .ToListAsync();
+
+            var unitProductMap = unitProducts
+                .GroupBy(p => p.CatalogProductId)
+                .ToDictionary(g => g.Key, g => g.First());
+
+            // ── RESOLVE LINES (PACK → UNIT) ─────────────────────────────
             var lineResolutions = new List<PurchaseLineResolution>();
 
             foreach (var line in request.Lines)
             {
-                var product = await _productRepository.Query()
-                    .Include(p => p.CatalogProduct)
-                    .FirstOrDefaultAsync(p =>
-                        p.Id == line.ProductId &&
-                        p.TenantId == tenantId);
-
-                if (product == null)
+                if (!productMap.TryGetValue(line.ProductId, out var product))
                     throw new NotFoundException("Product", line.ProductId);
+
+                if (line.Quantity <= 0)
+                    throw new ValidationException("Quantity must be > 0");
 
                 var catalogId = product.CatalogProductId;
 
                 if (_packService.IsPack(catalogId))
                 {
                     var componentCatalogId = _packService.GetComponentCatalogId(catalogId);
-                    var unitQuantity = _packService.GetUnitQuantity(catalogId, line.Quantity);
-                    var packSize = _packService.GetPackSize(catalogId);
 
-                    // Trouver le Product de l'unité
-                    var unitProduct = await _productRepository.Query()
-                        .FirstOrDefaultAsync(p =>
-                            p.CatalogProductId == componentCatalogId &&
-                            p.TenantId == tenantId);
+                    if (!componentCatalogId.HasValue)
+                        throw new ValidationException("Pack configuration invalid.");
 
-                    if (unitProduct == null)
-                        throw new NotFoundException(
-                            "Unit product for pack", componentCatalogId ?? Guid.Empty);
+                    if (!unitProductMap.TryGetValue(componentCatalogId.Value, out var unitProduct))
+                        throw new NotFoundException("Unit product", componentCatalogId.Value);
 
                     lineResolutions.Add(new PurchaseLineResolution
                     {
                         OriginalLine = line,
                         StockProductId = unitProduct.Id,
-                        StockQuantity = unitQuantity,
+                        StockQuantity = _packService.GetUnitQuantity(catalogId, line.Quantity),
                         IsPack = true,
-                        PackSize = packSize
+                        PackSize = _packService.GetPackSize(catalogId)
                     });
                 }
                 else
@@ -156,21 +217,24 @@ namespace Inventory.Services
                 }
             }
 
-            // ── Calcul des totaux (sur les lignes originales — prix pack) ────────────
+            // ── TOTALS (BACKEND AUTHORITATIVE) ──────────────────────────
             decimal totalExclVat = 0m;
             decimal totalVat = 0m;
 
             foreach (var l in request.Lines)
             {
-                var lineExcl = l.Quantity * l.UnitPrice * (1 - l.DiscountPercent / 100);
-                var lineVat = lineExcl * (l.VatRate / 100);
-                totalExclVat += lineExcl;
-                totalVat += lineVat;
+                var excl = l.Quantity * l.UnitPrice * (1 - l.DiscountPercent / 100m);
+                var vat = excl * (l.VatRate / 100m);
+
+                totalExclVat += excl;
+                totalVat += vat;
             }
 
-            var totalInclVat = totalExclVat + totalVat;
+            totalExclVat = Math.Round(totalExclVat, 2);
+            totalVat = Math.Round(totalVat, 2);
+            var totalInclVat = Math.Round(totalExclVat + totalVat, 2);
 
-            // ── Création du Purchase ─────────────────────────────────────────────────
+            // ── CREATE PURCHASE ─────────────────────────────────────────
             var purchase = new Purchase
             {
                 Id = Guid.NewGuid(),
@@ -189,7 +253,7 @@ namespace Inventory.Services
 
             await _repository.AddAsync(purchase);
 
-            // ── Purchase Lines (on garde le ProductId original du pack pour le doc) ──
+            // ── LINES ───────────────────────────────────────────────────
             foreach (var line in request.Lines)
             {
                 await _purchaseLineRepository.AddAsync(new PurchaseLine
@@ -197,7 +261,7 @@ namespace Inventory.Services
                     Id = Guid.NewGuid(),
                     TenantId = tenantId,
                     PurchaseId = purchase.Id,
-                    ProductId = line.ProductId,      // ID du pack — pour le document
+                    ProductId = line.ProductId,
                     QuantityOrdered = line.Quantity,
                     QuantityReceived = line.Quantity,
                     UnitPurchasePrice = line.UnitPrice,
@@ -205,45 +269,30 @@ namespace Inventory.Services
                 });
             }
 
-            // ── Stock : ajouter sur le produit UNITÉ ─────────────────────────────────
-            // Grouper par StockProductId pour éviter les doublons si même unité
-            var grouped = lineResolutions
-                .GroupBy(r => r.StockProductId)
-                .Select(g => new
-                {
-                    StockProductId = g.Key,
-                    TotalQty = g.Sum(r => r.StockQuantity),
-                    IsPack = g.First().IsPack,
-                    PackSize = g.First().PackSize
-                });
-
-            foreach (var group in grouped)
+            // ── STOCK ───────────────────────────────────────────────────
+            foreach (var group in lineResolutions.GroupBy(r => r.StockProductId))
             {
                 var stock = await _stockRepository.GetSingleAsync(
-                    s => s.ProductId == group.StockProductId &&
+                    s => s.ProductId == group.Key &&
                          !s.IsDeleted &&
                          s.TenantId == tenantId);
 
-                var quantityBefore = stock?.Quantity ?? 0;
-                var quantityAfter = quantityBefore + group.TotalQty;
-
-                var notes = group.IsPack
-                    ? $"Purchase {purchase.PurchaseNumber} (pack x{group.PackSize})"
-                    : $"Purchase {purchase.PurchaseNumber}";
+                var before = stock?.Quantity ?? 0;
+                var qty = group.Sum(x => x.StockQuantity);
+                var after = before + qty;
 
                 await _stockMovementRepository.AddAsync(new StockMovement
                 {
                     Id = Guid.NewGuid(),
                     TenantId = tenantId,
-                    ProductId = group.StockProductId,
+                    ProductId = group.Key,
                     Type = StockMovementType.Purchase,
-                    QuantityChange = group.TotalQty,
-                    QuantityBefore = quantityBefore,
-                    QuantityAfter = quantityAfter,
+                    QuantityChange = qty,
+                    QuantityBefore = before,
+                    QuantityAfter = after,
                     ReferenceId = purchase.Id,
                     ReferenceNumber = purchase.PurchaseNumber,
                     MovementDate = DateTime.UtcNow,
-                    Notes = notes,
                     CreatedAt = DateTime.UtcNow,
                     ModifiedAt = DateTime.UtcNow
                 });
@@ -254,27 +303,26 @@ namespace Inventory.Services
                     {
                         Id = Guid.NewGuid(),
                         TenantId = tenantId,
-                        ProductId = group.StockProductId,
-                        Quantity = quantityAfter,
-                        LastUpdated = DateTime.UtcNow,
+                        ProductId = group.Key,
+                        Quantity = after,
                         CreatedAt = DateTime.UtcNow
                     });
                 }
                 else
                 {
-                    stock.Quantity = quantityAfter;
-                    stock.LastUpdated = DateTime.UtcNow;
+                    stock.Quantity = after;
                     stock.ModifiedAt = DateTime.UtcNow;
                     _stockRepository.Update(stock);
                 }
             }
 
-            // ── Paiement ─────────────────────────────────────────────────────────────
+            // ── PAYMENT ─────────────────────────────────────────────────
             decimal cashAmount = 0m;
 
             if (request.Payment != null)
             {
-                Enum.TryParse<PaymentMethod>(request.Payment.PaymentMethod, true, out var method);
+                if (!Enum.TryParse<PaymentMethod>(request.Payment.PaymentMethod, true, out var method))
+                    throw new ValidationException("Invalid payment method.");
 
                 await _paymentRepository.AddAsync(new PurchasePayment
                 {
@@ -292,7 +340,7 @@ namespace Inventory.Services
                     cashAmount = request.Payment.Amount;
             }
 
-            // ── Cash Movement ────────────────────────────────────────────────────────
+            // ── CASH MOVEMENT ───────────────────────────────────────────
             if (cashAmount > 0)
             {
                 var last = await _cashMovementRepository.GetLastAsync(
@@ -316,7 +364,7 @@ namespace Inventory.Services
                     Amount = cashAmount,
                     BalanceBefore = before,
                     BalanceAfter = after,
-                    Reason = $"Purchase {purchase.PurchaseNumber}",
+                    ReferenceId = purchase.Id,
                     MovementDate = DateTime.UtcNow,
                     CreatedAt = DateTime.UtcNow
                 });
@@ -535,8 +583,7 @@ namespace Inventory.Services
 
         public async Task<List<PurchaseResult>> GetAllAsync()
         {
-            var tenantId = _tenantContext?.TenantId;
-
+            var tenantId = _tenantContext.TenantId;
             var purchases = await _repository.GetAsync(
                 p => !p.IsDeleted && p.TenantId == tenantId);
 
@@ -627,7 +674,7 @@ namespace Inventory.Services
 
             var items = await all
                 .OrderByDescending(p => p.PurchaseDate)
-                .Skip(query.Page - 1 * query.PageSize)
+                .Skip((query.Page - 1) * query.PageSize)
                 .Take(query.PageSize)
                 .ToListAsync();
 

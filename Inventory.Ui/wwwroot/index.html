@@ -24,13 +24,17 @@
     </div>
 
     <script src="_framework/blazor.webview.js" autostart="false"></script>
-    <script src="_content/Blazor-ApexCharts/js/blazor-apexcharts.js"></script>
+    <script type="module" src="_content/Blazor-ApexCharts/blazor-apexcharts.js"></script>
+    
     <script>
         window.focusElement = (el) => {
             if (el) el.focus();
         };
     </script>
     <script src="./js/print.js"></script>
+    <script src="./js/site.js"></script>
+    <link href="_content/MudBlazor/MudBlazor.min.css" rel="stylesheet" />
+    <script src="_content/MudBlazor/MudBlazor.min.js"></script>
     <script>
         window.downloadFile = (fileName, contentType, base64Data) => {
             const link = document.createElement('a');

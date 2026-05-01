@@ -35,6 +35,7 @@ namespace Inventory.Infrastructure.Repositories
 
         Task AddRangeAsync(IEnumerable<T> entities);
 
+        void DeleteRange(IEnumerable<T> entities);
 
         IQueryable<T> Query();
 

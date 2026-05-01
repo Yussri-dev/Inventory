@@ -1,7 +1,6 @@
 ﻿using AutoMapper;
 using AutoMapper.QueryableExtensions;
 using Inventory.Domain.Entities;
-using Inventory.Domain.Enums;
 using Inventory.Dto.Pages.Results;
 using Inventory.Dto.Products.Requests;
 using Inventory.Dto.Products.Results;
@@ -54,13 +53,15 @@ namespace Inventory.Services
             if (exists)
                 throw new ConflictException($"Product '{catalogProduct.Name}' already exists for this store.");
 
-            if (request.PurchasePrice > request.SalePrice &&
-                request.PurchasePrice > request.SalePrice2 &&
+            if (request.PurchasePrice > request.SalePrice ||
+                request.PurchasePrice > request.SalePrice2 ||
                 request.PurchasePrice > request.SalePrice3)
+            {
                 throw new ValidationException(new Dictionary<string, string[]>
                 {
-                    { "Price", new[] { "Purchase price cannot be greater than sale price." } }
+                    { "Price", new[] { "Purchase price cannot be greater than any sale price." } }
                 });
+            }
 
             var product = _mapper.Map<Product>(request);
 
@@ -125,11 +126,11 @@ namespace Inventory.Services
             }
 
             // Validate prices
-            if (request.SalePrice < 0 && request.SalePrice2 < 0 && request.SalePrice3 < 0)
+            if (request.SalePrice < 0 || request.SalePrice2 < 0 || request.SalePrice3 < 0)
             {
                 throw new ValidationException(new Dictionary<string, string[]>
                 {
-                    { "SalePrice", new[] { "Sale price must be greater than or equal to 0." } }
+                    { "SalePrice", new[] { "Sale prices must be >= 0." } }
                 });
             }
 
@@ -141,16 +142,23 @@ namespace Inventory.Services
                 });
             }
 
-            if (request.PurchasePrice > request.SalePrice &&
-                request.PurchasePrice > request.SalePrice2 &&
-                request.PurchasePrice > request.SalePrice3)
+            if (request.PurchasePrice > request.SalePrice ||
+                 request.PurchasePrice > request.SalePrice2 ||
+                 request.PurchasePrice > request.SalePrice3)
+                {
+                    throw new ValidationException(new Dictionary<string, string[]>
+                        {
+                            { "Price", new[] { "Purchase price cannot be greater than any sale price." } }
+                        });
+                }
+
+            if (request.MinStockLevel > request.MaxStockLevel)
             {
                 throw new ValidationException(new Dictionary<string, string[]>
                 {
-                    { "Price", new[] { "Purchase price cannot be greater than sale price" } }
+                    { "Stock", new[] { "Min stock cannot be greater than max stock." } }
                 });
             }
-
             _mapper.Map(request, product);
 
             product.ModifiedAt = DateTime.UtcNow;

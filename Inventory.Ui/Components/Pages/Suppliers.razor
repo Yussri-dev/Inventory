@@ -5,129 +5,121 @@
 
 <div class="page-container">
 
-    @if (!string.IsNullOrEmpty(errorMessage))
+    @if (showCustomer)
     {
-        <div class="alert error">
-            <span>@errorMessage</span>
-            <button @onclick="ClearError">×</button>
-        </div>
-    }
+        <div class="customer-modal-overlay" @onclick="CloseCustomerModal">
+            <div class="customer-modal" @onclick:stopPropagation="true">
+                <!-- CREATE / EDIT -->
+                <div class="card">
+                    <h4>@(editingId == null ? "Create supplier" : "Edit supplier")</h4>
 
-    @if (!string.IsNullOrEmpty(successMessage))
-    {
-        <div class="alert success">
-            <span>@successMessage</span>
-            <button @onclick="ClearSuccess">×</button>
-        </div>
-    }
+                    <EditForm Model="form" OnValidSubmit="HandleSubmit">
+                        <DataAnnotationsValidator />
 
-    <!-- CREATE / EDIT -->
-    <div class="card">
-        <h4>@(editingId == null ? "Create supplier" : "Edit supplier")</h4>
+                        <div class="form-grid">
+                            <div class="form-row">
+                                <div class="form-field">
+                                    <label>Name *</label>
+                                    <InputText placeholder="Supplier name"
+                                               class="inputText"
+                                               @bind-Value="form.Name"
+                                               disabled="@isLoading" />
+                                    <ValidationMessage For="@(() => form.Name)" />
+                                </div>
 
-        <EditForm Model="form" OnValidSubmit="HandleSubmit">
-            <DataAnnotationsValidator />
+                                <div class="form-field">
+                                    <label>Email</label>
+                                    <InputText placeholder="email@example.com"
+                                               class="inputText"
+                                               type="email"
+                                               @bind-Value="form.Email"
+                                               disabled="@isLoading" />
+                                    <ValidationMessage For="@(() => form.Email)" />
+                                </div>
+                            </div>
 
-            <div class="form-grid">
-                <div class="form-row">
-                    <div class="form-field">
-                        <label>Name *</label>
-                        <InputText placeholder="Supplier name"
-                                   class="inputText"
-                                   @bind-Value="form.Name"
-                                   disabled="@isLoading" />
-                        <ValidationMessage For="@(() => form.Name)" />
-                    </div>
+                            <div class="form-row">
+                                <div class="form-field">
+                                    <label>Phone</label>
+                                    <InputText placeholder="+1 234 567 8900"
+                                               class="inputText"
+                                               @bind-Value="form.Phone"
+                                               disabled="@isLoading" />
+                                    <ValidationMessage For="@(() => form.Phone)" />
+                                </div>
 
-                    <div class="form-field">
-                        <label>Email</label>
-                        <InputText placeholder="email@example.com"
-                                   class="inputText"
-                                   type="email"
-                                   @bind-Value="form.Email"
-                                   disabled="@isLoading" />
-                        <ValidationMessage For="@(() => form.Email)" />
-                    </div>
-                </div>
+                                <div class="form-field">
+                                    <label>Tax Number</label>
+                                    <InputText placeholder="Tax identification number"
+                                               class="inputText"
+                                               @bind-Value="form.TaxNumber"
+                                               disabled="@isLoading" />
+                                    <ValidationMessage For="@(() => form.TaxNumber)" />
+                                </div>
+                            </div>
 
-                <div class="form-row">
-                    <div class="form-field">
-                        <label>Phone</label>
-                        <InputText placeholder="+1 234 567 8900"
-                                   class="inputText"
-                                   @bind-Value="form.Phone"
-                                   disabled="@isLoading" />
-                        <ValidationMessage For="@(() => form.Phone)" />
-                    </div>
+                            <div class="form-row">
+                                <div class="form-field">
+                                    <label>Country</label>
+                                    <InputText placeholder="Country"
+                                               class="inputText"
+                                               @bind-Value="form.Country"
+                                               disabled="@isLoading" />
+                                    <ValidationMessage For="@(() => form.Country)" />
+                                </div>
 
-                    <div class="form-field">
-                        <label>Tax Number</label>
-                        <InputText placeholder="Tax identification number"
-                                   class="inputText"
-                                   @bind-Value="form.TaxNumber"
-                                   disabled="@isLoading" />
-                        <ValidationMessage For="@(() => form.TaxNumber)" />
-                    </div>
-                </div>
+                                <div class="form-field">
+                                    <label>City</label>
+                                    <InputText placeholder="City"
+                                               class="inputText"
+                                               @bind-Value="form.City"
+                                               disabled="@isLoading" />
+                                    <ValidationMessage For="@(() => form.City)" />
+                                </div>
+                            </div>
 
-                <div class="form-row">
-                    <div class="form-field">
-                        <label>Country</label>
-                        <InputText placeholder="Country"
-                                   class="inputText"
-                                   @bind-Value="form.Country"
-                                   disabled="@isLoading" />
-                        <ValidationMessage For="@(() => form.Country)" />
-                    </div>
+                            <div class="form-row">
+                                <div class="form-field">
+                                    <label>Bank Account</label>
+                                    <InputText placeholder="Bank account number"
+                                               class="inputText"
+                                               @bind-Value="form.BankAccount"
+                                               disabled="@isLoading" />
+                                    <ValidationMessage For="@(() => form.BankAccount)" />
+                                </div>
 
-                    <div class="form-field">
-                        <label>City</label>
-                        <InputText placeholder="City"
-                                   class="inputText"
-                                   @bind-Value="form.City"
-                                   disabled="@isLoading" />
-                        <ValidationMessage For="@(() => form.City)" />
-                    </div>
-                </div>
+                                <div class="form-field">
+                                    <label class="checkbox-label">
+                                        <InputCheckbox @bind-Value="form.IsActive" disabled="@isLoading" />
+                                        <span>Active</span>
+                                    </label>
+                                </div>
+                            </div>
 
-                <div class="form-row">
-                    <div class="form-field">
-                        <label>Bank Account</label>
-                        <InputText placeholder="Bank account number"
-                                   class="inputText"
-                                   @bind-Value="form.BankAccount"
-                                   disabled="@isLoading" />
-                        <ValidationMessage For="@(() => form.BankAccount)" />
-                    </div>
-
-                    <div class="form-field">
-                        <label class="checkbox-label">
-                            <InputCheckbox @bind-Value="form.IsActive" disabled="@isLoading" />
-                            <span>Active</span>
-                        </label>
-                    </div>
-                </div>
-
-                <div class="actions-end">
-                    @if (editingId == null)
-                    {
-                        <button type="submit" class="btn primary" disabled="@isLoading">
-                            @(isLoading ? "Creating..." : "Create")
-                        </button>
-                    }
-                    else
-                    {
-                        <button type="submit" class="btn primary" disabled="@isLoading">
-                            @(isLoading ? "Updating..." : "Update")
-                        </button>
-                        <button type="button" class="btn ghost" @onclick="CancelEdit" disabled="@isLoading">
-                            Cancel
-                        </button>
-                    }
+                            <div class="actions-end">
+                                @if (editingId == null)
+                                {
+                                    <button type="submit" class="btn primary" disabled="@isLoading">
+                                        @(isLoading ? "Creating..." : "Create")
+                                    </button>
+                                }
+                                else
+                                {
+                                    <button type="submit" class="btn primary" disabled="@isLoading">
+                                        @(isLoading ? "Updating..." : "Update")
+                                    </button>
+                                    <button type="button" class="btn ghost" @onclick="CancelEdit" disabled="@isLoading">
+                                        Cancel
+                                    </button>
+                                }
+                            </div>
+                        </div>
+                    </EditForm>
                 </div>
             </div>
-        </EditForm>
-    </div>
+        </div>
+    }
+   
 
     <!-- SEARCH -->
     <div class="card">
@@ -147,6 +139,9 @@
                 </button>
                 <button class="btn ghost" @onclick="ClearSearch" disabled="@isLoading">
                     Clear
+                </button>
+                <button class="btn primary" @onclick="AddCustomer">
+                    Add
                 </button>
             </div>
         </div>
@@ -255,6 +250,24 @@
         </div>
     }
 
+
+    <!-- Success Toast -->
+    @if (!string.IsNullOrEmpty(successMessage))
+    {
+        <div class="toast-success">
+            <span class="toast-icon"></span>
+            <span>@successMessage</span>
+        </div>
+    }
+
+    <!-- Error Toast -->
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="toast-error">
+            <span class="toast-icon"></span>
+            <span>@errorMessage</span>
+        </div>
+    }
 </div>
 
 @code {
@@ -265,6 +278,7 @@
     private bool isLoading;
     private bool isLoadingData;
     private bool isSearching;
+    private bool showCustomer;
 
     private string? errorMessage;
     private string? successMessage;
@@ -278,6 +292,16 @@
     int Page = 1;
     int PageSize = 10;
     int TotalCount;
+
+    private void AddCustomer()
+    {
+        showCustomer = true;
+    }
+
+    private void CloseCustomerModal()
+    {
+        showCustomer = false;
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -303,9 +327,9 @@
             items = response.Items?.ToList() ?? new List<SupplierResult>();
             TotalCount = response.TotalCount;
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            errorMessage = $"Failed to load suppliers: {ex.Message}";
+            await ShowError($"Failed to load suppliers.");
             items = new List<SupplierResult>();
         }
         finally
@@ -314,6 +338,39 @@
         }
     }
 
+    async Task ShowSuccess(string message)
+    {
+        successMessage = null;
+
+        StateHasChanged();
+
+        successMessage = message;
+
+        StateHasChanged();
+
+        await Task.Delay(3000).ContinueWith(_ =>
+        {
+            successMessage = null;
+            InvokeAsync(StateHasChanged);
+        });
+    }
+
+    async Task ShowError(string message)
+    {
+        errorMessage = null;
+
+        StateHasChanged();
+
+        errorMessage = message;
+
+        StateHasChanged();
+
+        await Task.Delay(3000).ContinueWith(_ =>
+        {
+            errorMessage = null;
+            InvokeAsync(StateHasChanged);
+        });
+    }
 
     async Task ChangePage(int newPage)
     {
@@ -344,7 +401,7 @@
         }
         catch (Exception ex)
         {
-            errorMessage = $"Search failed: {ex.Message}";
+            await ShowError($"Search failed.");
             items = new List<SupplierResult>();
         }
         finally
@@ -384,7 +441,6 @@
         try
         {
             isLoading = true;
-            ClearMessages();
 
             await Api.Create(new CreateSupplierRequest
             {
@@ -397,7 +453,7 @@
                 BankAccount = form.BankAccount
             });
 
-            successMessage = $"Supplier '{form.Name}' created successfully.";
+            await ShowSuccess($"Supplier '{form.Name}' created successfully.");
             Reset();
 
             // Refresh current view
@@ -412,7 +468,7 @@
         }
         catch (Exception ex)
         {
-            errorMessage = $"Failed to create supplier: {ex.Message}";
+            await ShowError($"Failed to create supplier: {ex.Message}");
         }
         finally
         {
@@ -428,7 +484,6 @@
         try
         {
             isLoading = true;
-            ClearMessages();
 
             await Api.Update(editingId.Value, new UpdateSupplierRequest
             {
@@ -442,7 +497,7 @@
                 IsActive = form.IsActive
             });
 
-            successMessage = $"Supplier '{form.Name}' updated successfully.";
+            await ShowSuccess($"Supplier '{form.Name}' updated successfully.");
             Reset();
 
             // Refresh current view
@@ -479,7 +534,6 @@
             BankAccount = s.BankAccount,
             IsActive = s.IsActive
         };
-        ClearMessages();
     }
 
     private void AskDelete(SupplierResult s)
@@ -497,12 +551,11 @@
         {
             isLoading = true;
             showDelete = false;
-            ClearMessages();
 
             var supplierName = supplierToDelete.Name;
             await Api.Delete(supplierToDelete.Id);
 
-            successMessage = $"Supplier '{supplierName}' deleted successfully.";
+            await ShowSuccess($"Supplier '{supplierName}' deleted successfully.");
             supplierToDelete = null;
 
             // Refresh current view
@@ -517,7 +570,7 @@
         }
         catch (Exception ex)
         {
-            errorMessage = $"Failed to delete supplier: {ex.Message}";
+            await ShowError($"Failed to delete supplier");
         }
         finally
         {
@@ -542,21 +595,6 @@
         form = new SupplierForm();
     }
 
-    private void ClearError()
-    {
-        errorMessage = null;
-    }
-
-    private void ClearSuccess()
-    {
-        successMessage = null;
-    }
-
-    private void ClearMessages()
-    {
-        errorMessage = null;
-        successMessage = null;
-    }
 
     private sealed class SupplierForm
     {

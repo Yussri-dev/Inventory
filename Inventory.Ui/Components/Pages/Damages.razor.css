@@ -56,36 +56,13 @@ h3 {
 
 /* Card Styles */
 .card {
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 16px;
-    padding: 24px;
-    margin-bottom: 24px;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
-    transition: box-shadow 0.3s;
+    background: white;
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    margin-bottom: 10px;
+    box-sizing: border-box;
 }
-
-    .card:hover {
-        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
-    }
-
-    .card h4 {
-        margin: 0 0 20px 0;
-        color: var(--text);
-        font-weight: 600;
-        font-size: 20px;
-        display: flex;
-        align-items: center;
-        gap: 10px;
-    }
-
-        .card h4::before {
-            content: "";
-            width: 4px;
-            height: 24px;
-            background: linear-gradient(180deg, var(--primary), #6366f1);
-            border-radius: 2px;
-        }
 
 
 /* ===============================
@@ -239,68 +216,41 @@ textarea {
 .table {
     width: 100%;
     border-collapse: collapse;
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    overflow: hidden;
 }
 
-    .table thead {
-        background: rgba(79, 70, 229, 0.1);
-    }
-
-    .table th {
-        padding: 12px 16px;
+    .table thead th {
+        background: #f5f5f5;
+        padding: 12px;
         text-align: left;
         font-weight: 600;
-        color: var(--text);
-        border-bottom: 1px solid var(--border);
-        font-size: 13px;
+        border-bottom: 2px solid #e0e0e0;
+        position: sticky;
+        top: 0;
+        z-index: 1;
     }
-
-    .table td {
-        padding: 12px 16px;
-        color: var(--text);
-        border-bottom: 1px solid var(--border);
-        font-size: 14px;
-    }
-
-        .table td code {
-            background: var(--bg);
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 13px;
-            color: var(--primary);
-        }
-
-    .table tbody tr:last-child td {
-        border-bottom: none;
-    }
-
-    .table tbody tr:hover {
-        background: rgba(255, 255, 255, 0.02);
-    }
-
 
     .table tbody tr {
-        background: rgba(17,24,39,.65);
+        border-bottom: 1px solid #f0f0f0;
+        cursor: pointer;
+        transition: background 0.2s;
     }
 
-        .table tbody tr:hover {
-            background: rgba(79,70,229,.12);
+        .table tbody tr:nth-child(even) {
+            background: #fafafa;
         }
 
-    /* Product column */
-    .table td:nth-child(2) {
-        font-weight: 700;
-        color: #ffffff;
-    }
+        .table tbody tr:hover {
+            background: #f0f0f0;
+        }
 
-    /* Approved column */
-    .table td:nth-child(5) {
-        text-align: center;
-        font-size: 16px;
-        color: var(--success);
+        .table tbody tr.selected {
+            background: #e3f2fd !important;
+        }
+
+    .table td {
+        padding: 12px;
+        vertical-align: middle;
+        box-sizing: border-box;
     }
 
 /* ===============================

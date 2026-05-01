@@ -1,27 +1,11 @@
 ﻿@page "/purchases"
 
-@using Inventory.Dto.Enums
-@using Inventory.Dto.Products.Results
-@using Inventory.Dto.ProductCatalogs.Results
-@using Inventory.Dto.Purchases.Requests
-@using Inventory.Dto.PurchaseLines.Requests
-@using Inventory.Dto.Stock.Results
-@using Inventory.Dto.Suppliers.Results
-@using Inventory.Dto.Queries
-@using Inventory.Ui.State
-@using Microsoft.Extensions.Logging
-
 @inject IJSRuntime JS
 @inject IPosApi PosApi
 @inject AppState State
-
-@* @inject IProductApi ProductApi *@
-@* @inject IProductCatalogApi CatalogApi *@
 @inject IPurchaseApi PurchaseApi
-@* @inject ISupplierApi SupplierApi *@
-
 @inject ILogger<Purchases> Logger
-@inject NavigationManager Navigation
+@inject NavigationManager Nav
 @inject ICashSessionApi CashSessionApi
 
 @if (!string.IsNullOrEmpty(UiAlertMessage))
@@ -265,66 +249,7 @@
     </div>
 </div>
 
-<!-- Supplier Selection Modal -->
-@* @if (ShowSupplierModal)
-{
-    <div class="modal-overlay" @onclick="CloseSupplierModal">
-        <div class="modal-content" @onclick:stopPropagation="true">
-            <div class="modal-header">
-                <h3>Select Supplier</h3>
-                <button class="modal-close" @onclick="CloseSupplierModal">×</button>
-            </div>
 
-            <div class="modal-body">
-                <div class="search-box">
-                    <input type="text"
-                           class="search-input"
-                           placeholder="Search suppliers..."
-                           @bind="SupplierSearchText"
-                           @bind:event="oninput"
-                           autofocus />
-                    <span class="search-icon">🔍</span>
-                </div>
-
-                <ul class="supplier-list">
-                    @if (FilteredSuppliers.Count == 0)
-                    {
-                        <li class="empty-state">No suppliers found</li>
-                    }
-                    else
-                    {
-                        @foreach (var supplier in FilteredSuppliers)
-                        {
-                            <li class="supplier-item @(TempSelectedSupplier?.Id == supplier.Id ? "selected" : "")"
-                                @onclick="() => TempSelectedSupplier = supplier">
-                                <strong>@supplier.Name</strong>
-                                @if (!string.IsNullOrEmpty(supplier.Phone))
-                                {
-                                    <span class="muted">📞 @supplier.Phone</span>
-                                }
-                                @if (!string.IsNullOrEmpty(supplier.Email))
-                                {
-                                    <span class="muted">✉ @supplier.Email</span>
-                                }
-                            </li>
-                        }
-                    }
-                </ul>
-            </div>
-
-            <div class="modal-footer">
-                <button class="btn btn-secondary" @onclick="CloseSupplierModal">Cancel</button>
-                <button class="btn btn-primary"
-                        @onclick="ConfirmSupplierSelection"
-                        disabled="@(TempSelectedSupplier == null)">
-                    OK
-                </button>
-            </div>
-        </div>
-    </div>
-}
-
- *@
 @if (ShowSupplierModal)
 {
     <div class="modal-overlay" @onclick="CloseSupplierModal">
@@ -380,6 +305,24 @@
         </div>
     </div>
 }
+
+
+@if (!string.IsNullOrEmpty(successMessage))
+{
+    <div class="toast-success">
+        <span class="toast-icon"></span>
+        <span>@successMessage</span>
+    </div>
+}
+
+@if (!string.IsNullOrEmpty(errorMessage))
+{
+    <div class="toast-error">
+        <span class="toast-icon"></span>
+        <span>@errorMessage</span>
+    </div>
+}
+
 @code {
     // STATE
     List<CartLine> Lines = new();
@@ -406,9 +349,45 @@
     bool IsLoadingProducts;
     bool ShowSupplierModal;
 
+    private string? successMessage;
+    private string? errorMessage;
+
     string? UiAlertMessage;
     string UiAlertType = "info";
     string lastSearch = "";
+
+    void ShowError(string message)
+    {
+        errorMessage = null;
+        StateHasChanged();
+
+        errorMessage = message;
+
+        StateHasChanged();
+
+        _ = Task.Delay(3000).ContinueWith(_ =>
+        {
+            errorMessage = null;
+            InvokeAsync(StateHasChanged);
+        });
+    }
+
+    void ShowSuccess(string message)
+    {
+        successMessage = null;
+        StateHasChanged();
+
+        successMessage = message;
+
+        StateHasChanged();
+
+        _ = Task.Delay(3000).ContinueWith(_ =>
+        {
+            successMessage = null;
+            InvokeAsync(StateHasChanged);
+        });
+    }
+
 
     void UpdateFilter()
     {
@@ -449,19 +428,6 @@
     decimal TotalAmount => Lines.Sum(l => l.Amount);
     decimal TotalTax => Lines.Sum(l => l.TaxAmount);
 
-    // List<ProductResult> FilteredProducts =>
-    //     string.IsNullOrWhiteSpace(SearchText)
-    //         ? Products
-    //         : Products.Where(p =>
-    //         {
-    //             var catalog = GetCatalogProduct(p.CatalogProductId);
-    //             var name = p.CatalogName ?? catalog?.Name ?? "";
-    //             var barcode = p.CatalogBarcode ?? catalog?.Barcode ?? "";
-
-    //             return name.Contains(SearchText, StringComparison.OrdinalIgnoreCase) ||
-    //                    barcode.Contains(SearchText, StringComparison.OrdinalIgnoreCase);
-    //         }).ToList();
-
     List<SupplierResult> FilteredSuppliers =>
         string.IsNullOrWhiteSpace(SupplierSearchText)
             ? Suppliers
@@ -477,56 +443,26 @@
         await LoadInitialData();
     }
 
-    /*
     async Task LoadInitialData()
     {
-        IsLoadingProducts = true;
-
-        try
+        if (!State.IsCashSessionLoaded)
         {
-            // Load catalog products
             try
             {
-                CatalogProducts = await CatalogApi.GetAll();
-                }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Catalog API failed: {ex.Message}");
-                }
-
-            // Load suppliers
-            try
-            {
-                Suppliers = await SupplierApi.GetAll();
-                }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Supplier API failed: {ex.Message}");
-                }
-
-            // Load products
-            try
-            {
-                Products = await ProductApi.GetAll();
-                }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Product API failed: {ex.Message}");
-                }
-
-            await FocusBarcodeInput();
+                State.ActiveCashSession = await CashSessionApi.GetActive();
+                State.IsCashSessionLoaded = true;
             }
-        finally
-        {
-            IsLoadingProducts = false;
-            StateHasChanged();
+            catch
+            {
+                // await JS.InvokeVoidAsync("alert", "No active cash session.\n\nPlease open one.");
+                ShowError($"No active cash session.");
+
+                Nav.NavigateTo("/cashsessions");
+                return;
             }
         }
-    */
 
-    async Task LoadInitialData()
-    {
-        if (!State.IsCacheStale)
+        if (!State.IsCacheStale && State.IsFullyLoaded)
         {
             Products = State.Products!;
             Suppliers = State.Suppliers!;
@@ -565,6 +501,7 @@
         filteredProductsCache = Products;
         IsLoadingProducts = false;
     }
+
     ProductCatalogResult? GetCatalogProduct(Guid catalogProductId)
     {
         return CatalogProducts.FirstOrDefault(c => c.Id == catalogProductId);
@@ -598,10 +535,6 @@
 
     async Task OnBarcodeScanned(string code)
     {
-        // var product = Products.FirstOrDefault(p =>
-        //     p.CatalogBarcode == code ||
-        //     p.CatalogBarcode?.Contains(code) == true);
-
         var product = BarcodeMap.GetValueOrDefault(code);
 
         if (product == null)
@@ -626,72 +559,19 @@
             BarcodeInput = "";
 
             await OnBarcodeScanned(code);
+
+            await FocusBarcodeInput(); 
         }
     }
 
-    // async Task OnBarcodeKeyDown(KeyboardEventArgs e)
-    // {
-    //     if (e.Key == "Enter" && !string.IsNullOrWhiteSpace(BarcodeInput))
-    //     {
-    //         var code = BarcodeInput.Trim();
-    //         BarcodeInput = "";
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await JS.InvokeVoidAsync("forceFocus", barcodeInputRef);
+        }
+    }
 
-    //         // Search in ProductResult denormalized fields
-    //         var product = Products.FirstOrDefault(p =>
-    //             p.CatalogBarcode == code ||
-    //             (p.CatalogBarcode?.Contains(code) ?? false));
-
-    //         // If not found in denormalized fields, search in catalog
-    //         if (product == null)
-    //         {
-    //             var catalog = CatalogProducts.FirstOrDefault(c =>
-    //                 c.Barcode == code ||
-    //                 (c.Barcode?.Contains(code) ?? false));
-
-    //             if (catalog != null)
-    //             {
-    //                 product = Products.FirstOrDefault(p => p.CatalogProductId == catalog.Id);
-    //             }
-    //         }
-
-    //         if (product != null)
-    //         {
-    //             AddProduct(product, GetQuantityFromNumpad());
-    //             await FocusBarcodeInput();
-    //             NumpadValue = "";
-    //             return;
-    //         }
-
-    //         await SearchAndAddByBarcode(code);
-    //     }
-    // }
-
-    // async Task SearchAndAddByBarcode(string searchTerm)
-    // {
-    //     try
-    //     {
-    //         var result = await ProductApi.Search(new ProductQuery
-    //         {
-    //             Search = searchTerm,
-    //             PageSize = 10
-    //         });
-
-    //         var product = result.Items.FirstOrDefault();
-
-    //         if (product != null)
-    //         {
-    //             AddProduct(product, 1);
-    //         }
-
-    //         await FocusBarcodeInput();
-    //     }
-    //     catch (Exception ex)
-    //     {
-    //         Console.WriteLine($"Search error: {ex.Message}");
-    //     }
-    // }
-
-    // NUMPAD
     void PressKey(string key) => NumpadValue += key;
 
     void ClearNumpad()
@@ -859,10 +739,13 @@
                 }).ToList()
             };
 
-            var purchasedLines = Lines.ToList(); // snapshot avant reset
+            var purchasedLines = Lines.ToList();
             await PurchaseApi.CreateComplete(request);
 
-            AddStockLocally(purchasedLines); // mise à jour locale immédiate
+            AddStockLocally(purchasedLines);
+
+            ShowSuccess("Purchase added Successfully !");
+
             Reset();
         }
         finally
@@ -875,7 +758,7 @@
     // NAVIGATION
     void NavigateToDashboard()
     {
-        Navigation.NavigateTo("/");
+        Nav.NavigateTo("/");
     }
 
     async Task FocusBarcodeInput()
@@ -889,15 +772,6 @@
         {
             Console.WriteLine($"Focus error: {ex.Message}");
         }
-    }
-
-    // MODELS
-    enum AdjustmentType
-    {
-        PriceOverride,
-        DiscountPercent,
-        DiscountAmount,
-        Fee
     }
 
     class CartAdjustment

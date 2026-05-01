@@ -1,116 +1,109 @@
 ﻿@page "/customers"
 @using Inventory.Dto.Customers.Requests
 @using Inventory.Dto.Customers.Results
-
 @inject ICustomerApi Api
+@inject NavigationManager Nav
+@inject ICashSessionApi CashSessionApi
+@inject AppState State
 
 <h3>Customers</h3>
 
 <div class="page-container">
 
-    @if (!string.IsNullOrEmpty(errorMessage))
+    @if (ShowCustomer)
     {
-        <div class="alert error">
-            <span>@errorMessage</span>
-            <button @onclick="ClearError">×</button>
-        </div>
-    }
+        <div class="customer-modal-overlay" @onclick="CloseCustomerModal">
+            <div class="customer-modal" @onclick:stopPropagation="true">
+                <!-- CREATE / EDIT -->
+                <div class="card">
+                    <h4>@(editingId == null ? "Create customer" : "Edit customer")</h4>
 
-    @if (!string.IsNullOrEmpty(successMessage))
-    {
-        <div class="alert success">
-            <span>@successMessage</span>
-            <button @onclick="ClearSuccess">×</button>
-        </div>
-    }
+                    <EditForm Model="form" OnValidSubmit="HandleSubmit">
+                        <DataAnnotationsValidator />
 
-    <!-- CREATE / EDIT -->
-    <div class="card">
-        <h4>@(editingId == null ? "Create customer" : "Edit customer")</h4>
+                        <div class="form-grid">
+                            <div class="form-row">
+                                <div class="form-field">
+                                    <label>Name *</label>
+                                    <InputText @bind-Value="form.Name"
+                                               class="inputText"
+                                               disabled="@isLoading" />
+                                    <ValidationMessage For="@(() => form.Name)" />
+                                </div>
 
-        <EditForm Model="form" OnValidSubmit="HandleSubmit">
-            <DataAnnotationsValidator />
+                                <div class="form-field">
+                                    <label>Email</label>
+                                    <InputText type="email" @bind-Value="form.Email"
+                                               class="inputText"
+                                               disabled="@isLoading" />
+                                </div>
+                            </div>
 
-            <div class="form-grid">
-                <div class="form-row">
-                    <div class="form-field">
-                        <label>Name *</label>
-                        <InputText @bind-Value="form.Name"
-                                   class="inputText"
-                                   disabled="@isLoading" />
-                        <ValidationMessage For="@(() => form.Name)" />
-                    </div>
+                            <div class="form-row">
+                                <div class="form-field">
+                                    <label>Phone</label>
+                                    <InputText @bind-Value="form.Phone"
+                                               class="inputText"
+                                               disabled="@isLoading" />
+                                </div>
 
-                    <div class="form-field">
-                        <label>Email</label>
-                        <InputText type="email" @bind-Value="form.Email"
-                                   class="inputText"
-                                   disabled="@isLoading" />
-                    </div>
+                                <div class="form-field">
+                                    <label>Tax Number</label>
+                                    <InputText @bind-Value="form.TaxNumber"
+                                               class="inputText"
+                                               disabled="@isLoading" />
+                                </div>
+                            </div>
+
+                            <div class="form-row">
+                                <div class="form-field">
+                                    <label>Address</label>
+                                    <InputText @bind-Value="form.Address"
+                                               class="inputText"
+                                               disabled="@isLoading" />
+                                </div>
+
+                                <div class="form-field">
+                                    <label>Credit Limit</label>
+                                    <InputNumber @bind-Value="form.CreditLimit"
+                                                 class="inputText"
+                                                 disabled="@isLoading" />
+                                </div>
+                            </div>
+
+                            <div class="form-row">
+                                <div class="form-field">
+                                    <label>Notes</label>
+                                    <InputTextArea @bind-Value="form.Notes"
+                                                   class="inputText"
+                                                   disabled="@isLoading" />
+                                </div>
+
+                                <div class="form-field">
+                                    <label class="checkbox-label">
+                                        <InputCheckbox @bind-Value="form.IsActive" />
+                                        <span>Active</span>
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div class="actions-end">
+                                <button class="btn primary" type="submit" disabled="@isLoading">
+                                    @(editingId == null ? "Create" : "Update")
+                                </button>
+
+                                @if (editingId != null)
+                                {
+                                    <button class="btn ghost" type="button" @onclick="CancelEdit">Cancel</button>
+                                }
+                            </div>
+                        </div>
+                    </EditForm>
                 </div>
 
-                <div class="form-row">
-                    <div class="form-field">
-                        <label>Phone</label>
-                        <InputText @bind-Value="form.Phone"
-                                   class="inputText"
-                                   disabled="@isLoading" />
-                    </div>
-
-                    <div class="form-field">
-                        <label>Tax Number</label>
-                        <InputText @bind-Value="form.TaxNumber"
-                                   class="inputText"
-                                   disabled="@isLoading" />
-                    </div>
-                </div>
-
-                <div class="form-row">
-                    <div class="form-field">
-                        <label>Address</label>
-                        <InputText @bind-Value="form.Address" 
-                        class="inputText"
-                        disabled="@isLoading" />
-                    </div>
-
-                    <div class="form-field">
-                        <label>Credit Limit</label>
-                        <InputNumber @bind-Value="form.CreditLimit" 
-                        class="inputText"
-                        disabled="@isLoading" />
-                    </div>
-                </div>
-
-                <div class="form-row">
-                    <div class="form-field">
-                        <label>Notes</label>
-                        <InputTextArea @bind-Value="form.Notes" 
-                        class="inputText"
-                        disabled="@isLoading" />
-                    </div>
-
-                    <div class="form-field">
-                        <label class="checkbox-label">
-                            <InputCheckbox @bind-Value="form.IsActive" />
-                            <span>Active</span>
-                        </label>
-                    </div>
-                </div>
-
-                <div class="actions-end">
-                    <button class="btn primary" type="submit" disabled="@isLoading">
-                        @(editingId == null ? "Create" : "Update")
-                    </button>
-
-                    @if (editingId != null)
-                    {
-                        <button class="btn ghost" type="button" @onclick="CancelEdit">Cancel</button>
-                    }
-                </div>
             </div>
-        </EditForm>
-    </div>
-
+        </div>
+    }
     <!-- SEARCH -->
     <div class="card">
         <h4>Search Customers</h4>
@@ -125,6 +118,7 @@
             <div class="search-actions">
                 <button class="btn primary" @onclick="Search">Search</button>
                 <button class="btn ghost" @onclick="ClearSearch">Clear</button>
+                <button class="btn danger" @onclick="AddCustomer">Add</button>
             </div>
         </div>
     </div>
@@ -212,6 +206,24 @@
     }
 
 
+
+    <!-- Success Toast -->
+    @if (!string.IsNullOrEmpty(successMessage))
+    {
+        <div class="toast-success">
+            <span class="toast-icon"></span>
+            <span>@successMessage</span>
+        </div>
+    }
+
+    @* Error Toast *@
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="toast-error">
+            <span class="toast-icon"></span>
+            <span>@errorMessage</span>
+        </div>
+    }
 </div>
 
 @code {
@@ -223,6 +235,7 @@
     private bool isLoadingData;
     private bool isSearching;
     private bool showDelete;
+    private bool ShowCustomer;
 
     private string? errorMessage;
     private string? successMessage;
@@ -257,10 +270,66 @@
         Page = newPage;
         await LoadData();
     }
+    private void AddCustomer()
+    {
+        ShowCustomer = true;
+    }
+
+    private void CloseCustomerModal()
+    {
+        ShowCustomer = false;
+    }
+
+    private async Task ShowError(string message)
+    {
+        errorMessage = null;
+        StateHasChanged();
+
+        errorMessage = message;
+        StateHasChanged();
+
+        await Task.Delay(3000).ContinueWith(_ =>
+        {
+            errorMessage = null;
+            InvokeAsync(StateHasChanged);
+        });
+    }
+
+    private async Task ShowSuccess(string message)
+    {
+        successMessage = null;
+        StateHasChanged();
+
+        successMessage = message;
+        StateHasChanged();
+
+        await Task.Delay(3000).ContinueWith(_ =>
+        {
+            successMessage = null;
+            InvokeAsync(StateHasChanged);
+        });
+    }
+
     private async Task LoadData()
     {
         try
         {
+            if (!State.IsCashSessionLoaded)
+            {
+                try
+                {
+                    State.ActiveCashSession = await CashSessionApi.GetActive();
+                    State.IsCashSessionLoaded = true;
+                }
+                catch
+                {
+                    // await JS.InvokeVoidAsync("alert", "No active cash session.\n\nPlease open one.");
+                    await ShowError($"No active cash session.");
+
+                    Nav.NavigateTo("/cashsessions");
+                    return;
+                }
+            }
             isLoadingData = true;
             errorMessage = null;
 

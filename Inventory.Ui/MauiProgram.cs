@@ -6,6 +6,7 @@ using Inventory.Ui.Services;
 using Inventory.Ui.State;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.Extensions.Logging;
+using MudBlazor.Services;
 using Refit;
 #if WINDOWS
 using Inventory.Ui.Platforms.Windows.Printing;
@@ -59,6 +60,7 @@ public static class MauiProgram
         // STATES
         // =========================
         builder.Services.AddSingleton<AppState>();
+        builder.Services.AddSingleton<PosState>();
 
         // =========================
         // SECURED APIs (JWT + REFRESH)
@@ -68,6 +70,7 @@ public static class MauiProgram
 
         builder.Services.AddSecuredApi<IProductApi>(apiBaseUrl);
         builder.Services.AddSecuredApi<IProductCatalogApi>(apiBaseUrl);
+        builder.Services.AddSecuredApi<IProductCategoryApi>(apiBaseUrl);
 
         builder.Services.AddSecuredApi<ISupplierApi>(apiBaseUrl);
         builder.Services.AddSecuredApi<ICustomerApi>(apiBaseUrl);
@@ -92,7 +95,7 @@ public static class MauiProgram
         builder.Services.AddSecuredApi<IPosApi>(apiBaseUrl);
 
         builder.Services.AddSecuredApi<ILoyaltyCardsApi>(apiBaseUrl);
-
+        builder.Services.AddMudServices();
         //builder.Services.AddBlazoredLocalStorage();
 
         //#if WINDOWS

@@ -4,6 +4,7 @@ using Inventory.Dto.Customers.Results;
 using Inventory.Dto.GlobalRequests.Results;
 using Inventory.Dto.PackComponent.Results;
 using Inventory.Dto.ProductCatalogs.Results;
+using Inventory.Dto.ProductCategory.Results;
 using Inventory.Dto.Products.Results;
 using Inventory.Dto.Stock.Results;
 using Inventory.Dto.Suppliers.Results;
@@ -20,6 +21,7 @@ namespace Inventory.Services.Features.Pos.Bootstrap
     {
         private readonly IRepository<Product> _products;
         private readonly IRepository<ProductCatalog> _productCatalogs;
+        private readonly IRepository<Domain.Entities.ProductCategory> _productCategory;
         private readonly IRepository<Stock> _stocks;
         private readonly IRepository<Customer> _customers;
         private readonly IRepository<Supplier> _suppliers;
@@ -33,12 +35,14 @@ namespace Inventory.Services.Features.Pos.Bootstrap
             IRepository<Stock> stocks,
             IRepository<Customer> customers,
             IRepository<Supplier> suppliers,
+            IRepository<Domain.Entities.ProductCategory> productCategory,
             ITenantContext tenant,
             IMapper mapper,
             ICashSessionService cashSession)
         {
             _products = products;
             _productCatalogs = productCatalog;
+            _productCategory = productCategory;
             _stocks = stocks;
             _customers = customers;
             _suppliers = suppliers;
@@ -63,6 +67,12 @@ namespace Inventory.Services.Features.Pos.Bootstrap
 
             // ── Charger les produits ─────────────────────────────────────────
             var products = await _products
+                .Query()
+                .Where(p => !p.IsDeleted && p.TenantId == tenantId)
+                .ToListAsync(ct);
+
+            // ── Charger les produits categorie ─────────────────────────────────────────
+            var productCategories = await _productCategory
                 .Query()
                 .Where(p => !p.IsDeleted && p.TenantId == tenantId)
                 .ToListAsync(ct);
@@ -154,6 +164,7 @@ namespace Inventory.Services.Features.Pos.Bootstrap
                 Stocks = _mapper.Map<List<StockResult>>(stocks),
                 Customers = _mapper.Map<List<CustomerResult>>(customers),
                 Suppliers = _mapper.Map<List<SupplierResult>>(suppliers),
+                ProductCategories = _mapper.Map<List<ProductCategoryResult>>(productCategories),
                 ActiveCashSession = activeSession,
                 Config = new PosConfigResult
                 {

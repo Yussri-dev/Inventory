@@ -16,5 +16,7 @@ namespace Inventory.Dto.CashMovements.Requests
 
         public string? Reason { get; set; }
         public Guid? SaleId { get; set; }
+        public Guid? ReferenceId { get; set; }
+        public string? ReferenceType { get; set; }
     }
 }

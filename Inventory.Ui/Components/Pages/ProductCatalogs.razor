@@ -1,180 +1,214 @@
 ﻿@page "/productCatalogs"
 @inject IProductCatalogApi Api
+@inject IProductCategoryApi CategoryApi
 @using Inventory.Dto.Enums
 @using Inventory.Dto.PackComponent.Requests
 @using Inventory.Dto.ProductCatalogs.Results
 @using Inventory.Dto.ProductCatalogs.Requests
+@using Inventory.Dto.ProductCategory.Results
 @using Inventory.Ui.State
 @inject AppState State
 
 <h3>Product Catalogs</h3>
 <div class="page-container">
 
-    @if (!string.IsNullOrEmpty(errorMessage))
+    @if (showProduct)
     {
-        <div class="alert error">
-            <span>@errorMessage</span>
-            <button @onclick="ClearError">×</button>
-        </div>
-    }
+        <div class="product-modal-overlay" @onclick="CloseProductModel">
+            <div class="product-modal" @onclick:stopPropagation="true">
+                <div class="card">
+                    <h4>@(editingId == null ? "Create product" : "Edit product")</h4>
+                    <EditForm Model="form" OnValidSubmit="HandleSubmit">
+                        <DataAnnotationsValidator />
+                        <div class="form-grid">
 
-    @if (!string.IsNullOrEmpty(successMessage))
-    {
-        <div class="alert success">
-            <span>@successMessage</span>
-            <button @onclick="ClearSuccess">×</button>
-        </div>
-    }
+                            <!-- BASE FIELDS -->
+                            <div class="form-row">
+                                <div class="form-field">
+                                    <label>Name *</label>
+                                    <InputText placeholder="Product name"
+                                               class="inputText"
+                                               @bind-Value="form.Name"
+                                               disabled="@isLoading" />
+                                    <ValidationMessage For="@(() => form.Name)" />
+                                </div>
 
-    <div class="card">
-        <h4>@(editingId == null ? "Create product" : "Edit product")</h4>
-        <EditForm Model="form" OnValidSubmit="HandleSubmit">
-            <DataAnnotationsValidator />
-            <div class="form-grid">
+                                <div class="form-field">
+                                    <label>Unit of Measure</label>
+                                    <InputSelect @bind-Value="form.UnitOfMeasure"
+                                                 class="inputText"
+                                                 disabled="@isLoading">
+                                        <option value="pcs">Pieces</option>
+                                        <option value="kg">Kilogram</option>
+                                        <option value="g">Gram</option>
+                                        <option value="l">Litre</option>
+                                    </InputSelect>
 
-                <!-- BASE FIELDS -->
-                <div class="form-row">
-                    <div class="form-field">
-                        <label>Name *</label>
-                        <InputText placeholder="Product name"
-                                   class="inputText"
-                                   @bind-Value="form.Name"
-                                   disabled="@isLoading" />
-                        <ValidationMessage For="@(() => form.Name)" />
-                    </div>
-                    <div class="form-field">
-                        <label>Barcode *</label>
-                        <InputText placeholder="Barcode"
-                                   class="inputText"
-                                   @bind-Value="form.Barcode"
-                                   disabled="@isLoading" />
-                        <ValidationMessage For="@(() => form.Barcode)" />
-                    </div>
-                </div>
+                                    <ValidationMessage For="@(() => form.UnitOfMeasure)" />
 
-                <div class="form-row">
-                    <div class="form-field">
-                        <label>Brand</label>
-                        <InputText placeholder="Brand (optional)"
-                                   class="inputText"
-                                   @bind-Value="form.Brand"
-                                   disabled="@isLoading" />
-                        <ValidationMessage For="@(() => form.Brand)" />
-                    </div>
-                    <div class="form-field">
-                        <label>Manufacturer</label>
+                                    @if (form.SellingMode == SellingMode.Weight && form.UnitOfMeasure == "pcs")
+                                    {
+                                        <small style="color:red;">
+                                            Weight products must use kg, g or l
+                                        </small>
+                                    }
+                                </div>
+
+                            </div>
+
+                            <div class="form-row">
+                                <div class="form-field">
+                                    <label>Brand</label>
+                                    <InputText placeholder="Brand (optional)"
+                                               class="inputText"
+                                               @bind-Value="form.Brand"
+                                               disabled="@isLoading" />
+                                    <ValidationMessage For="@(() => form.Brand)" />
+                                </div>
+                                <div class="form-field">
+                                    <label>Selling Mode</label>
+                                    <InputSelect @bind-Value="form.SellingMode" class="inputText">
+                                        <option value="Unit">Unit (pcs)</option>
+                                        <option value="Weight">Weight (kg / g / l)</option>
+                                    </InputSelect>
+
+                                    @* <label>Manufacturer</label>
                         <InputText placeholder="Manufacturer (optional)"
                                    class="inputText"
                                    @bind-Value="form.Manufacturer"
                                    disabled="@isLoading" />
-                        <ValidationMessage For="@(() => form.Manufacturer)" />
-                    </div>
-                </div>
-
-                <div class="form-row">
-                    <div class="form-field">
-                        <label>Unit of Measure</label>
-                        <InputSelect @bind-Value="form.UnitOfMeasure"
-                                     class="inputText"
-                                     disabled="@isLoading">
-                            <option value="@UnitOfMeasure.pcs">Pieces</option>
-                            <option value="@UnitOfMeasure.l">Litre</option>
-                            <option value="@UnitOfMeasure.m">Metre</option>
-                        </InputSelect>
-                        <ValidationMessage For="@(() => form.UnitOfMeasure)" />
-                    </div>
-                </div>
-
-                <div class="form-field">
-                    <label>Description</label>
-                    <InputTextArea placeholder="Product description (optional)"
-                                   class="inputText"
-                                   rows="3"
-                                   @bind-Value="form.Description"
-                                   disabled="@isLoading" />
-                    <ValidationMessage For="@(() => form.Description)" />
-                </div>
-
-                <!-- PACK SECTION -->
-                <div class="form-field">
-                    <label>
-                        <InputCheckbox @bind-Value="form.IsPack" disabled="@isLoading" />
-                        This product is a pack
-                    </label>
-                </div>
-
-                @if (form.IsPack)
-                {
-                    <div class="card" style="background: #f8f9fa; padding: 12px;">
-                        <h5>📦 Pack Configuration</h5>
-
-                        <div class="form-row">
-                            <div class="form-field">
-                                <label>Unit product (contained in this pack) *</label>
-                                <InputSelect @bind-Value="form.ComponentCatalogId"
-                                             class="inputText"
-                                             disabled="@isLoading">
-                                    <option value="@Guid.Empty">-- Select unit product --</option>
-                                    @foreach (var cat in UnitCatalogs)
-                                    {
-                                        <option value="@cat.Id">
-                                            @cat.Name
-                                            @if (!string.IsNullOrEmpty(cat.Barcode))
-                                            {
-                                                <text> [@cat.Barcode]</text>
-                                            }
-                                        </option>
-                                    }
-                                </InputSelect>
-                                @if (form.IsPack && form.ComponentCatalogId == Guid.Empty)
-                                {
-                                    <small style="color: red;">Please select the unit product</small>
-                                }
+                        <ValidationMessage For="@(() => form.Manufacturer)" /> *@
+                                </div>
                             </div>
+
+                            <div class="form-row">
+                                <div class="form-field">
+                                    <label>Barcode *</label>
+                                    <InputText placeholder="Barcode"
+                                               class="inputText"
+                                               @bind-Value="form.Barcode"
+                                               disabled="@isLoading" />
+                                    <ValidationMessage For="@(() => form.Barcode)" />
+                                </div>
+
+                                <div class="form-field">
+                                    <label>Internal Code *</label>
+                                    <InputText placeholder="Internal code"
+                                               class="inputText"
+                                               @bind-Value="form.InternalCode"
+                                               disabled="@isLoading" />
+                                    <ValidationMessage For="@(() => form.InternalCode)" />
+                                </div>
+                            </div>
+
+                            <div class="form-row">
+                                <div class="form-field">
+                                    <label>Category</label>
+                                    <InputSelect @bind-Value="form.CategoryId" class="inputText" disabled="@isLoading">
+                                        <option value="@Guid.Empty">-- No category --</option>
+                                        @foreach (var cat in categories)
+                                        {
+                                            <option value="@cat.Id">@cat.Name</option>
+                                        }
+                                    </InputSelect>
+                                </div>
+                            </div>
+
                             <div class="form-field">
-                                <label>Quantity of units in this pack *</label>
-                                <InputNumber @bind-Value="form.PackQuantity"
-                                             class="inputText"
-                                             placeholder="ex: 6"
-                                             disabled="@isLoading" />
-                                @if (form.IsPack && form.PackQuantity <= 0)
+                                <label>Description</label>
+                                <InputTextArea placeholder="Product description (optional)"
+                                               class="inputText"
+                                               rows="3"
+                                               @bind-Value="form.Description"
+                                               disabled="@isLoading" />
+                                <ValidationMessage For="@(() => form.Description)" />
+                            </div>
+
+                            <!-- PACK SECTION -->
+                            <div class="form-field">
+                                <label>
+                                    @* <InputCheckbox @bind-Value="form.IsPack" disabled="@isLoading" /> *@
+                                    <InputCheckbox @bind-Value="form.IsPack"
+                                                   disabled="@(form.SellingMode != SellingMode.Unit)" />
+                                    This product is a pack
+                                </label>
+                            </div>
+
+                            @if (form.IsPack && form.SellingMode == SellingMode.Unit)
+                            {
+                                <div class="card" style="background: #f8f9fa; padding: 12px;">
+                                    <h5>📦 Pack Configuration</h5>
+
+                                    <div class="form-row">
+                                        <div class="form-field">
+                                            <label>Unit product (contained in this pack) *</label>
+                                            <InputSelect @bind-Value="form.ComponentCatalogId"
+                                                         class="inputText"
+                                                         disabled="@isLoading">
+                                                <option value="@Guid.Empty">-- Select unit product --</option>
+                                                @foreach (var cat in UnitCatalogs)
+                                                {
+                                                    <option value="@cat.Id">
+                                                        @cat.Name
+                                                        @if (!string.IsNullOrEmpty(cat.Barcode))
+                                                        {
+                                                            <text> [@cat.Barcode]</text>
+                                                        }
+                                                    </option>
+                                                }
+                                            </InputSelect>
+                                            @if (form.IsPack && form.ComponentCatalogId == Guid.Empty)
+                                            {
+                                                <small style="color: red;">Please select the unit product</small>
+                                            }
+                                        </div>
+                                        <div class="form-field">
+                                            <label>Quantity of units in this pack *</label>
+                                            <InputNumber @bind-Value="form.PackQuantity"
+                                                         class="inputText"
+                                                         placeholder="ex: 6"
+                                                         disabled="@isLoading" />
+                                            @if (form.IsPack && form.PackQuantity <= 0)
+                                            {
+                                                <small style="color: red;">Quantity must be greater than 0</small>
+                                            }
+                                        </div>
+                                    </div>
+
+                                    @if (form.ComponentCatalogId != Guid.Empty && form.PackQuantity > 0)
+                                    {
+                                        var unit = UnitCatalogs.FirstOrDefault(c => c.Id == form.ComponentCatalogId);
+                                        <div style="margin-top: 8px; padding: 8px; background: #e8f5e9; border-radius: 4px; font-size: 13px;">
+                                            ✅ <strong>@form.Name</strong> contains
+                                            <strong>@form.PackQuantity</strong> × <strong>@(unit?.Name ?? "")</strong>
+                                        </div>
+                                    }
+                                </div>
+                            }
+
+                            <div class="actions-end">
+                                @if (editingId == null)
                                 {
-                                    <small style="color: red;">Quantity must be greater than 0</small>
+                                    <button type="submit" class="btn primary" disabled="@isLoading">
+                                        @(isLoading ? "Creating..." : "Create")
+                                    </button>
+                                }
+                                else
+                                {
+                                    <button type="submit" class="btn primary" disabled="@isLoading">
+                                        @(isLoading ? "Updating..." : "Update")
+                                    </button>
+                                    <button type="button" class="btn ghost" @onclick="CancelEdit" disabled="@isLoading">
+                                        Cancel
+                                    </button>
                                 }
                             </div>
                         </div>
-
-                        @if (form.ComponentCatalogId != Guid.Empty && form.PackQuantity > 0)
-                        {
-                            var unit = UnitCatalogs.FirstOrDefault(c => c.Id == form.ComponentCatalogId);
-                            <div style="margin-top: 8px; padding: 8px; background: #e8f5e9; border-radius: 4px; font-size: 13px;">
-                                ✅ <strong>@form.Name</strong> contains
-                                <strong>@form.PackQuantity</strong> × <strong>@(unit?.Name ?? "")</strong>
-                            </div>
-                        }
-                    </div>
-                }
-
-                <div class="actions-end">
-                    @if (editingId == null)
-                    {
-                        <button type="submit" class="btn primary" disabled="@isLoading">
-                            @(isLoading ? "Creating..." : "Create")
-                        </button>
-                    }
-                    else
-                    {
-                        <button type="submit" class="btn primary" disabled="@isLoading">
-                            @(isLoading ? "Updating..." : "Update")
-                        </button>
-                        <button type="button" class="btn ghost" @onclick="CancelEdit" disabled="@isLoading">
-                            Cancel
-                        </button>
-                    }
+                    </EditForm>
                 </div>
             </div>
-        </EditForm>
-    </div>
+        </div>
+    }
 
     <div class="card">
         <h4>Search Products</h4>
@@ -188,6 +222,7 @@
             <div class="search-actions">
                 <button class="btn primary" @onclick="Search" disabled="@isLoading">Search</button>
                 <button class="btn ghost" @onclick="ClearSearch" disabled="@isLoading">Clear</button>
+                <button class="btn btn-warning" @onclick="AddProduct">Add</button>
             </div>
         </div>
     </div>
@@ -220,7 +255,7 @@
         </div>
 
         <div class="results-header">
-            <span>@items.Count product(s) found</span>
+            <span>@items.Count / @TotalCount Product(s) found.</span>
             @if (isSearching)
             {
                 <button class="btn small ghost" @onclick="ClearSearch">Show All</button>
@@ -232,10 +267,12 @@
                 <tr>
                     <th>Name</th>
                     <th>Barcode</th>
+                    <th>Int. Code</th>
                     <th>Brand</th>
-                    <th>Manufacturer</th>
+                    @* <th>Manufacturer</th> *@
                     <th>Unit</th>
                     <th>Pack</th>
+                    <th>Mode</th>
                     <th style="width:160px"></th>
                 </tr>
             </thead>
@@ -259,8 +296,9 @@
                             }
                         </td>
                         <td><code>@p.Barcode</code></td>
+                        <td><code>@p.InternalCode</code></td>
                         <td>@(p.Brand ?? "-")</td>
-                        <td>@(p.Manufacturer ?? "-")</td>
+                        @* <td>@(p.Manufacturer ?? "-")</td> *@
                         <td>@(p.UnitOfMeasure ?? "-")</td>
                         <td>
                             @if (p.IsPack && p.PackComponents.Any())
@@ -274,6 +312,9 @@
                             {
                                 <span class="muted">-</span>
                             }
+                        </td>
+                        <td>
+                            @p.SellingMode
                         </td>
                         <td class="actions-end">
                             <button class="btn small ghost"
@@ -292,26 +333,46 @@
             </tbody>
         </table>
     }
+</div>
 
-    @if (showDeleteConfirm && productToDelete != null)
-    {
-        <div class="modal-overlay" @onclick="CancelDelete">
-            <div class="modal-content" @onclick:stopPropagation="true">
-                <h4>Confirm Delete</h4>
-                <p>Are you sure you want to delete <strong>@productToDelete.Name</strong>?</p>
-                <p class="text-muted">This action cannot be undone.</p>
-                <div class="modal-actions">
-                    <button class="btn ghost" @onclick="CancelDelete">Cancel</button>
-                    <button class="btn danger" @onclick="ConfirmDeleteAction">Delete</button>
-                </div>
+
+@if (showDeleteConfirm && productToDelete != null)
+{
+    <div class="modal-overlay" @onclick="CancelDelete">
+        <div class="modal-content" @onclick:stopPropagation="true">
+            <h4>Confirm Delete</h4>
+            <p>Are you sure you want to delete <strong>@productToDelete.Name</strong>?</p>
+            <p class="text-muted">This action cannot be undone.</p>
+            <div class="modal-actions">
+                <button class="btn ghost" @onclick="CancelDelete">Cancel</button>
+                <button class="btn danger" @onclick="ConfirmDeleteAction">Delete</button>
             </div>
         </div>
-    }
-</div>
+    </div>
+}
+
+
+@if (!string.IsNullOrEmpty(successMessage))
+{
+    <div class="toast-success">
+        <span class="toast-icon"></span>
+        <span>@successMessage</span>
+    </div>
+}
+
+@if (!string.IsNullOrEmpty(errorMessage))
+{
+    <div class="toast-error">
+        <span class="toast-icon"></span>
+        <span>@errorMessage</span>
+    </div>
+}
 
 @code {
     private List<ProductCatalogResult>? items;
     private List<ProductCatalogResult> allCatalogs = new(); // pour le select des unités
+    private List<ProductCategoryResult> categories = new();
+
     private Guid? editingId;
     private ProductCatalogForm form = new();
     private bool isLoading;
@@ -327,6 +388,8 @@
     int PageSize = 10;
     int TotalCount;
 
+
+    bool showProduct;
     // Catalogues unitaires disponibles pour le select pack (exclus les packs eux-mêmes)
     List<ProductCatalogResult> UnitCatalogs =>
         allCatalogs.Where(c => !c.IsPack).ToList();
@@ -335,7 +398,21 @@
     {
         Page = 1;
         await LoadAllCatalogsForSelect();
+        await LoadCategories();
         await LoadData();
+    }
+
+    private async Task LoadCategories()
+    {
+        try
+        {
+            var result = await CategoryApi.GetAll();
+            categories = result?.ToList() ?? new();
+        }
+        catch
+        {
+            categories = new();
+        }
     }
 
     // Charger tous les catalogs pour le select (sans pagination)
@@ -379,7 +456,8 @@
         }
         catch (Exception ex)
         {
-            errorMessage = $"Failed to load products: {ex.Message}";
+            // errorMessage = $"Failed to load products: {ex.Message}";
+            ShowError($"Failed to load products ! ");
             items = new();
         }
         finally
@@ -415,6 +493,16 @@
             await Search();
     }
 
+    private void AddProduct()
+    {
+        showProduct = true;
+    }
+
+    private void CloseProductModel()
+    {
+        showProduct = false;
+    }
+
     private async Task ClearSearch()
     {
         searchTerm = string.Empty;
@@ -425,17 +513,28 @@
 
     private async Task HandleSubmit()
     {
+        if (form.SellingMode == SellingMode.Weight && form.UnitOfMeasure == "pcs")
+        {
+            ShowError("Weight products must use kg, g or l.");
+            return;
+        }
+
+        if (form.SellingMode == SellingMode.Unit && form.UnitOfMeasure != "pcs")
+        {
+            ShowError("Unit products must use pcs.");
+            return;
+        }
         // Validation pack
         if (form.IsPack)
         {
             if (form.ComponentCatalogId == Guid.Empty)
             {
-                errorMessage = "Please select the unit product for this pack.";
+                ShowError("Please select the unit product for this pack.");
                 return;
             }
             if (form.PackQuantity <= 0)
             {
-                errorMessage = "Pack quantity must be greater than 0.";
+                ShowError("Pack quantity must be greater than 0.");
                 return;
             }
         }
@@ -451,18 +550,20 @@
         try
         {
             isLoading = true;
-            ClearMessages();
 
             var request = new CreateProductCatalogRequest
             {
                 Name = form.Name,
                 Barcode = form.Barcode,
+                InternalCode = form.InternalCode,
                 Brand = form.Brand,
                 Manufacturer = form.Manufacturer,
                 Description = form.Description,
                 UnitOfMeasure = form.UnitOfMeasure,
+                CategoryId = form.CategoryId,
                 CreatedAt = DateTime.UtcNow,
                 IsPack = form.IsPack,
+                SellingMode = form.SellingMode,
                 PackComponents = form.IsPack && form.ComponentCatalogId != Guid.Empty
                     ? new List<CreatePackComponentRequest>
                     {
@@ -477,7 +578,8 @@
 
             await Api.Create(request);
             InvalidatePosCache();
-            successMessage = $"Product '{form.Name}' created successfully.";
+            ShowSuccess($"Product €{form.Name}created successfully !");
+
             ResetForm();
 
             if (isSearching) await Search();
@@ -485,7 +587,7 @@
         }
         catch (Exception ex)
         {
-            errorMessage = $"Failed to create product: {ex.Message}";
+            ShowError("Failed to create product");
         }
         finally
         {
@@ -501,18 +603,22 @@
         try
         {
             isLoading = true;
-            ClearMessages();
+            // ClearMessages();
 
             var request = new UpdateProductCatalogRequest
             {
                 Name = form.Name,
                 Barcode = form.Barcode,
+                InternalCode = form.InternalCode,
                 Brand = form.Brand,
                 Manufacturer = form.Manufacturer,
                 Description = form.Description,
                 ModifiedAt = DateTime.UtcNow,
                 UnitOfMeasure = form.UnitOfMeasure,
+                CategoryId = form.CategoryId,
                 IsPack = form.IsPack,
+                SellingMode = form.SellingMode,
+
                 PackComponents = form.IsPack && form.ComponentCatalogId != Guid.Empty
                     ? new List<CreatePackComponentRequest>
                     {
@@ -527,7 +633,7 @@
 
             await Api.Update(editingId.Value, request);
             InvalidatePosCache();
-            successMessage = $"Product '{form.Name}' updated successfully.";
+            ShowSuccess($"Product {form.Name} updated successfully.");
             ResetForm();
 
             if (isSearching) await Search();
@@ -535,7 +641,8 @@
         }
         catch (Exception ex)
         {
-            errorMessage = $"Failed to update product: {ex.Message}";
+            // errorMessage = $"Failed to update product: {ex.Message}";
+            ShowError("Failed to update product");
         }
         finally
         {
@@ -554,6 +661,7 @@
         showDeleteConfirm = true;
     }
 
+
     private void CancelDelete()
     {
         productToDelete = null;
@@ -569,12 +677,12 @@
         {
             isLoading = true;
             showDeleteConfirm = false;
-            ClearMessages();
+            // ClearMessages();
 
             var productName = productToDelete.Name;
             await Api.Delete(productToDelete.Id);
             InvalidatePosCache();
-            successMessage = $"Product '{productName}' deleted successfully.";
+            ShowSuccess($"Product '{productName}' deleted successfully.");
             productToDelete = null;
 
             if (isSearching) await Search();
@@ -582,7 +690,8 @@
         }
         catch (Exception ex)
         {
-            errorMessage = $"Failed to delete product: {ex.Message}";
+            // errorMessage = $"Failed to delete product: {ex.Message}";
+            ShowError($"Failed to delete product !");
         }
         finally
         {
@@ -592,15 +701,18 @@
 
     private void StartEdit(ProductCatalogResult p)
     {
+        showProduct = true;
         editingId = p.Id;
         form.Name = p.Name;
         form.Barcode = p.Barcode;
+        form.InternalCode = p.InternalCode;
         form.Brand = p.Brand;
         form.Manufacturer = p.Manufacturer;
         form.Description = p.Description;
         form.UnitOfMeasure = p.UnitOfMeasure;
+        form.CategoryId = p.CategoryId;
         form.IsPack = p.IsPack;
-
+        form.SellingMode = p.SellingMode;
         // Restaurer le composant si c'est un pack
         if (p.IsPack && p.PackComponents.Any())
         {
@@ -614,7 +726,8 @@
             form.PackQuantity = 0;
         }
 
-        ClearMessages();
+        // ClearMessages();
+
     }
 
     private void CancelEdit() => ResetForm();
@@ -622,12 +735,43 @@
     private void ResetForm()
     {
         editingId = null;
+        showProduct = false;
         form = new ProductCatalogForm();
     }
 
-    private void ClearError() => errorMessage = null;
-    private void ClearSuccess() => successMessage = null;
-    private void ClearMessages() { errorMessage = null; successMessage = null; }
+    // private void ClearMessages() { errorMessage = null; successMessage = null; }
+
+    void ShowError(string message)
+    {
+        errorMessage = null;
+        StateHasChanged();
+
+        errorMessage = message;
+
+        StateHasChanged();
+
+        _ = Task.Delay(3000).ContinueWith(_ =>
+        {
+            errorMessage = null;
+            InvokeAsync(StateHasChanged);
+        });
+    }
+
+    void ShowSuccess(string message)
+    {
+        successMessage = null;
+        StateHasChanged();
+
+        successMessage = message;
+
+        StateHasChanged();
+
+        _ = Task.Delay(3000).ContinueWith(_ =>
+        {
+            successMessage = null;
+            InvokeAsync(StateHasChanged);
+        });
+    }
 
     private sealed class ProductCatalogForm
     {
@@ -645,12 +789,18 @@
         [StringLength(100)]
         public string? Manufacturer { get; set; }
 
+        public SellingMode SellingMode { get; set; }
+
+        public Guid CategoryId { get; set; }
+
         [StringLength(1000)]
         public string? Description { get; set; }
 
         [StringLength(10)]
         public string UnitOfMeasure { get; set; } = "pcs";
-
+        [StringLength(50)]
+        [Required(ErrorMessage = "Internal code is required")]
+        public string InternalCode { get; set; } = string.Empty;
         // Pack fields
         public bool IsPack { get; set; } = false;
         public Guid ComponentCatalogId { get; set; } = Guid.Empty;

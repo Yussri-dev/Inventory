@@ -4,7 +4,6 @@
 @using System.Globalization
 @using Microsoft.Extensions.Logging
 @using System.Net
-@using Dto.Enums
 @using ApexCharts
 @inject NavigationManager Nav
 @inject ILogger<Home> Logger
@@ -52,9 +51,14 @@
                 </div>
             </div>
             <div class="kpi-card">
-                <div class="kpi-label">Margin</div>
-                <div class="kpi-value">@Profit.ProfitMargin.ToString("N2")%</div>
+                <div class="kpi-label">Credit</div>
+                <div class="kpi-value warning">€@Profit.CreditRevenue.ToString("N2")</div>
             </div>
+            <div class="kpi-card">
+                <div class="kpi-label">Margin</div>
+                <div class="kpi-value">@Profit.ProfitMargin.ToString("N2") %</div>
+            </div>
+
         </div>
 
         <!-- CHARTS ROW -->
@@ -107,6 +111,12 @@
                                          SeriesType="SeriesType.Bar"
                                          XValue="b => b.Label"
                                          YValue="b => b.Profit" />
+                        <ApexPointSeries TItem="ChartBar"
+                                         Name="Credit"
+                                         Items="barSeries"
+                                         SeriesType="SeriesType.Bar"
+                                         XValue="b => b.Label"
+                                         YValue="b => b.Credit" />
                     </ApexChart>
                 }
                 else
@@ -182,12 +192,21 @@
 
 @code {
 
+    /// <summary>
+    /// Record
+    /// </summary>
+
+    record CacheEntry<T>(T Data, DateTime ExpiresAt);
+
+
+
     // =========================
     // STATE
     // =========================
-    static Dictionary<string, ProfitAnalyticsResult> ProfitCache = new();
-    static Dictionary<string, List<LossProductResult>> LossCache = new();
-    static Dictionary<string, WeeklyReportResult> WeeklyCache = new();
+    Dictionary<string, CacheEntry<ProfitAnalyticsResult>> ProfitCache = new();
+    Dictionary<string, CacheEntry<List<LossProductResult>>> LossCache = new();
+    Dictionary<string, CacheEntry<WeeklyReportResult>> WeeklyCache = new();
+
 
     ProfitAnalyticsResult Profit = new();
     List<LossProductResult> LossProducts = new();
@@ -198,8 +217,75 @@
     DateOnly To;
     bool IsLoading = true;
 
-    string GetKey() => $"{From}-{To}";
+    string GetKey() => $"{From:yyyyMMdd}-{To:yyyyMMdd}";
     static bool _redirectingToLogin = false;
+
+
+    // =========================
+    // LOAD
+    // =========================
+    bool _isFetching = false;
+
+    async Task LoadAnalytics()
+    {
+        if (_isFetching)
+        {
+            return;
+        }
+        _isFetching = true;
+        IsLoading = true;
+        StateHasChanged();
+
+        var key = GetKey();
+        var now = DateTime.UtcNow;
+
+        if (ProfitCache.TryGetValue(key, out var cachedProfit) && cachedProfit.ExpiresAt > now &&
+            LossCache.TryGetValue(key, out var cachedLoss) && cachedLoss.ExpiresAt > now &&
+            WeeklyCache.TryGetValue(key, out var cachedWeekly) && cachedWeekly.ExpiresAt > now)
+        {
+            Profit = cachedProfit.Data;
+            LossProducts = cachedLoss.Data;
+            Weekly = cachedWeekly.Data;
+            BuildChartData();
+            _isFetching = false;
+            IsLoading = false;
+            StateHasChanged();
+            return;
+        }
+
+        try
+        {
+            var profit = await AnalyticsApi.GetProfitAsync(From, To);
+            var loss = await AnalyticsApi.GetLossProductsAsync(From, To, 10);
+            var referenceDate = From.ToDateTime(TimeOnly.MinValue);
+            var weekly = await AnalyticsApi.GetWeeklyAsync(
+                referenceDate.Year,
+                ISOWeek.GetWeekOfYear(referenceDate)
+            );
+
+            var expiry = now.AddMinutes(2);
+
+            ProfitCache[key] = new(profit, expiry);
+            LossCache[key] = new(loss.Items.ToList(), expiry);
+            WeeklyCache[key] = new(weekly, expiry);
+
+            Profit = profit;
+            LossProducts = LossCache[key].Data;
+            Weekly = weekly;
+
+            BuildChartData();
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            HandleUnauthorized();
+        }
+        finally
+        {
+            _isFetching = false;
+            IsLoading = false;
+            StateHasChanged();
+        }
+    }
 
     // =========================
     // CHART MODELS
@@ -215,6 +301,7 @@
     {
         public string Label { get; set; } = "";
         public decimal Revenue { get; set; }
+        public decimal Credit { get; set; }
         public decimal Cost { get; set; }
         public decimal Profit { get; set; }
     }
@@ -309,11 +396,11 @@
     // PERIOD
     // =========================
 
-    void SelectPeriod(Period period)
+    async Task SelectPeriod(Period period)
     {
         SelectedPeriod = period;
         ComputePeriod();
-        _ = LoadAnalytics();
+        await LoadAnalytics();
     }
 
     void ComputePeriod()
@@ -325,7 +412,8 @@
                 From = To = today;
                 break;
             case Period.Week:
-                From = today.AddDays(-(int)today.DayOfWeek + 1);
+                var diff = (7 + (today.DayOfWeek - DayOfWeek.Monday)) % 7;
+                From = today.AddDays(-diff);
                 To = From.AddDays(6);
                 break;
             case Period.Month:
@@ -339,55 +427,6 @@
         }
     }
 
-    // =========================
-    // LOAD
-    // =========================
-
-    async Task LoadAnalytics()
-    {
-        IsLoading = true;
-        StateHasChanged();
-
-        var key = GetKey();
-
-        if (ProfitCache.ContainsKey(key))
-        {
-            Profit = ProfitCache[key];
-            LossProducts = LossCache[key];
-            Weekly = WeeklyCache[key];
-            BuildChartData();
-            IsLoading = false;
-            StateHasChanged();
-            return;
-        }
-
-        try
-        {
-            var profit = await AnalyticsApi.GetProfitAsync(From, To);
-            var loss = await AnalyticsApi.GetLossProductsAsync(From, To, 10);
-            var now = DateTime.UtcNow;
-            var weekly = await AnalyticsApi.GetWeeklyAsync(now.Year, ISOWeek.GetWeekOfYear(now));
-
-            ProfitCache[key] = profit;
-            LossCache[key] = loss.Items.ToList();
-            WeeklyCache[key] = weekly;
-
-            Profit = profit;
-            LossProducts = LossCache[key];
-            Weekly = weekly;
-
-            BuildChartData();
-        }
-        catch (Refit.ApiException ex) when (ex.StatusCode == HttpStatusCode.Unauthorized)
-        {
-            HandleUnauthorized();
-        }
-        finally
-        {
-            IsLoading = false;
-            StateHasChanged();
-        }
-    }
 
     // =========================
     // CHART DATA
@@ -399,21 +438,26 @@
         donutSeries = new List<ChartSlice>
         {
             new() { Label = "Revenue", Value = Profit.TotalRevenue },
-            new() { Label = "Cost",    Value = Profit.TotalCost    },
+            new() { Label = "Credit", Value = Profit.CreditRevenue },
+            new() { Label = "Cost", Value = Profit.TotalCost },
             new() { Label = "Refunds", Value = Profit.TotalRefunds }
-        }.Where(s => s.Value > 0).ToList();
+        }
+        .Where(x => x.Value > 0)
+        .ToList();
 
         // Bar — single group for selected period
         barSeries = new List<ChartBar>
         {
             new()
             {
-                Label   = SelectedPeriod.ToString(),
+                Label   = $"{From:dd/MM} - {To:dd/MM}",
                 Revenue = Profit.TotalRevenue,
+                Credit  = Profit.CreditRevenue,
                 Cost    = Profit.TotalCost,
                 Profit  = Profit.GrossProfit
             }
         };
+
     }
 
     // =========================

@@ -45,5 +45,6 @@ namespace Inventory.Dto.SaleLines.Requests
 
         [MaxLength(500)]
         public string? Notes { get; set; }
+
     }
 }

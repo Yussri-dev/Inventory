@@ -4,6 +4,7 @@ using Inventory.Domain.Models;
 using Inventory.Infrastructure.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
+using System.Reflection.Emit;
 
 namespace Inventory.Infrastructure.Data
 {
@@ -53,6 +54,9 @@ namespace Inventory.Infrastructure.Data
             builder.Entity<Supplier>().HasIndex(e => e.Email);
             builder.Entity<PackComponent>().HasIndex(e => e.PackCatalaogId);
             builder.Entity<PackComponent>().HasIndex(e => e.ComponentCatalogId);
+            builder.Entity<ProductCatalog>().HasIndex(e => e.Barcode);
+            builder.Entity<ProductCatalog>().HasIndex(e => e.InternalCode);
+            builder.Entity<ProductCategory>().HasIndex(e => e.Name);
 
             // ============================
             // PRODUCT RELATIONSHIPS
@@ -82,6 +86,12 @@ namespace Inventory.Infrastructure.Data
                 .HasOne(p=> p.ComponentCatalog)
                 .WithMany(c => c.UsedInPacks)
                 .HasForeignKey(p => p.ComponentCatalogId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            builder.Entity<ProductCatalog>()
+                .HasOne(p => p.Category)
+                .WithMany(c => c.Products)
+                .HasForeignKey(p => p.CategoryId)
                 .OnDelete(DeleteBehavior.Restrict);
 
             // ============================

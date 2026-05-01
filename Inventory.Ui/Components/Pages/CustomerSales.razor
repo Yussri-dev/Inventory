@@ -5,6 +5,9 @@
 @inject ISaleApi SaleApi
 @inject ICustomerApi CustomerApi
 @inject ILogger<CustomerSales> Logger
+@inject NavigationManager Nav
+@inject ICashSessionApi CashSessionApi
+@inject AppState State
 
 <div class="sale-container">
 
@@ -372,6 +375,22 @@
 
         try
         {
+            if (!State.IsCashSessionLoaded)
+            {
+                try
+                {
+                    State.ActiveCashSession = await CashSessionApi.GetActive();
+                    State.IsCashSessionLoaded = true;
+                }
+                catch
+                {
+                    // await JS.InvokeVoidAsync("alert", "No active cash session.\n\nPlease open one.");
+                    ShowError($"No active cash session.");
+
+                    Nav.NavigateTo("/cashsessions");
+                    return;
+                }
+            }
             isLoadingData = true;
             errorMessage = null;
 
@@ -397,12 +416,28 @@
         }
     }
 
+    void ShowError(string message)
+    {
+        errorMessage = null;
+        StateHasChanged();
+
+        errorMessage = message;
+
+        StateHasChanged();
+
+        _ = Task.Delay(3000).ContinueWith(_ =>
+        {
+            errorMessage = null;
+            InvokeAsync(StateHasChanged);
+        });
+    }
+
     // =========================================================================
     // PAGINATION
     // =========================================================================
     private async Task PreviousPage()
     {
-        if (currentPage > 1) { currentPage--; await LoadSales(); }  
+        if (currentPage > 1) { currentPage--; await LoadSales(); }
     }
 
     private async Task NextPage()

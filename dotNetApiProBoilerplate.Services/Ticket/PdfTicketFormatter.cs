@@ -154,19 +154,19 @@ namespace Inventory.Services.Ticket
 
                         // ================= PAYMENT LOGIC FIX =================
 
-                        var totalPaidByCashOrCard = ticket.Payments
+                        var totalPaidByCashOrCard = Math.Round(ticket.Payments
                             .Where(p => !string.Equals(p.Method, "Credit", StringComparison.OrdinalIgnoreCase))
-                            .Sum(p => p.Amount);
+                            .Sum(p => p.Amount), 2);
 
-                        var creditTotal = ticket.Payments
+                        var creditTotal = Math.Round(ticket.Payments
                             .Where(p => string.Equals(p.Method, "Credit", StringComparison.OrdinalIgnoreCase))
-                            .Sum(p => p.Amount);
+                            .Sum(p => p.Amount), 2);
 
-                        var remaining = ticket.Total - totalPaidByCashOrCard;
+                        var remaining = Math.Round(ticket.Total - totalPaidByCashOrCard, 2);
 
                         bool isFullyPaid = remaining <= 0.01m;
-                        bool isFullCredit = totalPaidByCashOrCard == 0 && remaining > 0;
-                        bool isMixedPayment = totalPaidByCashOrCard > 0 && remaining > 0;
+                        bool isFullCredit = totalPaidByCashOrCard == 0 && remaining > 0.01m;
+                        bool isMixedPayment = totalPaidByCashOrCard > 0 && remaining > 0.01m;
 
                         if (ticket.Payments.Count > 0)
                         {

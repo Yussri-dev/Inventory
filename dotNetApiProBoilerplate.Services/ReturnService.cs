@@ -334,7 +334,8 @@ namespace Inventory.Services
                     Amount = cashRefund,
                     BalanceBefore = balanceBefore,
                     BalanceAfter = balanceAfter,
-                    SaleId = sale.Id,
+                    ReferenceId = entity.Id,
+                    ReferenceType = "Return",
                     Reason = $"Refund {entity.ReturnNumber} (cash part)",
                     MovementDate = DateTime.UtcNow,
                     CreatedAt = DateTime.UtcNow

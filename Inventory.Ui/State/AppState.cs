@@ -1,6 +1,7 @@
 ﻿using Inventory.Dto.CashSessions.Results;
 using Inventory.Dto.Customers.Results;
 using Inventory.Dto.ProductCatalogs.Results;
+using Inventory.Dto.ProductCategory.Results;
 using Inventory.Dto.Products.Results;
 using Inventory.Dto.Stock.Results;
 using Inventory.Dto.Suppliers.Results;
@@ -16,6 +17,7 @@ namespace Inventory.Ui.State
     {
         public List<ProductResult>? Products { get; set; }
         public List<ProductCatalogResult>? ProductsCatalog { get; set; }
+        public List<ProductCategoryResult>? ProductsCategory { get; set; }
 
         public List<CustomerResult>? Customers { get; set; }
         public List<SupplierResult>? Suppliers { get; set; }
@@ -26,6 +28,8 @@ namespace Inventory.Ui.State
 
         public Dictionary<Guid, ProductResult>? ProductMap { get; set; }
         public Dictionary<Guid, ProductCatalogResult>? ProductCatalogMap { get; set; }
+        public Dictionary<Guid, ProductCategoryResult>? ProductCategoryMap { get; set; }
+
         public Dictionary<string, ProductResult>? BarcodeMap { get; set; }
         public Dictionary<string, ProductCatalogResult>? BarcodeCatalogMap { get; set; }
 
@@ -38,10 +42,27 @@ namespace Inventory.Ui.State
         private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(10);
 
         public bool IsCacheStale =>
-            !IsPosLoaded ||
+            !IsFullyLoaded ||
             LastBootstrapAt == null ||
             DateTime.UtcNow - LastBootstrapAt > CacheDuration;
 
+        public bool IsFullyLoaded =>
+            Products != null &&
+            Customers != null &&
+            CustomerMap != null &&
+            Suppliers != null &&
+            SupplierMap != null &&
+            StockMap != null &&
+            ProductMap != null &&
+            ProductsCatalog != null &&
+            ProductCatalogMap != null &&
+            ProductsCategory != null &&
+            ProductCategoryMap != null
+            ;
+
+        public bool IsSuppliersLoaded => Suppliers != null && SupplierMap != null;
+
+        public bool IsCustomersLoaded => Customers != null && CustomerMap != null;
         public void InvalidatePos()
         {
             IsPosLoaded = false;

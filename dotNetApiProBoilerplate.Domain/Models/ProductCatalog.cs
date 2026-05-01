@@ -2,6 +2,7 @@
 using Inventory.Domain.Barcodes;
 using Inventory.Domain.Enums;
 using Inventory.Domain.Models;
+using Inventory.Dto.Enums;
 using System.ComponentModel.DataAnnotations;
 
 namespace Inventory.Domain.Entities
@@ -11,10 +12,12 @@ namespace Inventory.Domain.Entities
         [Key]
         public Guid Id { get; set; }
 
-        [Required, MaxLength(100)]
-        public string Barcode { get; set; } = null!;
+        public string? Barcode { get; set; } = null!;
 
-        public BarcodeType BarcodeType { get; set; }
+        [Required, MaxLength(50)]
+        public string InternalCode { get; set; } = null!;
+
+        public BarcodeType? BarcodeType { get; set; }
 
         [Required, MaxLength(200)]
         public string Name { get; set; } = null!;
@@ -35,6 +38,9 @@ namespace Inventory.Domain.Entities
         public string UnitOfMeasure { get; set; } = "pcs"; // pcs, kg, g, l
 
         public bool IsPack { get; set; } = false;
+
+        public Guid CategoryId { get; set; }
+        public ProductCategory Category { get; set; }
 
         public ICollection<PackComponent> PackComponents { get; set; }
             = new List<PackComponent>();

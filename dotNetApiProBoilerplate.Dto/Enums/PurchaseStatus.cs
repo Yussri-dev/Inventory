@@ -6,6 +6,7 @@
         Ordered,
         PartiallyReceived,
         Received,
-        Cancelled
+        Cancelled,
+        Pending
     }
 }

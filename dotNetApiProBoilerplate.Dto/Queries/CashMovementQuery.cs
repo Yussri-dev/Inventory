@@ -8,7 +8,6 @@ namespace Inventory.Dto.Queries
         public int PageSize { get; init; } = 20;
 
         public Guid? CashSessionId { get; init; }
-        public Guid? SaleId { get; init; }
         public CashMovementType? Type { get; init; }
 
         public DateTime? FromDate { get; init; }
@@ -18,5 +17,7 @@ namespace Inventory.Dto.Queries
 
         public string SortBy { get; init; } = "MovementDate";
         public bool Desc { get; init; } = true;
+        public Guid? ReferenceId { get; set; }
+        public string? ReferenceType { get; set; }
     }
 }

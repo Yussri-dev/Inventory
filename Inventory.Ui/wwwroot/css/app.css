@@ -195,6 +195,46 @@ html, body {
     cursor: pointer;
 }
 
+/* ===========================================
+    Toasts
+   ===========================================*/
+
+.toast-success {
+    position: fixed;
+    bottom: 1rem;
+    right: 1rem;
+    background: #28a745;
+    color: white;
+    padding: 0.875rem 1.25rem;
+    border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.9rem;
+    /*animation: slideInRight 0.3s, slideOutRight 0.3s 2.7s;*/
+    animation: fadeInOut 3s ease forwards;
+    z-index: 3000;
+}
+
+.toast-error {
+    position: fixed;
+    bottom: 1rem;
+    right: 1rem;
+    background: #dc2626;
+    color: white;
+    padding: 0.875rem 1.25rem;
+    border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.9rem;
+    /*animation: slideInRight 0.3s, slideOutRight 0.3s 2.7s;*/
+    animation: fadeInOut 3s ease forwards;
+    z-index: 3000;
+}
+
 @media (min-width: 901px) {
     .menu-btn {
         display: none;
@@ -289,4 +329,25 @@ html, body {
         #receipt div {
             margin: 3px 0;
         }
+}
+
+@keyframes fadeInOut {
+    0% {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+
+    10% {
+        opacity: 1;
+        transform: translateY(0);
+    }
+
+    90% {
+        opacity: 1;
+    }
+
+    100% {
+        opacity: 0;
+        transform: translateY(10px);
+    }
 }

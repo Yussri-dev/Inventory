@@ -13,49 +13,49 @@ namespace Inventory.Services.Mapping
             // CREATE
             // =========================
             CreateMap<CreateProductRequest, Product>()
-    .ForMember(d => d.Id, o => o.Ignore())
+                .ForMember(d => d.Id, o => o.Ignore())
 
-    // Catalog-owned fields (must NOT be set here)
-    .ForMember(d => d.Name, o => o.Ignore())
-    .ForMember(d => d.Sku, o => o.Ignore())
-    .ForMember(d => d.Barcode, o => o.Ignore())
-    .ForMember(d => d.Brand, o => o.Ignore())
-    .ForMember(d => d.Description, o => o.Ignore())
-    .ForMember(d => d.Category, o => o.Ignore())
-    .ForMember(d => d.Unit, o => o.Ignore())
-    .ForMember(d => d.ImageUrl, o => o.Ignore())
+                // Catalog-owned fields (must NOT be set here)
+                .ForMember(d => d.Name, o => o.Ignore())
+                .ForMember(d => d.Sku, o => o.Ignore())
+                .ForMember(d => d.Barcode, o => o.Ignore())
+                .ForMember(d => d.Brand, o => o.Ignore())
+                .ForMember(d => d.Description, o => o.Ignore())
+                .ForMember(d => d.Category, o => o.Ignore())
+                .ForMember(d => d.Unit, o => o.Ignore())
+                .ForMember(d => d.ImageUrl, o => o.Ignore())
 
-    // Navigation / infra
-    .ForMember(d => d.CatalogProduct, o => o.Ignore())
-    .ForMember(d => d.Stock, o => o.Ignore())
-    .ForMember(d => d.StockMovements, o => o.Ignore())
-    .ForMember(d => d.SaleLines, o => o.Ignore())
-    .ForMember(d => d.PurchaseLines, o => o.Ignore())
+                // Navigation / infra
+                .ForMember(d => d.CatalogProduct, o => o.Ignore())
+                .ForMember(d => d.Stock, o => o.Ignore())
+                .ForMember(d => d.StockMovements, o => o.Ignore())
+                .ForMember(d => d.SaleLines, o => o.Ignore())
+                .ForMember(d => d.PurchaseLines, o => o.Ignore())
 
-    // Audit
-    .ForMember(d => d.CreatedAt, o => o.Ignore())
-    .ForMember(d => d.ModifiedAt, o => o.Ignore())
-    .ForMember(d => d.IsDeleted, o => o.Ignore())
-    .ForMember(d => d.DeletedAt, o => o.Ignore())
-    .ForMember(d => d.TenantId, o => o.Ignore())
-    .ForMember(d => d.CreatedByUserId, o => o.Ignore())
-    .ForMember(d => d.ModifiedByUserId, o => o.Ignore())
-    .ForMember(d => d.DeletedByUserId, o => o.Ignore())
+                // Audit
+                .ForMember(d => d.CreatedAt, o => o.Ignore())
+                .ForMember(d => d.ModifiedAt, o => o.Ignore())
+                .ForMember(d => d.IsDeleted, o => o.Ignore())
+                .ForMember(d => d.DeletedAt, o => o.Ignore())
+                .ForMember(d => d.TenantId, o => o.Ignore())
+                .ForMember(d => d.CreatedByUserId, o => o.Ignore())
+                .ForMember(d => d.ModifiedByUserId, o => o.Ignore())
+                .ForMember(d => d.DeletedByUserId, o => o.Ignore())
 
-    // Tenant-owned fields (CORRECT)
-    .ForMember(d => d.CatalogProductId, o => o.MapFrom(s => s.CatalogProductId))
+                // Tenant-owned fields (CORRECT)
+                .ForMember(d => d.CatalogProductId, o => o.MapFrom(s => s.CatalogProductId))
 
-    .ForMember(d => d.SalePrice, o => o.MapFrom(s => s.SalePrice))
-    .ForMember(d => d.SalePrice2, o => o.MapFrom(s=> s.SalePrice2))
-    .ForMember(d => d.SalePrice3, o => o.MapFrom(s=> s.SalePrice3))
+                .ForMember(d => d.SalePrice, o => o.MapFrom(s => s.SalePrice))
+                .ForMember(d => d.SalePrice2, o => o.MapFrom(s=> s.SalePrice2))
+                .ForMember(d => d.SalePrice3, o => o.MapFrom(s=> s.SalePrice3))
 
 
-    .ForMember(d => d.PurchasePrice, o => o.MapFrom(s => s.PurchasePrice))
-    .ForMember(d => d.VatRate, o => o.MapFrom(s => s.VatRate))
-    .ForMember(d => d.MinStockLevel, o => o.MapFrom(s => s.MinStockLevel))
-    .ForMember(d => d.MaxStockLevel, o => o.MapFrom(s => s.MaxStockLevel))
-    .ForMember(d => d.IsTracked, o => o.MapFrom(s => s.IsTracked))
-    .ForMember(d => d.IsActive, o => o.MapFrom(s => s.IsActive));
+                .ForMember(d => d.PurchasePrice, o => o.MapFrom(s => s.PurchasePrice))
+                .ForMember(d => d.VatRate, o => o.MapFrom(s => s.VatRate))
+                .ForMember(d => d.MinStockLevel, o => o.MapFrom(s => s.MinStockLevel))
+                .ForMember(d => d.MaxStockLevel, o => o.MapFrom(s => s.MaxStockLevel))
+                .ForMember(d => d.IsTracked, o => o.MapFrom(s => s.IsTracked))
+                .ForMember(d => d.IsActive, o => o.MapFrom(s => s.IsActive));
 
 
             // =========================

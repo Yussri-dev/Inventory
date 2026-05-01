@@ -36,6 +36,7 @@ namespace Inventory.Api.Installers
 
             builder.Services.AddScoped<ProductService>();
             builder.Services.AddScoped<ProductCatalogService>();
+            builder.Services.AddScoped<ProductCategoryService>();
 
             builder.Services.AddScoped<PurchaseService>();
             builder.Services.AddScoped<PurchaseLineService>();

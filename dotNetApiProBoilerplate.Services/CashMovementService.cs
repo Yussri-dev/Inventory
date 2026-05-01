@@ -8,6 +8,7 @@ using Inventory.Dto.Queries;
 using Inventory.Infrastructure.Repositories;
 using Inventory.Services.Context;
 using Inventory.Services.Exceptions;
+using Microsoft.EntityFrameworkCore;
 
 namespace Inventory.Services
 {
@@ -69,7 +70,8 @@ namespace Inventory.Services
                 Amount = request.Amount,
                 BalanceBefore = balanceBefore,
                 BalanceAfter = balanceAfter,
-                SaleId = request.SaleId,
+                ReferenceId = request.ReferenceId,
+                ReferenceType = request.ReferenceType,
                 Reason = request.Reason,
                 MovementDate = DateTime.UtcNow,
                 CreatedAt = DateTime.UtcNow,
@@ -165,27 +167,22 @@ namespace Inventory.Services
             var tenantId = _tenantContext.TenantId;
 
             if (query.Page < 1 || query.PageSize < 1 || query.PageSize > 100)
-                throw new ValidationException(new Dictionary<string, string[]>
-                {
-                    { "Paging", new[] { "Invalid paging parameters." } }
-                });
+                throw new ValidationException("Invalid paging parameters.");
 
-            var movements = (await _repository.GetAllAsync())
-                .Where(m => !m.IsDeleted && m.TenantId == tenantId)
-                .AsQueryable();
+            var movements = _repository.Query()
+                .Where(m => !m.IsDeleted && m.TenantId == tenantId);
 
-            // FILTERS
             if (query.CashSessionId.HasValue)
                 movements = movements.Where(m => m.CashSessionId == query.CashSessionId.Value);
 
-            if (query.SaleId.HasValue)
-                movements = movements.Where(m => m.SaleId == query.SaleId.Value);
+            if (query.ReferenceId.HasValue)
+                movements = movements.Where(m => m.ReferenceId == query.ReferenceId.Value);
+
+            if (!string.IsNullOrWhiteSpace(query.ReferenceType))
+                movements = movements.Where(m => m.ReferenceType == query.ReferenceType);
 
             if (query.Type.HasValue)
-            {
-                var type = query.Type.Value;
-                movements = movements.Where(m => m.Type == type);
-            }
+                movements = movements.Where(m => m.Type == query.Type.Value);
 
             if (query.FromDate.HasValue)
                 movements = movements.Where(m => m.MovementDate >= query.FromDate.Value);
@@ -194,25 +191,23 @@ namespace Inventory.Services
                 movements = movements.Where(m => m.MovementDate <= query.ToDate.Value);
 
             if (!string.IsNullOrWhiteSpace(query.Search))
-                movements = movements.Where(m =>
-                    (m.Reason != null && m.Reason.Contains(query.Search)) ||
-                    m.Amount.ToString().Contains(query.Search)
-                );
+                movements = movements.Where(m => m.Reason != null && m.Reason.Contains(query.Search));
 
-            // SORTING
-            movements = query.SortBy.ToLower() switch
+            var sort = query.SortBy?.ToLower() ?? "movementdate";
+
+            movements = sort switch
             {
                 "amount" => query.Desc ? movements.OrderByDescending(m => m.Amount) : movements.OrderBy(m => m.Amount),
                 "type" => query.Desc ? movements.OrderByDescending(m => m.Type) : movements.OrderBy(m => m.Type),
-                "movementdate" => query.Desc ? movements.OrderByDescending(m => m.MovementDate) : movements.OrderBy(m => m.MovementDate),
                 _ => query.Desc ? movements.OrderByDescending(m => m.MovementDate) : movements.OrderBy(m => m.MovementDate)
             };
 
-            var total = movements.Count();
-            var items = movements
+            var total = await movements.CountAsync();
+
+            var items = await movements
                 .Skip((query.Page - 1) * query.PageSize)
                 .Take(query.PageSize)
-                .ToList();
+                .ToListAsync();
 
             return new PagedResult<CashMovementResult>
             {

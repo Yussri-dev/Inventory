@@ -9,6 +9,7 @@ namespace Inventory.Infrastructure.Repositories
     {
         protected readonly InventoryDbContext _context;
         protected readonly DbSet<T> _dbSet;
+
         public Repository(InventoryDbContext context)
         {
             _context = context;
@@ -20,6 +21,11 @@ namespace Inventory.Infrastructure.Repositories
             await _dbSet.AddAsync(entity);
         }
 
+        public async Task AddRangeAsync(IEnumerable<T> entities)
+        {
+            await _dbSet.AddRangeAsync(entities);
+        }
+
         public async Task<T?> GetByIdAsync(Guid id)
         {
             return await _dbSet.FindAsync(id);
@@ -29,14 +35,22 @@ namespace Inventory.Infrastructure.Repositories
         {
             return await _dbSet.ToListAsync();
         }
+
         public void Update(T entity)
         {
-            _dbSet.Update(entity);
+            _context.Entry(entity).State = EntityState.Modified;
         }
+
         public void Delete(T entity)
         {
             _dbSet.Remove(entity);
         }
+
+        public void DeleteRange(IEnumerable<T> entities)
+        {
+            _dbSet.RemoveRange(entities);
+        }
+
         public async Task<bool> ExistsAsync(Expression<Func<T, bool>> predicate)
         {
             return await _dbSet.AnyAsync(predicate);
@@ -44,23 +58,28 @@ namespace Inventory.Infrastructure.Repositories
 
         public async Task<List<T>> GetAsync(Expression<Func<T, bool>> predicate)
         {
-            return await _dbSet.Where(predicate).ToListAsync();
+            return await _dbSet
+                .Where(predicate)
+                .ToListAsync();
         }
 
         public async Task<T?> GetSingleAsync(Expression<Func<T, bool>> predicate)
         {
-            return await _dbSet.FirstOrDefaultAsync(predicate);
+            return await _dbSet
+                .Where(predicate)
+                .FirstOrDefaultAsync();
         }
 
         public async Task<int> CountAsync(Expression<Func<T, bool>>? predicate = null)
         {
-            if (predicate == null)
-                return await _dbSet.CountAsync();
-
-            return await _dbSet.CountAsync(predicate);
+            return predicate == null
+                ? await _dbSet.CountAsync()
+                : await _dbSet.CountAsync(predicate);
         }
 
-        public async Task<T?> GetLastAsync(Expression<Func<T, bool>> predicate, Expression<Func<T, object>> orderByDesc)
+        public async Task<T?> GetLastAsync(
+            Expression<Func<T, bool>> predicate,
+            Expression<Func<T, object>> orderByDesc)
         {
             return await _dbSet
                 .Where(predicate)
@@ -68,26 +87,23 @@ namespace Inventory.Infrastructure.Repositories
                 .FirstOrDefaultAsync();
         }
 
-        public async Task<List<T>> GetAsync(Expression<Func<T, bool>> predicate, params Expression<Func<T, object>>[] includes)
+        public async Task<List<T>> GetAsync(
+            Expression<Func<T, bool>> predicate,
+            params Expression<Func<T, object>>[] includes)
         {
             IQueryable<T> query = _dbSet;
 
             foreach (var include in includes)
-            {
                 query = query.Include(include);
-            }
 
-            return await query.Where(predicate).ToListAsync();
+            return await query
+                .Where(predicate)
+                .ToListAsync();
         }
 
         public IQueryable<T> Query()
         {
-            return _context.Set<T>().AsNoTracking().AsQueryable();
-        }
-
-        public async Task AddRangeAsync(IEnumerable<T> entities)
-        {
-            await _context.Set<T>().AddRangeAsync(entities);
+            return _dbSet.AsQueryable();
         }
     }
 }

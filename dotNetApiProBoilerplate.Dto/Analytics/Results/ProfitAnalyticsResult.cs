@@ -13,6 +13,9 @@ namespace Inventory.Dto.Analytics.Results
 
         public decimal GrossProfit { get; set; }
         public decimal ProfitMargin { get; set; }
+
+        public decimal CreditRevenue { get; set; }
+
     }
 
 }

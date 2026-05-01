@@ -1,0 +1,56 @@
+﻿@page "/customer-display"
+@inject PosState Pos
+
+<div class="display-container">
+    <div class="header">
+        <h1>Current Sale</h1>
+    </div>
+
+    @if (Pos.Lines.Count == 0)
+    {
+        <div class="empty">
+            Waiting for products...
+        </div>
+    }
+    else
+    {
+        <table class="display-table">
+            <thead>
+                <tr>
+                    <th>Product</th>
+                    <th>Qty</th>
+                    <th>Price</th>
+                    <th>Total</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var line in Pos.Lines)
+                {
+                    <tr>
+                        <td>@line.ProductName</td>
+                        <td>@line.Quantity</td>
+                        <td>€@line.EffectiveUnitPrice.ToString("F2")</td>
+                        <td>€@line.Amount.ToString("F2")</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+
+        <div class="total">
+            <span>Total</span>
+            <strong>€@Pos.TotalAmount.ToString("F2")</strong>
+        </div>
+    }
+</div>
+
+@code {
+    protected override void OnInitialized()
+    {
+        Pos.OnChange += StateHasChanged;
+    }
+
+    public void Dispose()
+    {
+        Pos.OnChange -= StateHasChanged;
+    }
+}

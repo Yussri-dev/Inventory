@@ -2,6 +2,7 @@
 @using Inventory.Ui.Authentification
 @using Inventory.Ui.State
 @using Microsoft.AspNetCore.Components.Authorization
+@using MudBlazor
 @inherits LayoutComponentBase
 @inject AuthenticationStateProvider AuthStateProvider
 @inject NavigationManager NavigationManager
@@ -44,7 +45,10 @@ else
                 <span style="font-weight:700;font-size:15px;">Inventory</span>
                 <div style="width:36px"></div>
             </div>
-
+                <MudThemeProvider />
+                <MudDialogProvider />
+                <MudSnackbarProvider />
+                <MudPopoverProvider />
             @Body
 
         </main>

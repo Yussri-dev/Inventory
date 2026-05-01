@@ -13,10 +13,10 @@ namespace Inventory.Api.Installers
         public static WebApplicationBuilder InstallMapping(this WebApplicationBuilder builder)
         {
             builder.Services.AddAutoMapper(typeof(ProductService).Assembly);
-            builder.Services.AddAutoMapper(typeof(CustomerService).Assembly);
-            builder.Services.AddAutoMapper(typeof(CashCorrectionService).Assembly);
-            builder.Services.AddAutoMapper(typeof(CashMovementService).Assembly);
-            builder.Services.AddAutoMapper(typeof(CustomerTransactionService).Assembly);
+            //builder.Services.AddAutoMapper(typeof(CustomerService).Assembly);
+            //builder.Services.AddAutoMapper(typeof(CashCorrectionService).Assembly);
+            //builder.Services.AddAutoMapper(typeof(CashMovementService).Assembly);
+            //builder.Services.AddAutoMapper(typeof(CustomerTransactionService).Assembly);
 
             return builder;
         }

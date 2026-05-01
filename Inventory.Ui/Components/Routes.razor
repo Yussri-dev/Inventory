@@ -1,7 +1,7 @@
 ﻿@using Inventory.Ui.Components.Pages
 @using Microsoft.AspNetCore.Components.Authorization
 
-<CascadingAuthenticationState>
+@* <CascadingAuthenticationState>
     <Router AppAssembly="@typeof(MauiProgram).Assembly">
         <Found Context="routeData">
             <AuthorizeRouteView RouteData="@routeData"
@@ -18,5 +18,24 @@
             </AuthorizeRouteView>
             <FocusOnNavigate RouteData="@routeData" Selector="h1" />
         </Found>
+    </Router>
+</CascadingAuthenticationState> *@
+
+<CascadingAuthenticationState>
+    <Router AppAssembly="@typeof(App).Assembly">
+        <Found Context="routeData">
+            <AuthorizeRouteView RouteData="@routeData"
+                                DefaultLayout="@typeof(Layout.MainLayout)">
+                <Authorizing>
+                    <div>Loading...</div>
+                </Authorizing>
+                <NotAuthorized>
+                    <div>Not authorized</div>
+                </NotAuthorized>
+            </AuthorizeRouteView>
+        </Found>
+        <NotFound>
+            <h1>Not found</h1>
+        </NotFound>
     </Router>
 </CascadingAuthenticationState>

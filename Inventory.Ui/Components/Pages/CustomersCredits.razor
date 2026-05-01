@@ -471,7 +471,7 @@
     @if (!string.IsNullOrEmpty(successMessage))
     {
         <div class="toast-success">
-            <span class="toast-icon">✅</span>
+            <span class="toast-icon"></span>
             <span>@successMessage</span>
         </div>
     }
@@ -536,22 +536,33 @@
 
     private async Task LoadCustomersAsync()
     {
-        isLoading = true;
-        errorMessage = null;
-        successMessage = null;
+        var updated = await CustomerTransactionsApi.GetCustomersWithBalance();
 
-        try
+        if (customers == null)
         {
-            customers = await CustomerTransactionsApi.GetCustomersWithBalance();
+            customers = updated;
+            return;
         }
-        catch (Exception ex)
+
+        foreach (var c in updated)
         {
-            errorMessage = $"Failed to load customers: {ex.Message}";
+            var existing = customers.FirstOrDefault(x => x.CustomerId == c.CustomerId);
+
+            if (existing != null)
+            {
+                existing.Balance = c.Balance;
+            }
+            else
+            {
+                customers.Add(c);
+            }
         }
-        finally
-        {
-            isLoading = false;
-        }
+
+        // supprimer les clients supprimés côté backend
+        var updatedIds = updated.Select(x => x.CustomerId).ToHashSet();
+
+        customers.RemoveAll(x => !updatedIds.Contains(x.CustomerId));
+        StateHasChanged();
     }
 
     private async Task ToggleCustomerDetail(Guid customerId)
@@ -612,7 +623,6 @@
         if (selectedCustomer == null) return;
 
         errorMessage = null;
-        successMessage = null;
         isProcessing = true;
 
         try
@@ -643,7 +653,6 @@
                 };
 
                 await CustomerTransactionsApi.RegisterPayment(request);
-                successMessage = $"✅ Payment of €{paymentAmount:N2} registered for {selectedCustomer.Name}!";
             }
             else
             {
@@ -656,28 +665,31 @@
                 };
 
                 await CustomerTransactionsApi.RegisterRefund(request);
-                successMessage = $"✅ Refund of €{paymentAmount:N2} issued to {selectedCustomer.Name}!";
+                
             }
 
             var justProcessedId = selectedCustomer.CustomerId;
+
+            successMessage = $"Refund of €{paymentAmount:N2} issued to {selectedCustomer.Name}!";
+
             CloseModal();
 
-            await LoadCustomersAsync();
+            var customer = customers.First(x => x.CustomerId == justProcessedId);
+
+            if (isPayment)
+            {
+                customer.Balance -= paymentAmount;
+            }
+            else
+            {
+                customer.Balance += paymentAmount;
+            }
 
             if (expandedCustomerId == justProcessedId)
-                customerDetail = await CustomerTransactionsApi.GetCustomerDetail(justProcessedId);
-
-            await Task.Delay(3000);
-            successMessage = null;
-            StateHasChanged();
-
-
-            // Reload detail if expanded
-            if (expandedCustomerId == selectedCustomer.CustomerId)
             {
-                await ToggleCustomerDetail(selectedCustomer.CustomerId);
-                selectedCustomer = null;
+                customerDetail = await CustomerTransactionsApi.GetCustomerDetail(justProcessedId);
             }
+
         }
         catch (Exception ex)
         {

@@ -32,8 +32,8 @@ namespace Inventory.Domain.Entities
         [MaxLength(500)]
         public string? Reason { get; set; }
 
-        public Guid? SaleId { get; set; }
-
         public DateTime MovementDate { get; set; }
+        public Guid? ReferenceId { get; set; }
+        public string? ReferenceType { get; set; }
     }
 }

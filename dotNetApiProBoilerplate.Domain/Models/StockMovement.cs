@@ -29,6 +29,11 @@ namespace Inventory.Domain.Entities
         [Required]
         public StockMovementType Type { get; set; }
 
+        [Column(TypeName = "decimal(18,2)")]
+        public decimal UnitCost { get; set; }
+
+        public decimal TotalCost => Math.Abs(QuantityChange) * UnitCost;
+
         public Guid? ReferenceId { get; set; } // ID de la vente, achat, etc.
 
         [MaxLength(200)]

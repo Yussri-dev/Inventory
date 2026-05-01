@@ -1,4 +1,5 @@
 ﻿using Inventory.Dto.Enums;
+using Inventory.Dto.SaleLines.Requests;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
@@ -45,5 +46,7 @@ namespace Inventory.Dto.Sales.Requests
 
         [MaxLength(1000)]
         public string? Notes { get; set; }
+
+        public List<UpdateSaleLineRequest> Lines { get; set; } = new();
     }
 }

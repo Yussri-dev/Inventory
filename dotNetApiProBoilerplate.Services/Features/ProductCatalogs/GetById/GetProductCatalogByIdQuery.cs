@@ -1,5 +1,4 @@
 ﻿using Inventory.Dto.ProductCatalogs.Results;
-using Inventory.Services.Features.ProductCatalogs.GetById;
 using MediatR;
 
 namespace Inventory.Services.Features.ProductCatalogs.GetById

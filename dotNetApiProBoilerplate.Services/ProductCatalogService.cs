@@ -3,6 +3,7 @@ using AutoMapper.QueryableExtensions;
 using Inventory.Domain.Barcodes;
 using Inventory.Domain.Entities;
 using Inventory.Domain.Models;
+using Inventory.Dto.Enums;
 using Inventory.Dto.Pages.Results;
 using Inventory.Dto.ProductCatalogs.Requests;
 using Inventory.Dto.ProductCatalogs.Results;
@@ -46,63 +47,91 @@ namespace Inventory.Services
             var tenantId = _tenantContext.TenantId;
             var userId = _tenantContext.UserId;
 
-            if (string.IsNullOrWhiteSpace(request.Name))
-            {
-                throw new ValidationException(new Dictionary<string, string[]>
-                {
-                    { "Name", new[] { "ProductCatalog name must not be empty." } }
-                });
-            }
-
-            if (string.IsNullOrWhiteSpace(request.Barcode))
-            {
-                throw new ValidationException(new Dictionary<string, string[]>
-                {
-                    { "Barcode", new[] { "ProductCatalog barcode must not be empty." } }
-                });
-            }
-
-            // =========================
-            // NORMALISATION CRITIQUE
-            // =========================
-
-            request.Barcode = new string(
-                request.Barcode
-                    .Trim()
-                    .Where(char.IsLetterOrDigit)
-                    .ToArray());
-
-            request.Barcode = EanTools.Normalize(request.Barcode);
-
-            // =========================
-            // DÉTECTION
-            // =========================
-
-            var barcodeType = BarcodeDetector.Detect(request.Barcode);
-
             // =========================
             // VALIDATION
             // =========================
 
-            if (!BarcodeValidator.IsValid(request.Barcode, barcodeType))
+            if (string.IsNullOrWhiteSpace(request.Name))
             {
                 throw new ValidationException(new Dictionary<string, string[]>
-                {
-                    { "Barcode", new[] { "Invalid barcode format." } }
-                });
+        {
+            { "Name", new[] { "ProductCatalog name must not be empty." } }
+        });
             }
 
-            // =========================
-            // CONFLIT
-            // =========================
+            if (string.IsNullOrWhiteSpace(request.InternalCode))
+            {
+                throw new ValidationException(new Dictionary<string, string[]>
+        {
+            { "InternalCode", new[] { "InternalCode is required." } }
+        });
+            }
 
-            var exists = await _repository.ExistsAsync(c =>
-                c.Barcode == request.Barcode &&
+            if (request.SellingMode == SellingMode.Weight && request.UnitOfMeasure == "pcs")
+                throw new ValidationException("Weight products cannot use pcs");
+
+            if (request.SellingMode == SellingMode.Unit && request.UnitOfMeasure != "pcs")
+                throw new ValidationException("Unit products must use pcs");
+
+            request.InternalCode = request.InternalCode.Trim();
+
+            var internalCodeExists = await _repository.ExistsAsync(c =>
+                c.InternalCode == request.InternalCode &&
                 !c.IsDeleted &&
                 c.TenantId == tenantId);
 
-            if (exists)
-                throw new ConflictException("ProductCatalog with same barcode already exists.");
+            if (internalCodeExists)
+                throw new ConflictException("ProductCatalog with same InternalCode already exists.");
+
+            // =========================
+            // PACK VALIDATION (FIXED)
+            // =========================
+
+            if (request.IsPack && request.PackComponents != null && request.PackComponents.Any(x => x.Quantity <= 0))
+            {
+                throw new ValidationException("Pack component quantity must be > 0");
+            }
+
+            // =========================
+            // BARCODE (OPTIONAL)
+            // =========================
+
+            BarcodeType? barcodeType = null;
+
+            if (!string.IsNullOrWhiteSpace(request.Barcode))
+            {
+                request.Barcode = new string(
+                    request.Barcode
+                        .Trim()
+                        .Where(char.IsLetterOrDigit)
+                        .ToArray());
+
+                request.Barcode = EanTools.Normalize(request.Barcode);
+
+                var detectedType = BarcodeDetector.Detect(request.Barcode);
+
+                if (!BarcodeValidator.IsValid(request.Barcode, detectedType))
+                {
+                    throw new ValidationException(new Dictionary<string, string[]>
+            {
+                { "Barcode", new[] { "Invalid barcode format." } }
+            });
+                }
+
+                var exists = await _repository.ExistsAsync(c =>
+                    c.Barcode == request.Barcode &&
+                    !c.IsDeleted &&
+                    c.TenantId == tenantId);
+
+                if (exists)
+                    throw new ConflictException("ProductCatalog with same barcode already exists.");
+
+                barcodeType = detectedType;
+            }
+            else
+            {
+                request.Barcode = null;
+            }
 
             // =========================
             // PERSISTENCE
@@ -112,17 +141,17 @@ namespace Inventory.Services
 
             entity.Id = Guid.NewGuid();
             entity.BarcodeType = barcodeType;
+            entity.InternalCode = request.InternalCode;
             entity.CreatedAt = DateTime.UtcNow;
             entity.CreatedByUserId = userId;
             entity.TenantId = tenantId;
-            entity.IsPack = request.IsPack; // NOUVEAU
+            entity.IsPack = request.IsPack;
             entity.UnitOfMeasure = request.UnitOfMeasure;
+            entity.SellingMode = request.SellingMode;
 
             await _repository.AddAsync(entity);
-            await _unitOfWork.SaveChangesAsync();
 
-            // NOUVEAU — persister les composants pack
-            if (request.IsPack && request.PackComponents.Any())
+            if (request.IsPack && request.PackComponents != null && request.PackComponents.Any())
             {
                 foreach (var comp in request.PackComponents)
                 {
@@ -136,21 +165,21 @@ namespace Inventory.Services
                         CreatedAt = DateTime.UtcNow
                     });
                 }
-                await _unitOfWork.SaveChangesAsync();
             }
 
+            await _unitOfWork.SaveChangesAsync();
+
             return _mapper.Map<ProductCatalogResult>(entity);
-
-
         }
         // =========================
         // GET BY ID (GLOBAL)
         // =========================
         public async Task<ProductCatalogResult> GetByIdAsync(Guid id)
         {
-            var catalog = await _repository.GetByIdAsync(id);
+            var catalog = await _repository.Query()
+                .FirstOrDefaultAsync(c => c.Id == id && !c.IsDeleted);
 
-            if (catalog == null || catalog.IsDeleted)
+            if (catalog == null)
                 throw new NotFoundException("ProductCatalog", id);
 
             return _mapper.Map<ProductCatalogResult>(catalog);
@@ -161,7 +190,9 @@ namespace Inventory.Services
         // =========================
         public async Task<List<ProductCatalogResult>> GetAllAsync()
         {
-            var catalogs = await _repository.GetAllAsync();
+            var catalogs = await _repository.Query()
+                .Where(c => !c.IsDeleted)
+                .ToListAsync();
 
             return _mapper.Map<List<ProductCatalogResult>>(
                 catalogs.Where(c => !c.IsDeleted)
@@ -186,56 +217,94 @@ namespace Inventory.Services
                 throw new NotFoundException("ProductCatalog", id);
 
             // =========================
-            // BARCODE CHANGE LOGIC
+            // PACK VALIDATION
             // =========================
 
-            if (!string.IsNullOrWhiteSpace(request.Barcode) &&
-                request.Barcode != catalog.Barcode)
+            if (request.IsPack && request.PackComponents != null && request.PackComponents.Any(x => x.Quantity <= 0))
+                throw new ValidationException("Pack component quantity must be > 0");
+
+            // =========================
+            // INTERNAL CODE UNIQUENESS
+            // =========================
+
+            if (!string.IsNullOrWhiteSpace(request.InternalCode) &&
+                request.InternalCode != catalog.InternalCode)
             {
-                request.Barcode = request.Barcode.Trim();
+                request.InternalCode = request.InternalCode.Trim();
 
-                var type = BarcodeDetector.Detect(request.Barcode);
-
-                if (!BarcodeValidator.IsValid(request.Barcode, type))
-                {
-                    throw new ValidationException(new Dictionary<string, string[]>
-                    {
-                        { "Barcode", new[] { "Invalid barcode format." } }
-                    });
-                }
-
-                var barcodeExists = await _repository.ExistsAsync(c =>
-                    c.Barcode == request.Barcode &&
+                var exists = await _repository.ExistsAsync(c =>
+                    c.InternalCode == request.InternalCode &&
                     c.Id != id &&
                     !c.IsDeleted &&
                     c.TenantId == tenantId);
 
-                if (barcodeExists)
-                    throw new ConflictException("Another ProductCatalog uses this barcode.");
+                if (exists)
+                    throw new ConflictException("InternalCode already used.");
+            }
 
-                catalog.BarcodeType = type;
+            if (request.SellingMode == SellingMode.Weight && request.UnitOfMeasure == "pcs")
+                throw new ValidationException("Weight products cannot use pcs");
+
+            if (request.SellingMode == SellingMode.Unit && request.UnitOfMeasure != "pcs")
+                throw new ValidationException("Unit products must use pcs");
+            // =========================
+            // BARCODE LOGIC (FIXED)
+            // =========================
+
+            if (!string.IsNullOrWhiteSpace(request.Barcode))
+            {
+                request.Barcode = new string(
+                    request.Barcode.Trim().Where(char.IsLetterOrDigit).ToArray());
+
+                request.Barcode = EanTools.Normalize(request.Barcode);
+
+                if (request.Barcode != catalog.Barcode)
+                {
+                    var type = BarcodeDetector.Detect(request.Barcode);
+
+                    if (!BarcodeValidator.IsValid(request.Barcode, type))
+                        throw new ValidationException("Invalid barcode");
+
+                    var exists = await _repository.ExistsAsync(c =>
+                        c.Barcode == request.Barcode &&
+                        c.Id != id &&
+                        !c.IsDeleted &&
+                        c.TenantId == tenantId);
+
+                    if (exists)
+                        throw new ConflictException("Barcode already used.");
+
+                    catalog.BarcodeType = type;
+                }
+            }
+            else
+            {
+                request.Barcode = null;
+                catalog.BarcodeType = BarcodeType.Internal;
             }
 
             // =========================
-            // MAPPING SAFE FIELDS
+            // MAPPING
             // =========================
 
             _mapper.Map(request, catalog);
 
             catalog.ModifiedAt = DateTime.UtcNow;
             catalog.ModifiedByUserId = userId;
-
             catalog.IsPack = request.IsPack;
+            catalog.InternalCode = request.InternalCode;
+            // =========================
+            // PACK COMPONENTS
+            // =========================
 
             var existingComponents = await _packComponentRepository
                 .Query()
                 .Where(pc => pc.PackCatalaogId == id)
                 .ToListAsync();
 
-            foreach (var comp in existingComponents)
-                _packComponentRepository.Delete(comp);
+            _packComponentRepository.DeleteRange(existingComponents);
 
-            if (request.IsPack && request.PackComponents.Any())
+            if (request.IsPack && request.PackComponents != null && request.PackComponents.Any())
             {
                 foreach (var comp in request.PackComponents)
                 {
@@ -338,15 +407,14 @@ namespace Inventory.Services
         }
 
         */
+
         public async Task<PagedResult<ProductCatalogResult>> QueryAsync(ProductCatalogQuery query)
         {
-            var tenantId = _tenantContext.TenantId;
-
             if (query.Page < 1)
             {
                 throw new ValidationException(new Dictionary<string, string[]>
                 {
-                    {"Page", new[]{"Page must be greater than or equal to 1."} }
+                    {"Page", new[]{"Page must be >= 1"} }
                 });
             }
 
@@ -354,49 +422,61 @@ namespace Inventory.Services
             {
                 throw new ValidationException(new Dictionary<string, string[]>
                 {
-                    {"PageSize", new[]{"PageSize must be between 1 and 100."} }
+                    {"PageSize", new[]{"PageSize must be between 1 and 1000"} }
                 });
             }
 
-            var productCatalagQuery = _repository.Query()
-                .Where(s => !s.IsDeleted
-                        && s.TenantId == tenantId);
-            //.AsNoTracking()
-            //.AsQueryable();
+            var dbQuery = _repository.Query()
+                .Where(x => !x.IsDeleted);
 
-
+            // =========================
+            // SEARCH
+            // =========================
             if (!string.IsNullOrWhiteSpace(query.Search))
             {
                 var search = query.Search.Trim();
 
-                productCatalagQuery = productCatalagQuery.Where(p =>
-                EF.Functions.ILike(p.Name, $"%{search}%") ||
-                EF.Functions.ILike(p.Barcode, $"%{search}%") ||
-                EF.Functions.ILike(p.Brand, $"%{search}%"));
-
+                dbQuery = dbQuery.Where(p =>
+                    EF.Functions.ILike(p.Name, $"%{search}%") ||
+                    (p.Barcode != null && EF.Functions.ILike(p.Barcode, $"%{search}%")) ||
+                    (p.InternalCode != null && EF.Functions.ILike(p.InternalCode, $"%{search}%")) ||
+                    (p.Brand != null && EF.Functions.ILike(p.Brand, $"%{search}%"))
+                );
             }
 
-            productCatalagQuery = query.SortBy.ToLower() switch
+            // =========================
+            // SORT (SAFE)
+            // =========================
+            var sortBy = query.SortBy?.ToLower();
+
+            dbQuery = sortBy switch
             {
                 "name" => query.Desc
-                ? productCatalagQuery.OrderByDescending(p => p.Name)
-                : productCatalagQuery.OrderBy(p => p.Name),
+                    ? dbQuery.OrderByDescending(p => p.Name)
+                    : dbQuery.OrderBy(p => p.Name),
+
                 "barcode" => query.Desc
-                ? productCatalagQuery.OrderByDescending(p => p.Barcode)
-                : productCatalagQuery.OrderBy(p => p.Barcode),
+                    ? dbQuery.OrderByDescending(p => p.Barcode)
+                    : dbQuery.OrderBy(p => p.Barcode),
+
+                "internalcode" => query.Desc
+                    ? dbQuery.OrderByDescending(p => p.InternalCode)
+                    : dbQuery.OrderBy(p => p.InternalCode),
 
                 _ => query.Desc
-                ? productCatalagQuery.OrderByDescending(p => p.CreatedAt)
-                : productCatalagQuery.OrderBy(p => p.CreatedAt),
+                    ? dbQuery.OrderByDescending(p => p.CreatedAt)
+                    : dbQuery.OrderBy(p => p.CreatedAt),
             };
 
+            // =========================
+            // COUNT
+            // =========================
+            var total = await dbQuery.CountAsync();
 
-
-            var total = await productCatalagQuery.CountAsync();
-
-            var items = await productCatalagQuery
-                .Include(c => c.PackComponents)
-                    .ThenInclude(pc => pc.ComponentCatalog)
+            // =========================
+            // DATA
+            // =========================
+            var items = await dbQuery
                 .Skip((query.Page - 1) * query.PageSize)
                 .Take(query.PageSize)
                 .ProjectTo<ProductCatalogResult>(_mapper.ConfigurationProvider)
@@ -409,7 +489,6 @@ namespace Inventory.Services
                 Page = query.Page,
                 PageSize = query.PageSize,
             };
-
         }
     }
 }
