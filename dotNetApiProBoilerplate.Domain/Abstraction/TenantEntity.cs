@@ -13,4 +13,9 @@ namespace Inventory.Domain.Abstraction
         [ForeignKey(nameof(TenantId))]
         public Tenant Tenant { get; set; } = null!;
     }
+
+    public abstract class GlobalEntity : AuditableEntity
+    {
+
+    }
 }

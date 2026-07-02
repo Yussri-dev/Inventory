@@ -1,4 +1,5 @@
 ﻿@page "/purchases"
+@using Inventory.Ui.Services
 
 @inject IJSRuntime JS
 @inject IPosApi PosApi
@@ -7,6 +8,8 @@
 @inject ILogger<Purchases> Logger
 @inject NavigationManager Nav
 @inject ICashSessionApi CashSessionApi
+@inject PosBootstrapService Bootstrap
+@implements IDisposable
 
 @if (!string.IsNullOrEmpty(UiAlertMessage))
 {
@@ -327,7 +330,6 @@
     // STATE
     List<CartLine> Lines = new();
     List<ProductResult> Products = new();
-    List<ProductCatalogResult> CatalogProducts = new();
     List<SupplierResult> Suppliers = new();
 
     List<ProductResult> filteredProductsCache = new();
@@ -443,20 +445,33 @@
         await LoadInitialData();
     }
 
+    protected override void OnInitialized()
+    {
+        State.OnChange += HandleStateChange;
+    }
+
+    public void Dispose()
+    {
+        State.OnChange -= HandleStateChange;
+    }
+
+    private void HandleStateChange()
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
     async Task LoadInitialData()
     {
         if (!State.IsCashSessionLoaded)
         {
             try
             {
-                State.ActiveCashSession = await CashSessionApi.GetActive();
-                State.IsCashSessionLoaded = true;
+                var active = await CashSessionApi.GetActive();
+                await State.SetCashSessionAsync(active);
             }
             catch
             {
-                // await JS.InvokeVoidAsync("alert", "No active cash session.\n\nPlease open one.");
-                ShowError($"No active cash session.");
-
+                ShowError("No active cash session.");
                 Nav.NavigateTo("/cashsessions");
                 return;
             }
@@ -476,36 +491,21 @@
 
         IsLoadingProducts = true;
 
-        var bootstrap = await PosApi.Bootstrap();
+        await Bootstrap.EnsureLoadedAsync();
 
-        State.Products = bootstrap.Products;
-        State.Suppliers = bootstrap.Suppliers;
-        State.SupplierMap = bootstrap.Suppliers.ToDictionary(s => s.Id);
-        State.ProductMap = bootstrap.Products.ToDictionary(p => p.Id);
-        State.CustomerMap = bootstrap.Customers.ToDictionary(c => c.Id);
-        State.StockMap = bootstrap.Stocks.ToDictionary(s => s.ProductId);
-        State.BarcodeMap = bootstrap.Products
-            .Where(p => !string.IsNullOrWhiteSpace(p.CatalogBarcode))
-            .GroupBy(p => p.CatalogBarcode!)
-            .ToDictionary(g => g.Key, g => g.First());
-
-        State.IsPosLoaded = true;
-        State.LastBootstrapAt = DateTime.UtcNow;
-
-        Products = State.Products;
-        Suppliers = State.Suppliers;
-        ProductMap = State.ProductMap;
-        SupplierMap = State.SupplierMap;
-        StockMap = State.StockMap;
-        BarcodeMap = State.BarcodeMap;
+        Products = State.Products ?? new();
+        Suppliers = State.Suppliers ?? new();
+        ProductMap = State.ProductMap ?? new();
+        SupplierMap = State.SupplierMap ?? new();
+        StockMap = State.StockMap ?? new();
+        BarcodeMap = State.BarcodeMap ?? new();
         filteredProductsCache = Products;
         IsLoadingProducts = false;
+
     }
 
-    ProductCatalogResult? GetCatalogProduct(Guid catalogProductId)
-    {
-        return CatalogProducts.FirstOrDefault(c => c.Id == catalogProductId);
-    }
+    ProductCatalogResult? GetCatalogProduct(Guid id) => State.GetCatalog(id);
+
 
     // SUPPLIER MODAL
     void OpenSupplierModal()
@@ -599,6 +599,12 @@
     {
         var existingLine = Lines.FirstOrDefault(l => l.ProductId == product.Id);
         var catalog = GetCatalogProduct(product.Id);
+
+        if (product.PurchasePrice == 0)
+        {
+            ShowError("product purchase is 0");
+            return;
+        }
 
         if (existingLine != null)
         {
@@ -819,6 +825,7 @@
                 // Pas encore de stock enregistré localement — on ne peut pas créer
                 // un StockResult sans Id serveur, donc on invalide le cache
                 State.InvalidatePos();
+                _ = Bootstrap.EnsureLoadedAsync();
                 return;
             }
         }

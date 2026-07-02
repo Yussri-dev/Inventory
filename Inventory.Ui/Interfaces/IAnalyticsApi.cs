@@ -20,5 +20,11 @@ namespace Inventory.Ui.Interfaces
         Task<WeeklyReportResult> GetWeeklyAsync(
             [Query] int? year = null,
             [Query] int? week = null);
+
+        [Get("/api/v1/analytics/dashboard-summary")]
+        Task<DashboardSummaryResult> GetDashboardSummaryAsync(
+            [Query] DateOnly? from = null,
+            [Query] DateOnly? to = null);
+
     }
 }

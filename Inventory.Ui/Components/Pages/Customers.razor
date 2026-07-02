@@ -1,10 +1,14 @@
 ﻿@page "/customers"
 @using Inventory.Dto.Customers.Requests
 @using Inventory.Dto.Customers.Results
+@using Inventory.Ui.Services
+
 @inject ICustomerApi Api
 @inject NavigationManager Nav
 @inject ICashSessionApi CashSessionApi
 @inject AppState State
+@inject PosBootstrapService Bootstrap
+@implements IDisposable
 
 <h3>Customers</h3>
 
@@ -247,6 +251,18 @@
 
     private CustomerResult? customerToDelete;
 
+    protected override void OnInitialized()
+    {
+        State.OnChange += HandleStateChange;
+    }
+
+    private void HandleStateChange() => InvokeAsync(StateHasChanged);
+
+    public void Dispose()
+    {
+        State.OnChange -= HandleStateChange;
+    }
+
     protected override async Task OnInitializedAsync()
         => await LoadData();
 
@@ -318,18 +334,17 @@
             {
                 try
                 {
-                    State.ActiveCashSession = await CashSessionApi.GetActive();
-                    State.IsCashSessionLoaded = true;
+                    var active = await CashSessionApi.GetActive();
+                    await State.SetCashSessionAsync(active);
                 }
                 catch
                 {
-                    // await JS.InvokeVoidAsync("alert", "No active cash session.\n\nPlease open one.");
-                    await ShowError($"No active cash session.");
-
+                    await ShowError("No active cash session.");
                     Nav.NavigateTo("/cashsessions");
                     return;
                 }
             }
+
             isLoadingData = true;
             errorMessage = null;
 
@@ -364,7 +379,12 @@
         else
             await Api.Update(editingId.Value, form.ToUpdate(editingId.Value));
 
+        // Invalide le cache customers pour que Sales/POS voient les nouveaux clients
+        State.InvalidateCustomers();
+        _ = Bootstrap.EnsureLoadedAsync();
+
         Reset();
+        ShowCustomer = false;
         await LoadData();
     }
 
@@ -384,6 +404,10 @@
     {
         await Api.Delete(customerToDelete!.Id);
         showDelete = false;
+
+        State.InvalidateCustomers();
+        _ = Bootstrap.EnsureLoadedAsync();
+
         await LoadData();
     }
 

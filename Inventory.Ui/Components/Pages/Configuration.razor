@@ -1,0 +1,1228 @@
+﻿@page "/configuration"
+
+@using System.ComponentModel.DataAnnotations
+@using Inventory.Dto.Auth.Requests
+@using Inventory.Dto.Auth.Results
+@using Inventory.Dto.Enums
+@using Inventory.Ui.Interfaces
+@using Refit
+
+@inject IAuthApi AuthApi
+@inject IAuthApiOpen AuthApiOpen
+
+<PageTitle>Configuration</PageTitle>
+
+<div class="configuration-page">
+
+    @if (!string.IsNullOrWhiteSpace(successMessage))
+    {
+        <div class="alert alert-success">
+            <div class="alert-content">
+                <i class="bi bi-check-circle"></i>
+                <span>@successMessage</span>
+            </div>
+
+            <button type="button"
+                    class="alert-close"
+                    @onclick="ClearSuccess">
+                <i class="bi bi-x-lg"></i>
+            </button>
+        </div>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(errorMessage))
+    {
+        <div class="alert alert-error">
+            <div class="alert-content">
+                <i class="bi bi-exclamation-circle"></i>
+                <span>@errorMessage</span>
+            </div>
+
+            <button type="button"
+                    class="alert-close"
+                    @onclick="ClearError">
+                <i class="bi bi-x-lg"></i>
+            </button>
+        </div>
+    }
+
+    <header class="page-header">
+        <div>
+            <span class="page-eyebrow">
+                Administration
+            </span>
+
+            <h1>Configuration générale</h1>
+
+            <p>
+                Gérez les utilisateurs, les entreprises
+                et les paramètres généraux de l’application.
+            </p>
+        </div>
+    </header>
+
+    <section class="configuration-grid">
+
+        <article class="configuration-card">
+            <div class="card-icon">
+                <i class="bi bi-people"></i>
+            </div>
+
+            <div class="card-content">
+                <h2>Gestion des utilisateurs</h2>
+
+                <p>
+                    Créez de nouveaux utilisateurs et attribuez-leur
+                    un rôle dans leur entreprise.
+                </p>
+            </div>
+
+            <button type="button"
+                    class="card-action"
+                    @onclick="OpenUserManagement">
+                Configurer
+                <i class="bi bi-arrow-right"></i>
+            </button>
+        </article>
+
+        <article class="configuration-card">
+            <div class="card-icon">
+                <i class="bi bi-building-add"></i>
+            </div>
+
+            <div class="card-content">
+                <h2>Créer une entreprise</h2>
+
+                <p>
+                    Créez un nouveau tenant avec son administrateur
+                    et ses produits issus du catalogue global.
+                </p>
+            </div>
+
+            <button type="button"
+                    class="card-action"
+                    @onclick="OpenTenantCreation">
+                Créer
+                <i class="bi bi-arrow-right"></i>
+            </button>
+        </article>
+
+        <article class="configuration-card">
+            <div class="card-icon">
+                <i class="bi bi-box-seam"></i>
+            </div>
+
+            <div class="card-content">
+                <h2>Catalogue produits</h2>
+
+                <p>
+                    Gérez le catalogue global et la synchronisation
+                    des produits vers les entreprises.
+                </p>
+            </div>
+
+            <button type="button"
+                    class="card-action"
+                    @onclick="OpenProductCatalog">
+                Configurer
+                <i class="bi bi-arrow-right"></i>
+            </button>
+        </article>
+
+        <article class="configuration-card">
+            <div class="card-icon">
+                <i class="bi bi-receipt"></i>
+            </div>
+
+            <div class="card-content">
+                <h2>Taxes et TVA</h2>
+
+                <p>
+                    Définissez les taux de TVA disponibles
+                    et les valeurs utilisées par défaut.
+                </p>
+            </div>
+
+            <button type="button"
+                    class="card-action"
+                    @onclick="OpenTaxes">
+                Configurer
+                <i class="bi bi-arrow-right"></i>
+            </button>
+        </article>
+
+        <article class="configuration-card">
+            <div class="card-icon">
+                <i class="bi bi-currency-euro"></i>
+            </div>
+
+            <div class="card-content">
+                <h2>Devise et localisation</h2>
+
+                <p>
+                    Configurez la devise, la langue,
+                    les dates et le fuseau horaire.
+                </p>
+            </div>
+
+            <button type="button"
+                    class="card-action"
+                    @onclick="OpenLocalization">
+                Configurer
+                <i class="bi bi-arrow-right"></i>
+            </button>
+        </article>
+
+        <article class="configuration-card">
+            <div class="card-icon">
+                <i class="bi bi-shield-check"></i>
+            </div>
+
+            <div class="card-content">
+                <h2>Sécurité</h2>
+
+                <p>
+                    Configurez les règles d’accès
+                    et les options de sécurité.
+                </p>
+            </div>
+
+            <button type="button"
+                    class="card-action"
+                    @onclick="OpenSecurity">
+                Configurer
+                <i class="bi bi-arrow-right"></i>
+            </button>
+        </article>
+
+    </section>
+
+    @if (!string.IsNullOrWhiteSpace(selectedSection))
+    {
+        <section class="configuration-panel">
+
+            <div class="panel-header">
+                <div>
+                    <span class="panel-label">
+                        Section sélectionnée
+                    </span>
+
+                    <h2>@selectedSection</h2>
+                </div>
+
+                <button type="button"
+                        class="close-button"
+                        disabled="@isSubmitting"
+                        @onclick="ClosePanel">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+
+            @if (selectedSection == UserManagementSection)
+            {
+                <div class="user-management-section">
+
+                    <div class="section-introduction">
+                        <div class="placeholder-icon">
+                            <i class="bi bi-person-plus"></i>
+                        </div>
+
+                        <div>
+                            <h3>Créer un utilisateur</h3>
+
+                            <p>
+                                Le nouvel utilisateur sera automatiquement
+                                associé à l’entreprise de l’administrateur connecté.
+                            </p>
+                        </div>
+                    </div>
+
+                    <EditForm Model="userForm"
+                              OnValidSubmit="CreateUserAsync">
+
+                        <DataAnnotationsValidator />
+
+                        <div class="form-card">
+
+                            <div class="form-grid">
+
+                                <div class="form-group form-group-full">
+                                    <label for="userFullName">
+                                        Nom complet
+                                    </label>
+
+                                    <InputText id="userFullName"
+                                               class="form-control"
+                                               placeholder="Exemple : Jean Dupont"
+                                               disabled="@isSubmitting"
+                                               @bind-Value="userForm.FullName" />
+
+                                    <ValidationMessage For="@(() => userForm.FullName)" />
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="userEmail">
+                                        Adresse email
+                                    </label>
+
+                                    <InputText id="userEmail"
+                                               type="email"
+                                               class="form-control"
+                                               placeholder="utilisateur@entreprise.be"
+                                               autocomplete="email"
+                                               disabled="@isSubmitting"
+                                               @bind-Value="userForm.Email" />
+
+                                    <ValidationMessage For="@(() => userForm.Email)" />
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="userRole">
+                                        Rôle
+                                    </label>
+
+                                    <InputSelect id="userRole"
+                                                 class="form-control"
+                                                 disabled="@isSubmitting"
+                                                 @bind-Value="userForm.Role">
+
+                                        @foreach (var role in availableRoles)
+                                        {
+                                            <option value="@role">
+                                                @GetRoleLabel(role)
+                                            </option>
+                                        }
+
+                                    </InputSelect>
+
+                                    <ValidationMessage For="@(() => userForm.Role)" />
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="userPassword">
+                                        Mot de passe
+                                    </label>
+
+                                    <div class="password-field">
+                                        <InputText id="userPassword"
+                                                   type="@userPasswordInputType"
+                                                   class="form-control"
+                                                   placeholder="Minimum 8 caractères"
+                                                   autocomplete="new-password"
+                                                   disabled="@isSubmitting"
+                                                   @bind-Value="userForm.Password" />
+
+                                        <button type="button"
+                                                class="password-toggle"
+                                                disabled="@isSubmitting"
+                                                tabindex="-1"
+                                                @onclick="ToggleUserPasswordVisibility">
+                                            <i class="@userPasswordIcon"></i>
+                                        </button>
+                                    </div>
+
+                                    <ValidationMessage For="@(() => userForm.Password)" />
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="userConfirmPassword">
+                                        Confirmer le mot de passe
+                                    </label>
+
+                                    <div class="password-field">
+                                        <InputText id="userConfirmPassword"
+                                                   type="@userPasswordInputType"
+                                                   class="form-control"
+                                                   placeholder="Répétez le mot de passe"
+                                                   autocomplete="new-password"
+                                                   disabled="@isSubmitting"
+                                                   @bind-Value="userForm.ConfirmPassword" />
+
+                                        <button type="button"
+                                                class="password-toggle"
+                                                disabled="@isSubmitting"
+                                                tabindex="-1"
+                                                @onclick="ToggleUserPasswordVisibility">
+                                            <i class="@userPasswordIcon"></i>
+                                        </button>
+                                    </div>
+
+                                    <ValidationMessage For="@(() => userForm.ConfirmPassword)" />
+                                </div>
+
+                            </div>
+
+                            <div class="role-information">
+                                <i class="bi bi-info-circle"></i>
+
+                                <div>
+                                    <strong>
+                                        @GetRoleLabel(userForm.Role)
+                                    </strong>
+
+                                    <span>
+                                        @GetRoleDescription(userForm.Role)
+                                    </span>
+                                </div>
+                            </div>
+
+                            <div class="form-actions">
+
+                                <button type="button"
+                                        class="btn-secondary"
+                                        disabled="@isSubmitting"
+                                        @onclick="ResetUserForm">
+                                    <i class="bi bi-arrow-counterclockwise"></i>
+                                    Réinitialiser
+                                </button>
+
+                                <button type="submit"
+                                        class="btn-primary"
+                                        disabled="@isSubmitting">
+
+                                    @if (isSubmitting)
+                                    {
+                                        <span class="spinner"></span>
+                                        <span>Création...</span>
+                                    }
+                                    else
+                                    {
+                                        <i class="bi bi-person-plus"></i>
+                                        <span>Créer l’utilisateur</span>
+                                    }
+
+                                </button>
+
+                            </div>
+
+                        </div>
+
+                    </EditForm>
+
+                </div>
+            }
+            else if (selectedSection == TenantCreationSection)
+            {
+                <div class="user-management-section">
+
+                    <div class="section-introduction">
+                        <div class="placeholder-icon">
+                            <i class="bi bi-building-add"></i>
+                        </div>
+
+                        <div>
+                            <h3>Créer une nouvelle entreprise</h3>
+
+                            <p>
+                                Cette opération crée un tenant, son administrateur
+                                principal et initialise ses produits depuis le catalogue global.
+                            </p>
+                        </div>
+                    </div>
+
+                    <EditForm Model="tenantForm"
+                              OnValidSubmit="CreateTenantAsync">
+
+                        <DataAnnotationsValidator />
+
+                        <div class="form-card">
+
+                            <div class="form-grid">
+
+                                <div class="form-group form-group-full">
+                                    <label for="companyName">
+                                        Nom de l’entreprise
+                                    </label>
+
+                                    <InputText id="companyName"
+                                               class="form-control"
+                                               placeholder="Exemple : Market Bruxelles"
+                                               disabled="@isSubmitting"
+                                               @bind-Value="tenantForm.CompanyName" />
+
+                                    <ValidationMessage For="@(() => tenantForm.CompanyName)" />
+                                </div>
+
+                                <div class="form-group form-group-full">
+                                    <label for="ownerFullName">
+                                        Nom complet de l’administrateur
+                                    </label>
+
+                                    <InputText id="ownerFullName"
+                                               class="form-control"
+                                               placeholder="Exemple : Mohammed Ghanmi"
+                                               disabled="@isSubmitting"
+                                               @bind-Value="tenantForm.FullName" />
+
+                                    <ValidationMessage For="@(() => tenantForm.FullName)" />
+                                </div>
+
+                                <div class="form-group form-group-full">
+                                    <label for="companyEmail">
+                                        Adresse email de l’administrateur
+                                    </label>
+
+                                    <InputText id="companyEmail"
+                                               type="email"
+                                               class="form-control"
+                                               placeholder="admin@entreprise.be"
+                                               autocomplete="email"
+                                               disabled="@isSubmitting"
+                                               @bind-Value="tenantForm.Email" />
+
+                                    <ValidationMessage For="@(() => tenantForm.Email)" />
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="companyPassword">
+                                        Mot de passe
+                                    </label>
+
+                                    <div class="password-field">
+                                        <InputText id="companyPassword"
+                                                   type="@tenantPasswordInputType"
+                                                   class="form-control"
+                                                   placeholder="Minimum 8 caractères"
+                                                   autocomplete="new-password"
+                                                   disabled="@isSubmitting"
+                                                   @bind-Value="tenantForm.Password" />
+
+                                        <button type="button"
+                                                class="password-toggle"
+                                                disabled="@isSubmitting"
+                                                tabindex="-1"
+                                                @onclick="ToggleTenantPasswordVisibility">
+                                            <i class="@tenantPasswordIcon"></i>
+                                        </button>
+                                    </div>
+
+                                    <ValidationMessage For="@(() => tenantForm.Password)" />
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="companyConfirmPassword">
+                                        Confirmer le mot de passe
+                                    </label>
+
+                                    <div class="password-field">
+                                        <InputText id="companyConfirmPassword"
+                                                   type="@tenantPasswordInputType"
+                                                   class="form-control"
+                                                   placeholder="Répétez le mot de passe"
+                                                   autocomplete="new-password"
+                                                   disabled="@isSubmitting"
+                                                   @bind-Value="tenantForm.ConfirmPassword" />
+
+                                        <button type="button"
+                                                class="password-toggle"
+                                                disabled="@isSubmitting"
+                                                tabindex="-1"
+                                                @onclick="ToggleTenantPasswordVisibility">
+                                            <i class="@tenantPasswordIcon"></i>
+                                        </button>
+                                    </div>
+
+                                    <ValidationMessage For="@(() => tenantForm.ConfirmPassword)" />
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="subscriptionPlan">
+                                        Plan d’abonnement
+                                    </label>
+
+                                    <InputSelect id="subscriptionPlan"
+                                                 class="form-control"
+                                                 disabled="@isSubmitting"
+                                                 @bind-Value="tenantForm.SubscriptionPlan">
+
+                                        @foreach (var plan in availablePlans)
+                                        {
+                                            <option value="@plan">
+                                                @GetPlanLabel(plan)
+                                            </option>
+                                        }
+
+                                    </InputSelect>
+
+                                    <ValidationMessage For="@(() => tenantForm.SubscriptionPlan)" />
+                                </div>
+
+                                <div class="role-information">
+                                    <i class="bi bi-credit-card"></i>
+
+                                    <div>
+                                        <strong>
+                                            @GetPlanLabel(tenantForm.SubscriptionPlan)
+                                        </strong>
+
+                                        <span>
+                                            @GetPlanDescription(tenantForm.SubscriptionPlan)
+                                        </span>
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label class="checkbox-setting">
+                                        <InputCheckbox disabled="@isSubmitting"
+                                                       @bind-Value="tenantForm.EnableTrial" />
+
+                                        <span>
+                                            Activer la période d’essai de 30 jours
+                                        </span>
+                                    </label>
+                                </div>
+
+                            </div>
+
+                            <div class="role-information">
+                                <i class="bi bi-info-circle"></i>
+
+                                <div>
+                                    <strong>
+                                        Création complète du tenant
+                                    </strong>
+
+                                    <span>
+                                        L’utilisateur créé recevra le rôle Administrateur.
+                                        Les produits actifs du catalogue global seront copiés
+                                        automatiquement dans le nouveau tenant.
+                                    </span>
+                                </div>
+                            </div>
+
+                            <div class="form-actions">
+
+                                <button type="button"
+                                        class="btn-secondary"
+                                        disabled="@isSubmitting"
+                                        @onclick="ResetTenantForm">
+                                    <i class="bi bi-arrow-counterclockwise"></i>
+                                    Réinitialiser
+                                </button>
+
+                                <button type="submit"
+                                        class="btn-primary"
+                                        disabled="@isSubmitting">
+
+                                    @if (isSubmitting)
+                                    {
+                                        <span class="spinner"></span>
+                                        <span>Création du tenant...</span>
+                                    }
+                                    else
+                                    {
+                                        <i class="bi bi-building-add"></i>
+                                        <span>Créer l'entreprise</span>
+                                    }
+
+                                </button>
+
+                            </div>
+
+                        </div>
+
+                    </EditForm>
+
+                </div>
+            }
+            else
+            {
+                <div class="placeholder-content">
+                    <div class="placeholder-icon">
+                        <i class="bi bi-gear"></i>
+                    </div>
+
+                    <h3>@selectedSection</h3>
+
+                    <p>
+                        Cette section sera implémentée ultérieurement.
+                    </p>
+                </div>
+            }
+
+        </section>
+    }
+
+</div>
+
+@code {
+    private const string UserManagementSection =
+        "Gestion des utilisateurs";
+
+    private const string TenantCreationSection =
+        "Créer une entreprise";
+
+    private readonly UserRole[] availableRoles =
+    [
+        UserRole.Manager,
+        UserRole.Cashier,
+        UserRole.StockManager,
+        UserRole.Viewer
+    ];
+
+    private CreateUserForm userForm = new()
+    {
+        Role = UserRole.Cashier
+    };
+
+    private CreateTenantForm tenantForm = new();
+
+    private string? selectedSection;
+    private string? successMessage;
+    private string? errorMessage;
+
+    private bool isSubmitting;
+    private bool showUserPassword;
+    private bool showTenantPassword;
+
+    private readonly SubscriptionPlan[] availablePlans =
+    [
+        SubscriptionPlan.Free,
+        SubscriptionPlan.Basic,
+        SubscriptionPlan.Professional,
+        SubscriptionPlan.Enterprise
+    ];
+
+    private string userPasswordInputType =>
+        showUserPassword ? "text" : "password";
+
+    private string userPasswordIcon =>
+        showUserPassword
+            ? "bi bi-eye-slash"
+            : "bi bi-eye";
+
+    private string tenantPasswordInputType =>
+        showTenantPassword ? "text" : "password";
+
+    private string tenantPasswordIcon =>
+        showTenantPassword
+            ? "bi bi-eye-slash"
+            : "bi bi-eye";
+
+    private void OpenUserManagement()
+    {
+        selectedSection = UserManagementSection;
+        ClearMessages();
+    }
+
+    private void OpenTenantCreation()
+    {
+        selectedSection = TenantCreationSection;
+        ClearMessages();
+    }
+
+    private void OpenProductCatalog()
+    {
+        selectedSection = "Catalogue produits";
+        ClearMessages();
+    }
+
+    private void OpenTaxes()
+    {
+        selectedSection = "Taxes et TVA";
+        ClearMessages();
+    }
+
+    private void OpenLocalization()
+    {
+        selectedSection = "Devise et localisation";
+        ClearMessages();
+    }
+
+    private void OpenSecurity()
+    {
+        selectedSection = "Sécurité";
+        ClearMessages();
+    }
+
+    private void ClosePanel()
+    {
+        if (isSubmitting)
+            return;
+
+        selectedSection = null;
+        ClearMessages();
+    }
+
+    private void ToggleUserPasswordVisibility()
+    {
+        showUserPassword = !showUserPassword;
+    }
+
+    private void ToggleTenantPasswordVisibility()
+    {
+        showTenantPassword = !showTenantPassword;
+    }
+
+    private async Task CreateUserAsync()
+    {
+        if (isSubmitting)
+            return;
+
+        ClearMessages();
+        isSubmitting = true;
+
+        try
+        {
+            var request = new RegisterUserRequest
+            {
+                FullName = userForm.FullName.Trim(),
+                Email = userForm.Email.Trim(),
+                Password = userForm.Password,
+                Role = userForm.Role,
+                TenantId = Guid.Empty,
+                CreatedByUserId = Guid.Empty
+            };
+
+            var result = await AuthApi.RegisterUser(request);
+
+            successMessage =
+                $"L’utilisateur '{result.FullName ?? request.FullName}' " +
+                "a été créé avec succès.";
+
+            ResetUserForm(clearMessages: false);
+        }
+        catch (ValidationApiException ex)
+        {
+            errorMessage = ExtractValidationError(ex);
+        }
+        catch (ApiException exception)
+        {
+            errorMessage = GetApiExceptionMessage(
+                exception,
+                "La création de l’utilisateur a échoué.");
+        }
+        catch (HttpRequestException)
+        {
+            errorMessage =
+                "Impossible de contacter le serveur.";
+        }
+        catch (TaskCanceledException)
+        {
+            errorMessage =
+                "La requête a été annulée ou a dépassé le délai.";
+        }
+        catch (Exception exception)
+        {
+            errorMessage =
+                $"Une erreur est survenue : {exception.Message}";
+        }
+        finally
+        {
+            isSubmitting = false;
+        }
+    }
+
+    private static string ExtractValidationError(ValidationApiException exception)
+    {
+        if (exception.Content is not null)
+        {
+            var problem = exception.Content;
+
+            if (problem.Errors is not null &&
+                problem.Errors.Count > 0)
+            {
+                var messages = problem.Errors
+                    .SelectMany(error => error.Value)
+                    .Where(message => !string.IsNullOrWhiteSpace(message))
+                    .ToList();
+
+                if (messages.Count > 0)
+                    return string.Join(" ", messages);
+            }
+
+            if (!string.IsNullOrWhiteSpace(problem.Title))
+                return problem.Title;
+
+            if (!string.IsNullOrWhiteSpace(problem.Detail))
+                return problem.Detail;
+        }
+
+        if (!string.IsNullOrWhiteSpace(exception.Message))
+            return exception.Message;
+
+        return "Les informations fournies ne sont pas valides.";
+    }
+
+    private static string GetPlanLabel(
+    SubscriptionPlan plan)
+    {
+        return plan switch
+        {
+            SubscriptionPlan.Free =>
+                "Gratuit",
+
+            SubscriptionPlan.Basic =>
+                "Basic",
+
+            SubscriptionPlan.Professional =>
+                "Professionnel",
+
+            SubscriptionPlan.Enterprise =>
+                "Entreprise",
+
+            _ =>
+                plan.ToString()
+        };
+    }
+
+    private static string GetPlanDescription(
+    SubscriptionPlan plan)
+    {
+        return plan switch
+        {
+            SubscriptionPlan.Free =>
+                "5 utilisateurs, 1 000 produits et 1 emplacement.",
+
+            SubscriptionPlan.Basic =>
+                "10 utilisateurs, 5 000 produits et 3 emplacements.",
+
+            SubscriptionPlan.Professional =>
+                "50 utilisateurs, 50 000 produits et 10 emplacements.",
+
+            SubscriptionPlan.Enterprise =>
+                "Limites étendues pour les grandes entreprises.",
+
+            _ =>
+                string.Empty
+        };
+    }
+    private async Task CreateTenantAsync()
+    {
+        if (isSubmitting)
+            return;
+
+        ClearMessages();
+        isSubmitting = true;
+
+        try
+        {
+            var request = new RegisterCompanyRequest
+            {
+                CompanyName = tenantForm.CompanyName.Trim(),
+                FullName = tenantForm.FullName.Trim(),
+                Email = tenantForm.Email.Trim(),
+                Password = tenantForm.Password,
+                SubscriptionPlan = tenantForm.SubscriptionPlan,
+                EnableTrial = tenantForm.EnableTrial
+            };
+
+            Console.WriteLine(
+                System.Text.Json.JsonSerializer.Serialize(request));
+
+            var result = await AuthApiOpen.RegisterCompany(request);
+
+            successMessage =
+                $"L’entreprise '{request.CompanyName}' a été créée avec succès. " +
+                $"TenantId : {result.TenantId}.";
+
+            ResetTenantForm(clearMessages: false);
+        }
+        catch (ValidationApiException exception)
+        {
+            errorMessage = ExtractValidationError(exception);
+        }
+        catch (ApiException exception)
+        {
+            errorMessage = GetApiExceptionMessage(
+                exception,
+                "La création de l’entreprise a échoué.");
+        }
+        catch (HttpRequestException)
+        {
+            errorMessage =
+                "Impossible de contacter le serveur.";
+        }
+        catch (TaskCanceledException)
+        {
+            errorMessage =
+                "La requête a été annulée ou a dépassé le délai.";
+        }
+        catch (Exception exception)
+        {
+            errorMessage =
+                $"Une erreur est survenue : {exception.Message}";
+        }
+        finally
+        {
+            isSubmitting = false;
+        }
+    }
+
+    private static string GetApiExceptionMessage(
+        ApiException exception,
+        string fallbackMessage)
+    {
+        if (exception.StatusCode ==
+            System.Net.HttpStatusCode.BadRequest)
+        {
+            return ExtractApiError(
+                exception.Content,
+                "Les informations fournies ne sont pas valides.");
+        }
+
+        if (exception.StatusCode ==
+            System.Net.HttpStatusCode.Unauthorized)
+        {
+            return "Votre session a expiré.";
+        }
+
+        if (exception.StatusCode ==
+            System.Net.HttpStatusCode.Forbidden)
+        {
+            return "Vous n’avez pas l’autorisation d’effectuer cette opération.";
+        }
+
+        if (exception.StatusCode ==
+            System.Net.HttpStatusCode.Conflict)
+        {
+            return ExtractApiError(
+                exception.Content,
+                "Cette adresse email est déjà utilisée.");
+        }
+
+        return ExtractApiError(
+            exception.Content,
+            fallbackMessage);
+    }
+
+    private static string ExtractApiError(
+        string? content,
+        string fallbackMessage)
+    {
+        if (string.IsNullOrWhiteSpace(content))
+            return fallbackMessage;
+
+        try
+        {
+            using var document =
+                System.Text.Json.JsonDocument.Parse(content);
+
+            var root = document.RootElement;
+
+            if (root.TryGetProperty(
+                    "message",
+                    out var messageElement))
+            {
+                var message = messageElement.GetString();
+
+                if (!string.IsNullOrWhiteSpace(message))
+                    return message;
+            }
+
+            if (root.TryGetProperty(
+                    "title",
+                    out var titleElement))
+            {
+                var title = titleElement.GetString();
+
+                if (!string.IsNullOrWhiteSpace(title))
+                    return title;
+            }
+
+            if (root.TryGetProperty(
+                    "errors",
+                    out var errorsElement) &&
+                errorsElement.ValueKind ==
+                System.Text.Json.JsonValueKind.Object)
+            {
+                var errors = new List<string>();
+
+                foreach (var property in
+                         errorsElement.EnumerateObject())
+                {
+                    if (property.Value.ValueKind !=
+                        System.Text.Json.JsonValueKind.Array)
+                    {
+                        continue;
+                    }
+
+                    foreach (var error in
+                             property.Value.EnumerateArray())
+                    {
+                        var value = error.GetString();
+
+                        if (!string.IsNullOrWhiteSpace(value))
+                            errors.Add(value);
+                    }
+                }
+
+                if (errors.Count > 0)
+                    return string.Join(" ", errors);
+            }
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return content;
+        }
+
+        return fallbackMessage;
+    }
+
+    private void ResetUserForm()
+    {
+        ResetUserForm(clearMessages: true);
+    }
+
+    private void ResetUserForm(bool clearMessages)
+    {
+        userForm = new CreateUserForm
+        {
+            Role = UserRole.Cashier
+        };
+
+        showUserPassword = false;
+
+        if (clearMessages)
+            ClearMessages();
+    }
+
+    private void ResetTenantForm()
+    {
+        ResetTenantForm(clearMessages: true);
+    }
+
+    private void ResetTenantForm(bool clearMessages)
+    {
+        tenantForm = new CreateTenantForm();
+        showTenantPassword = false;
+
+        if (clearMessages)
+            ClearMessages();
+    }
+
+    private void ClearMessages()
+    {
+        successMessage = null;
+        errorMessage = null;
+    }
+
+    private void ClearSuccess()
+    {
+        successMessage = null;
+    }
+
+    private void ClearError()
+    {
+        errorMessage = null;
+    }
+
+    private static string GetRoleLabel(UserRole role)
+    {
+        return role switch
+        {
+            UserRole.Manager => "Manager",
+            UserRole.Cashier => "Caissier",
+            UserRole.StockManager => "Gestionnaire de stock",
+            UserRole.Viewer => "Consultation",
+            UserRole.Admin => "Administrateur",
+            UserRole.SuperAdmin => "Super administrateur",
+            _ => role.ToString()
+        };
+    }
+
+    private static string GetRoleDescription(UserRole role)
+    {
+        return role switch
+        {
+            UserRole.Manager =>
+                "Peut gérer les principales opérations de l’entreprise.",
+
+            UserRole.Cashier =>
+                "Peut utiliser la caisse et enregistrer les ventes.",
+
+            UserRole.StockManager =>
+                "Peut gérer les produits, les stocks et les inventaires.",
+
+            UserRole.Viewer =>
+                "Dispose uniquement d’un accès en consultation.",
+
+            _ =>
+                "Rôle utilisateur standard."
+        };
+    }
+
+    private sealed class CreateUserForm
+    {
+        [Required(
+            ErrorMessage = "Le nom complet est obligatoire.")]
+        [MaxLength(
+            200,
+            ErrorMessage = "Le nom ne peut pas dépasser 200 caractères.")]
+        public string FullName { get; set; } = string.Empty;
+
+        [Required(
+            ErrorMessage = "L’adresse email est obligatoire.")]
+        [EmailAddress(
+            ErrorMessage = "L’adresse email n’est pas valide.")]
+        public string Email { get; set; } = string.Empty;
+
+        [Required(
+            ErrorMessage = "Le mot de passe est obligatoire.")]
+        [MinLength(
+            8,
+            ErrorMessage =
+                "Le mot de passe doit contenir au moins 8 caractères.")]
+        public string Password { get; set; } = string.Empty;
+
+        [Required(
+            ErrorMessage = "La confirmation est obligatoire.")]
+        [Compare(
+            nameof(Password),
+            ErrorMessage = "Les mots de passe ne correspondent pas.")]
+        public string ConfirmPassword { get; set; } = string.Empty;
+
+        [Required(
+            ErrorMessage = "Le rôle est obligatoire.")]
+        public UserRole Role { get; set; } = UserRole.Cashier;
+    }
+
+    private sealed class CreateTenantForm
+    {
+        [Required(
+            ErrorMessage = "Le nom de l’entreprise est obligatoire.")]
+        [StringLength(
+            200,
+            MinimumLength = 2,
+            ErrorMessage =
+                "Le nom de l’entreprise doit contenir entre 2 et 200 caractères.")]
+        public string CompanyName { get; set; } = string.Empty;
+
+        [Required(
+            ErrorMessage = "Le nom complet de l’administrateur est obligatoire.")]
+        [StringLength(
+            200,
+            MinimumLength = 2,
+            ErrorMessage =
+                "Le nom complet doit contenir entre 2 et 200 caractères.")]
+        public string FullName { get; set; } = string.Empty;
+
+        [Required(
+            ErrorMessage = "L’adresse email est obligatoire.")]
+        [EmailAddress(
+            ErrorMessage = "L’adresse email n’est pas valide.")]
+        public string Email { get; set; } = string.Empty;
+
+        [Required(
+            ErrorMessage = "Le mot de passe est obligatoire.")]
+        [MinLength(
+            8,
+            ErrorMessage =
+                "Le mot de passe doit contenir au moins 8 caractères.")]
+        public string Password { get; set; } = string.Empty;
+
+        [Required(
+            ErrorMessage = "La confirmation est obligatoire.")]
+        [Compare(
+            nameof(Password),
+            ErrorMessage = "Les mots de passe ne correspondent pas.")]
+        public string ConfirmPassword { get; set; } = string.Empty;
+
+        [Required(
+    ErrorMessage = "Le plan d’abonnement est obligatoire.")]
+        public SubscriptionPlan SubscriptionPlan { get; set; }
+    = SubscriptionPlan.Free;
+
+        public bool EnableTrial { get; set; } = true;
+    }
+}

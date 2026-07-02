@@ -1,5 +1,6 @@
 ﻿@page "/sales"
 
+@using Inventory.Ui.Services
 
 @inject IJSRuntime JS
 @inject AppState State
@@ -9,7 +10,7 @@
 @inject ILogger<Sales> Logger
 @inject PosState Pos
 @inject ICashSessionApi CashSessionApi
-
+@inject PosBootstrapService Bootstrap
 @if (!string.IsNullOrEmpty(UiAlertMessage))
 {
     <div class="alert @UiAlertType">
@@ -304,10 +305,6 @@
                 {
                     <button class="category-btn @(SelectedCategory?.Id == cat.Id ? "active" : "")"
                             @onclick="() => SelectCategory(cat)">
-                        @* <svg class="inv-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
-                            <polyline points="9 22 9 12 15 12 15 22" />
-                        </svg> *@
                         @cat.Name
                     </button>
                 }
@@ -379,6 +376,7 @@
     </div>
 }
 
+
 <!-- PAYMENT MODAL -->
 @if (ShowPaymentModal)
 {
@@ -390,6 +388,20 @@
             </div>
 
             <div class="modal-body">
+
+                @if (SaleCompleted)
+                {
+                    <div class="summary-badge success" style="margin-bottom: 16px; padding: 14px;">
+                        <strong>Sale saved successfully.</strong>
+
+                        @if (!string.IsNullOrWhiteSpace(CompletedInvoiceNumber))
+                        {
+                            <div>Invoice: @CompletedInvoiceNumber</div>
+                        }
+
+                        <div>This window will close automatically in 30 seconds.</div>
+                    </div>
+                }
                 <div class="payment-layout">
                     <!-- LEFT SIDE: Payment Details -->
                     <div class="payment-left">
@@ -638,10 +650,14 @@
                 <!-- FOOTER : retirez le bouton Complete Sale existant, mettez: -->
                 <button class="btn btn-success btn-complete"
                         @onclick="HandleCompleteOrAddPayment"
-                        disabled="@IsSaving">
+                        disabled="@(IsSaving || SaleCompleted)">
                     @if (IsSaving)
                     {
                         <span>Processing...</span>
+                    }
+                    else if (SaleCompleted)
+                    {
+                        <span>Sale Completed</span>
                     }
                     else
                     {
@@ -656,6 +672,7 @@
 }
 
 
+<!-- PENDING MODAL -->
 @if (ShowPendingModal)
 {
     <div class="pending-modal-overlay" @onclick="() => ShowPendingModal = false">
@@ -712,6 +729,7 @@
 }
 
 
+<!-- CATEGORY MODAL -->
 @if (ShowCategoryModal)
 {
     <div class="pending-modal-overlay" @onclick="CloseCategoryModal">
@@ -772,6 +790,8 @@
     </div>
 }
 
+
+<!-- WEIGHT MODAL -->
 @if (ShowWeightModal)
 {
     <div class="pending-modal-overlay" @onclick="CloseWeightModal">
@@ -821,6 +841,7 @@
     </div>
 }
 
+
 <!-- Success Toast -->
 @if (!string.IsNullOrEmpty(successMessage))
 {
@@ -845,37 +866,40 @@
     List<CustomerResult> Customers = new();
     List<SaleResult> PendingTickets = new();
     List<ProductCategoryResult> productCategories = new();
-
-    bool ShowPendingModal;
-    private string? successMessage;
-    private string? errorMessage;
-
     CustomerResult? SelectedCustomer;
     CustomerResult? TempSelectedCustomer;
     ProductCategoryResult? SelectedCategory = null;
     CartLine? SelectedLine;
+    private PaymentType currentPaymentType = PaymentType.Cash;
 
-    string BarcodeInput = string.Empty;
+    bool SaleCompleted = false;
+    string? CompletedInvoiceNumber;
+    CancellationTokenSource? closePaymentModalCts;
 
-    string SearchText = string.Empty;
-    string CustomerSearchText = string.Empty;
-
+    bool ShowPendingModal;
     bool IsSaving;
     bool IsLoadingProducts;
     bool ShowCustomerModal;
-    Guid? CurrentPendingSaleId;
-
     // Payment Modal State
     bool ShowPaymentModal;
+    bool pendingLoaded = false;
+    bool isChangeValidated = false;
+    static bool _redirectingToLogin = false;
+
+    string? successMessage;
+    string? errorMessage;
+    string BarcodeInput = string.Empty;
+    string SearchText = string.Empty;
+    string CustomerSearchText = string.Empty;
+
+
+    Guid? CurrentPendingSaleId;
+
     private List<PaymentEntry> paymentEntries = new();
     private string currentPaymentInput = "";
     private decimal remainingAmount;
     private decimal paidAmount;
     private decimal changeAmount = 0;
-    private PaymentType currentPaymentType = PaymentType.Cash;
-    private bool isChangeValidated = false;
-    static bool _redirectingToLogin = false;
-    bool pendingLoaded = false;
 
     Dictionary<Guid, StockResult> StockMap = new();
     Dictionary<Guid, ProductResult> ProductMap = new();
@@ -946,10 +970,11 @@
         ShowCategoryModal = false;
         CategorySearch = "";
 
-        await OnAfterRenderAsync(true);
+        StateHasChanged();
+        await FocusBarcodeInput();
     }
 
-    void OnCategoryProductClick(ProductResult product)
+    async Task OnCategoryProductClick(ProductResult product)
     {
         var catalog = ProductCatalogMap.GetValueOrDefault(product.CatalogProductId);
 
@@ -964,8 +989,8 @@
         }
         else
         {
-            AddProduct(product, 1);
-            CloseCategoryModal();
+            await AddProduct(product, 1);
+            await CloseCategoryModal();
         }
     }
 
@@ -985,7 +1010,7 @@
         });
     }
 
-    void ShowSuccess(string message)
+    async Task ShowSuccess(string message)
     {
         successMessage = null;
         StateHasChanged();
@@ -994,7 +1019,7 @@
 
         StateHasChanged();
 
-        _ = Task.Delay(3000).ContinueWith(_ =>
+        await Task.Delay(3000).ContinueWith(_ =>
         {
             successMessage = null;
             InvokeAsync(StateHasChanged);
@@ -1063,7 +1088,7 @@
             else
             {
                 AddNormalPayment(amount);
-                ShowSuccess("Payment added!");
+                // await ShowSuccess("Payment added!");
 
             }
 
@@ -1170,6 +1195,32 @@
         StateHasChanged();
     }
 
+    bool _posSubscribed = false;
+
+    protected override void OnInitialized()
+    {
+        State.OnChange += HandleStateChange;
+    }
+
+    private void HandleStateChange()
+    {
+        // Sync les maps locales si le cache se reconstruit (ex: après InvalidatePos)
+        if (State.IsFullyLoaded)
+        {
+            Products = State.Products ?? Products;
+            Customers = State.Customers ?? Customers;
+            ProductMap = State.ProductMap ?? ProductMap;
+            ProductCatalogMap = State.ProductCatalogMap ?? ProductCatalogMap;
+            ProductCategoryMap = State.ProductCategoryMap ?? ProductCategoryMap;
+            CustomerMap = State.CustomerMap ?? CustomerMap;
+            StockMap = State.StockMap ?? StockMap;
+            BarcodeMap = State.BarcodeMap ?? BarcodeMap;
+            productCategories = State.ProductsCategory ?? productCategories;
+            filteredProductsCache = Products;
+        }
+        InvokeAsync(StateHasChanged);
+    }
+
     // INIT
     protected override async Task OnInitializedAsync()
     {
@@ -1177,18 +1228,21 @@
         {
             try
             {
-                State.ActiveCashSession = await CashSessionApi.GetActive();
-                State.IsCashSessionLoaded = true;
-                Pos.OnChange += StateHasChanged;
+                var active = await CashSessionApi.GetActive();
+                await State.SetCashSessionAsync(active);
             }
             catch
             {
-                // await JS.InvokeVoidAsync("alert", "No active cash session.\n\nPlease open one.");
-                await ShowError($"No active cash session.");
-
+                await ShowError("No active cash session.");
                 Nav.NavigateTo("/cashsessions");
                 return;
             }
+        }
+
+        if (!_posSubscribed)
+        {
+            Pos.OnChange += StateHasChanged;
+            _posSubscribed = true;
         }
 
         if (State.ActiveCashSession == null)
@@ -1220,147 +1274,22 @@
 
         IsLoadingProducts = true;
 
-        var bootstrap = await PosApi.Bootstrap();
+        await Bootstrap.EnsureLoadedAsync();
 
-        var products = bootstrap.Products ?? new List<ProductResult>();
-        var customers = bootstrap.Customers ?? new List<CustomerResult>();
-        var catalogs = bootstrap.ProductCatalogs ?? new List<ProductCatalogResult>();
-        var categories = bootstrap.ProductCategories ?? new List<ProductCategoryResult>();
-        var stocks = bootstrap.Stocks ?? new List<StockResult>();
-
-        State.Products = products;
-        State.Customers = customers;
-        State.ProductsCatalog = catalogs;
-        State.ProductsCategory = categories;
-
-        State.ProductMap = products.ToDictionary(p => p.Id);
-        State.CustomerMap = customers.ToDictionary(c => c.Id);
-        State.ProductCatalogMap = catalogs.ToDictionary(c => c.Id);
-        State.ProductCategoryMap = categories.ToDictionary(c => c.Id);
-        State.StockMap = stocks.ToDictionary(s => s.ProductId);
-
-        State.BarcodeMap = products
-            .Where(p => !string.IsNullOrWhiteSpace(p.CatalogBarcode))
-            .GroupBy(p => p.CatalogBarcode!)
-            .ToDictionary(g => g.Key, g => g.First());
-
-        State.IsPosLoaded = true;
-        State.LastBootstrapAt = DateTime.UtcNow;
-
-        Products = products;
-        Customers = customers;
-        ProductMap = State.ProductMap;
-        ProductCatalogMap = State.ProductCatalogMap;
-        ProductCategoryMap = State.ProductCategoryMap;
-        CustomerMap = State.CustomerMap;
-        StockMap = State.StockMap;
-        BarcodeMap = State.BarcodeMap;
-        productCategories = categories;
-
+        Products = State.Products ?? new();
+        Customers = State.Customers ?? new();
+        ProductMap = State.ProductMap ?? new();
+        ProductCatalogMap = State.ProductCatalogMap ?? new();
+        ProductCategoryMap = State.ProductCategoryMap ?? new();
+        CustomerMap = State.CustomerMap ?? new();
+        StockMap = State.StockMap ?? new();
+        BarcodeMap = State.BarcodeMap ?? new();
+        productCategories = State.ProductsCategory ?? new();
         filteredProductsCache = Products;
 
         IsLoadingProducts = false;
     }
 
-    private async Task RefreshPosState()
-    {
-        var bootstrap = await PosApi.Bootstrap();
-
-        var products = bootstrap.Products ?? new List<ProductResult>();
-        var customers = bootstrap.Customers ?? new List<CustomerResult>();
-        var catalogs = bootstrap.ProductCatalogs ?? new List<ProductCatalogResult>();
-        var categories = bootstrap.ProductCategories ?? new List<ProductCategoryResult>();
-        var stocks = bootstrap.Stocks ?? new List<StockResult>();
-
-        State.Products = products;
-        State.Customers = customers;
-        State.ProductsCatalog = catalogs;
-        State.ProductsCategory = categories;
-
-        State.ProductMap = products.ToDictionary(p => p.Id);
-        State.CustomerMap = customers.ToDictionary(c => c.Id);
-        State.ProductCatalogMap = catalogs.ToDictionary(c => c.Id);
-        State.ProductCategoryMap = categories.ToDictionary(c => c.Id);
-        State.StockMap = stocks.ToDictionary(s => s.ProductId);
-
-        State.BarcodeMap = products
-            .Where(p => !string.IsNullOrWhiteSpace(p.CatalogBarcode))
-            .GroupBy(p => p.CatalogBarcode!)
-            .ToDictionary(g => g.Key, g => g.First());
-
-        Products = products;
-        Customers = customers;
-        ProductMap = State.ProductMap;
-        ProductCatalogMap = State.ProductCatalogMap;
-        ProductCategoryMap = State.ProductCategoryMap;
-        CustomerMap = State.CustomerMap;
-        StockMap = State.StockMap;
-        BarcodeMap = State.BarcodeMap;
-        productCategories = categories;
-
-        filteredProductsCache = Products;
-
-        StateHasChanged();
-    }
-    /*
-
-    async Task LoadInitialData()
-    {
-        if (!State.IsCacheStale && State.IsFullyLoaded)
-        {
-            // Réutilise le cache existant
-            Products = State.Products!;
-            Customers = State.Customers!;
-            ProductMap = State.ProductMap!;
-            ProductCatalogMap = State.ProductCatalogMap!;
-            CustomerMap = State.CustomerMap!;
-            StockMap = State.StockMap!;
-            BarcodeMap = State.BarcodeMap!;
-            filteredProductsCache = Products;
-
-            ProductCategoryMap = State.ProductCategoryMap!;
-            productCategories = State.ProductsCategory!;
-            return;
-            }
-
-        IsLoadingProducts = true;
-        var bootstrap = await PosApi.Bootstrap();
-
-        State.Products = bootstrap.Products;
-        State.Customers = bootstrap.Customers;
-        State.ProductMap = bootstrap.Products.ToDictionary(p => p.Id);
-        State.CustomerMap = bootstrap.Customers.ToDictionary(c => c.Id);
-
-        State.ProductsCategory = bootstrap.ProductCategories;
-
-        State.ProductCategoryMap = bootstrap.ProductCategories.ToDictionary(c => c.Id);
-        State.ProductCatalogMap = bootstrap.ProductCatalogs.ToDictionary(c => c.Id);
-
-        State.StockMap = bootstrap.Stocks.ToDictionary(s => s.ProductId);
-        State.BarcodeMap = bootstrap.Products
-        .Where(p => !string.IsNullOrWhiteSpace(p.CatalogBarcode))
-        .GroupBy(p => p.CatalogBarcode!)
-        .ToDictionary(g => g.Key, g => g.First());
-
-        State.IsPosLoaded = true;
-        State.LastBootstrapAt = DateTime.UtcNow;
-
-        productCategories = State.ProductsCategory;
-
-        Products = State.Products;
-        Customers = State.Customers;
-        ProductMap = State.ProductMap;
-        ProductCatalogMap = State.ProductCatalogMap;
-        ProductCategoryMap = State.ProductCategoryMap;
-        CustomerMap = State.CustomerMap;
-        StockMap = State.StockMap;
-        BarcodeMap = State.BarcodeMap;
-        productCategories = State.ProductsCategory;
-
-        filteredProductsCache = Products;
-        IsLoadingProducts = false;
-        }
-    */
     private decimal GetAvailableQuantity(Guid productId)
     {
         if (!ProductMap.TryGetValue(productId, out var product))
@@ -1434,6 +1363,28 @@
 
     }
 
+    async Task ClosePaymentModalAfterDelayAsync()
+    {
+        closePaymentModalCts?.Cancel();
+        closePaymentModalCts?.Dispose();
+
+        closePaymentModalCts = new CancellationTokenSource();
+        var token = closePaymentModalCts.Token;
+
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(30), token);
+
+            if (!token.IsCancellationRequested && ShowPaymentModal && SaleCompleted)
+            {
+                await InvokeAsync(ClosePaymentModal);
+            }
+        }
+        catch (TaskCanceledException)
+        {
+        }
+    }
+
     async Task CloseCustomerModal()
     {
         ShowCustomerModal = false;
@@ -1476,10 +1427,6 @@
             // await JS.InvokeVoidAsync("forceFocus", barcodeInputRef);
             await FocusBarcodeInput();
         }
-        // else
-        // {
-
-        // }
     }
 
     void PressKey(string key) => NumpadValue += key;
@@ -1490,17 +1437,17 @@
         _ = FocusBarcodeInput();
     }
 
-    void SelectAndAddProduct(ProductResult product)
+    async Task SelectAndAddProduct(ProductResult product)
     {
         var qty = GetQuantityFromNumpad(product);
 
         if (qty <= 0)
         {
-            ShowError($"{product.CatalogName} is sold by piece only.");
+            await ShowError($"{product.CatalogName} is sold by piece only.");
             return;
         }
 
-        AddProduct(product, qty);
+        await AddProduct(product, qty);
         NumpadValue = "";
         _ = FocusBarcodeInput();
     }
@@ -1560,7 +1507,7 @@
 
         if (catalog == null)
         {
-            ShowError($"Catalog not found for {product.CatalogName} !");
+            await ShowError($"Catalog not found for {product.CatalogName} !");
             return;
         }
 
@@ -1568,13 +1515,13 @@
         {
             if (quantity <= 0)
             {
-                ShowError($"Quantity must be greater than 0 for {product.CatalogName}.");
+                await ShowError($"Quantity must be greater than 0 for {product.CatalogName}.");
                 return;
             }
 
             if (quantity != Math.Truncate(quantity))
             {
-                ShowError($"{product.CatalogName} is sold by piece only.");
+                await ShowError($"{product.CatalogName} is sold by piece only.");
                 return;
             }
         }
@@ -1582,7 +1529,7 @@
         {
             if (quantity <= 0)
             {
-                ShowError($"Weight must be greater than 0 for {product.CatalogName}.");
+                await ShowError($"Weight must be greater than 0 for {product.CatalogName}.");
                 return;
             }
         }
@@ -1783,6 +1730,13 @@
             return;
         }
 
+        closePaymentModalCts?.Cancel();
+        closePaymentModalCts?.Dispose();
+        closePaymentModalCts = null;
+
+        SaleCompleted = false;
+        CompletedInvoiceNumber = null;
+
         ShowPaymentModal = true;
         paymentEntries.Clear();
         currentPaymentInput = "";
@@ -1792,12 +1746,21 @@
         isChangeValidated = false;
         showPaymentPreview = false;
         currentPaymentType = PaymentType.Cash;
+
         StateHasChanged();
     }
 
     void ClosePaymentModal()
     {
+        closePaymentModalCts?.Cancel();
+        closePaymentModalCts?.Dispose();
+        closePaymentModalCts = null;
+
         ShowPaymentModal = false;
+
+        SaleCompleted = false;
+        CompletedInvoiceNumber = null;
+
         paymentEntries.Clear();
         currentPaymentInput = "";
         isChangeValidated = false;
@@ -1806,6 +1769,7 @@
         changeAmount = 0;
         remainingAmount = TotalAmount;
         currentPaymentType = PaymentType.Cash;
+
         StateHasChanged();
     }
 
@@ -1857,14 +1821,14 @@
         if (amount <= 0)
         {
 
-            ShowError($"amount is under 0 !");
+            await ShowError($"amount is under 0 !");
             return;
         }
 
         if (currentPaymentType != PaymentType.Cash && amount > remainingAmount)
         {
             // await JS.InvokeVoidAsync("alert", "Payment exceeds remaining balance.");
-            ShowError($"Payment exceeds remaining balance !");
+            await ShowError($"Payment exceeds remaining balance !");
 
             return;
         }
@@ -1934,7 +1898,7 @@
                 denominations.Where(d => d.Value > 0)
                              .Select(d => $"{d.Value} × €{d.Key}"));
 
-            await ShowChangeAlert(changeAmount, denominationText);
+            // await ShowChangeAlert(changeAmount, denominationText);
         }
 
         currentPaymentInput = "";
@@ -1942,21 +1906,21 @@
         StateHasChanged();
     }
 
-    private async Task ShowChangeAlert(decimal change, string denominationText)
-    {
-        var message = $"Payment added successfully!\n\n" +
-                      $"Amount taken: €{paidAmount:F2}\n" +
-                      $"Change due: €{change:F2}";
+    // async Task ShowChangeAlert(decimal change, string denominationText)
+    // {
+    //     var message = $"Payment added successfully!\n\n" +
+    //                   $"Amount taken: €{paidAmount:F2}\n" +
+    //                   $"Change due: €{change:F2}";
 
-        if (!string.IsNullOrEmpty(denominationText))
-        {
-            message += $"\n\nGive change as:\n{denominationText}";
-        }
-        // successMessage = $"Payment added successfully!";
-        ShowSuccess("Payment added successfully !");
+    //     if (!string.IsNullOrEmpty(denominationText))
+    //     {
+    //         message += $"\n\nGive change as:\n{denominationText}";
+    //     }
+    //     // successMessage = $"Payment added successfully!";
+    //     // await ShowSuccess("Payment added successfully !");
 
-        // ShowAlert(message, "success");
-    }
+    //     // ShowAlert(message, "success");
+    // }
 
     async Task PayExactAmount()
     {
@@ -1967,16 +1931,10 @@
     // PAYMENT MANAGEMENT
     void RemovePaymentEntry(PaymentEntry entry)
     {
-        // Remove the payment
         remainingAmount += entry.Amount;
         paidAmount -= entry.Amount;
         paymentEntries.Remove(entry);
-
-        // Recalculate everything
         RecalculateAll();
-
-        isChangeValidated = false;
-        StateHasChanged();
     }
 
     private void RecalculateAll()
@@ -2230,9 +2188,9 @@
             var soldLines = Pos.Lines.ToList(); // snapshot avant reset
             var result = await SaleApi.CreateComplete(request);
 
-            ShowSuccess("Sale Saved !");
+            await ShowSuccess("Sale Saved !");
 
-            DeductStockLocally(soldLines); 
+            DeductStockLocally(soldLines);
 
             await JS.InvokeVoidAsync(
                 "downloadFile",
@@ -2243,11 +2201,30 @@
 
 
 
-            ResetPayments();
-            await Reset();
+            // ResetPayments();
+            // await Reset();
+            // CurrentPendingSaleId = null;
+            // pendingLoaded = false;
+
+            SaleCompleted = true;
+            CompletedInvoiceNumber = result.Sale.InvoiceNumber;
+
+            paymentEntries.Clear();
+            currentPaymentInput = "";
+            showPaymentPreview = false;
+
+            Pos.Lines.Clear();
+            SelectedLine = null;
+            SelectedCustomer = null;
             CurrentPendingSaleId = null;
             pendingLoaded = false;
-            ClosePaymentModal();
+
+            Pos.Notify();
+
+            StateHasChanged();
+
+            _ = ClosePaymentModalAfterDelayAsync();
+            // ClosePaymentModal();
 
             // PendingTickets = await SaleApi.GetPending();
         }
@@ -2360,7 +2337,7 @@
             {
                 await SaleApi.UpdatePending(CurrentPendingSaleId.Value, request);
                 // successMessage = $"Sale updated as Pending !";
-                ShowSuccess("Sale Updated as Pending !");
+                await ShowSuccess("Sale Updated as Pending !");
 
                 pendingLoaded = false;
 
@@ -2369,8 +2346,6 @@
             {
                 var created = await SaleApi.CreatePending(request);
                 // successMessage = $"Sale saved as Pending !";
-                ShowSuccess("Sale saved as Pending !");
-
                 CurrentPendingSaleId = created.Id;
                 pendingLoaded = false;
 
@@ -2378,7 +2353,7 @@
 
             // await JS.InvokeVoidAsync("alert", "Sale saved as pending.");
             // successMessage = $"Sale saved as Pending !";
-            ShowSuccess("Sale saved as Pending !");
+            await ShowSuccess("Sale saved as Pending !");
             // successMessage = $"Sale of €{paymentAmount:N2} issued to {selectedCustomer.Name}!";
 
 
@@ -2462,7 +2437,11 @@
     public void Dispose()
     {
         feedbackTimer?.Dispose();
-        Pos.OnChange -= StateHasChanged;
+        closePaymentModalCts?.Cancel();
+        closePaymentModalCts?.Dispose();
+        if (_posSubscribed)
+            Pos.OnChange -= StateHasChanged;
+        State.OnChange -= HandleStateChange;
     }
 
     // void HandleUnauthorized()
@@ -2509,6 +2488,8 @@
 
         StockMap = State.StockMap!;
     }
+
+
 
     void OpenCustomerDisplay()
     {

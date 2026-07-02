@@ -16,56 +16,56 @@
 
             <div class="form-grid">
 
-    <div class="form-row">
-        <div class="form-field">
-            <label>Name *</label>
-            <InputText class="inputText"
-                       @bind-Value="form.Name"
-                       disabled="@isLoading" />
-            <ValidationMessage For="@(() => form.Name)" />
-        </div>
+                <div class="form-row">
+                    <div class="form-field">
+                        <label>Name *</label>
+                        <InputText class="inputText"
+                                   @bind-Value="form.Name"
+                                   disabled="@isLoading" />
+                        <ValidationMessage For="@(() => form.Name)" />
+                    </div>
 
-        <div class="form-field">
-            <label>Display Order</label>
-            <InputNumber class="inputText"
-                         @bind-Value="form.DisplayOrder"
-                         disabled="@isLoading" />
-        </div>
-    </div>
+                    <div class="form-field">
+                        <label>Display Order</label>
+                        <InputNumber class="inputText"
+                                     @bind-Value="form.DisplayOrder"
+                                     disabled="@isLoading" />
+                    </div>
+                </div>
 
-    <div class="form-row">
-        <div class="form-field">
-            <label>Color</label>
-            <InputText class="inputText"
-                       placeholder="#FF0000"
-                       @bind-Value="form.Color"
-                       disabled="@isLoading" />
-        </div>
+                <div class="form-row">
+                    <div class="form-field">
+                        <label>Color</label>
+                        <InputText class="inputText"
+                                   placeholder="#FF0000"
+                                   @bind-Value="form.Color"
+                                   disabled="@isLoading" />
+                    </div>
 
-        <div class="form-field">
-            <label>Icon</label>
-            <InputText class="inputText"
-                       placeholder="fa-apple"
-                       @bind-Value="form.Icon"
-                       disabled="@isLoading" />
-        </div>
-    </div>
+                    <div class="form-field">
+                        <label>Icon</label>
+                        <InputText class="inputText"
+                                   placeholder="fa-apple"
+                                   @bind-Value="form.Icon"
+                                   disabled="@isLoading" />
+                    </div>
+                </div>
 
-    <div class="actions-end">
-        <button type="submit" class="btn primary" disabled="@isLoading">
-            @(editingId == null ? "Create" : "Update")
-        </button>
+                <div class="actions-end">
+                    <button type="submit" class="btn primary" disabled="@isLoading">
+                        @(editingId == null ? "Create" : "Update")
+                    </button>
 
-        @if (editingId != null)
-        {
-            <button type="button" class="btn ghost"
-                    @onclick="CancelEdit">
-                Cancel
-            </button>
-        }
-    </div>
+                    @if (editingId != null)
+                    {
+                        <button type="button" class="btn ghost"
+                                @onclick="CancelEdit">
+                            Cancel
+                        </button>
+                    }
+                </div>
 
-</div>
+            </div>
         </EditForm>
     </div>
 
@@ -130,42 +130,54 @@
 
         <table class="table">
             <thead>
-    <tr>
-        <th>Name</th>
-        <th>Order</th>
-        <th>Color</th>
-        <th>Icon</th>
-        <th style="width:160px"></th>
-    </tr>
-</thead>
+                <tr>
+                    <th @onclick="() => Sort(nameof(ProductCategoryResult.Name))">
+                        Name @GetSortIcon(nameof(ProductCategoryResult.Name))
+                    </th>
 
-<tbody>
-@foreach (var c in items)
-{
-    <tr>
-        <td>@c.Name</td>
-        <td>@c.DisplayOrder</td>
-        <td>
-            <span style="background:@c.Color; padding:4px 10px; border-radius:4px;">
-                @c.Color
-            </span>
-        </td>
-        <td>@c.Icon</td>
+                    <th @onclick="() => Sort(nameof(ProductCategoryResult.DisplayOrder))">
+                        Order @GetSortIcon(nameof(ProductCategoryResult.DisplayOrder))
+                    </th>
 
-        <td class="actions-end">
-            <button class="btn small ghost"
-                    @onclick="() => StartEdit(c)">
-                Edit
-            </button>
+                    <th @onclick="() => Sort(nameof(ProductCategoryResult.Color))">
+                        Color @GetSortIcon(nameof(ProductCategoryResult.Color))
+                    </th>
 
-            <button class="btn small danger"
-                    @onclick="() => AskDelete(c)">
-                Delete
-            </button>
-        </td>
-    </tr>
-}
-</tbody>
+                    <th @onclick="() => Sort(nameof(ProductCategoryResult.Icon))">
+                        Icon @GetSortIcon(nameof(ProductCategoryResult.Icon))
+                    </th>
+
+                    <th style="width:160px"></th>
+                </tr>
+            </thead>
+
+            <tbody>
+                @foreach (var c in items)
+                {
+                    <tr>
+                        <td>@c.Name</td>
+                        <td>@c.DisplayOrder</td>
+                        <td>
+                            <span style="background:@c.Color; padding:4px 10px; border-radius:4px;">
+                                @c.Color
+                            </span>
+                        </td>
+                        <td>@c.Icon</td>
+
+                        <td class="actions-end">
+                            <button class="btn small ghost"
+                                    @onclick="() => StartEdit(c)">
+                                Edit
+                            </button>
+
+                            <button class="btn small danger"
+                                    @onclick="() => AskDelete(c)">
+                                Delete
+                            </button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
         </table>
     }
 
@@ -211,6 +223,9 @@
     private bool isLoadingData;
     private bool isSearching;
 
+    private string sortBy = "DisplayOrder";
+    private bool sortDescending = false;
+
     private string? errorMessage;
     private string? successMessage;
 
@@ -242,7 +257,7 @@
 
     async Task ShowError(string message)
     {
-        errorMessage  =null;
+        errorMessage = null;
         StateHasChanged();
 
         errorMessage = message;
@@ -272,7 +287,9 @@
             {
                 Page = Page,
                 PageSize = PageSize,
-                Search = isSearching ? searchTerm : null
+                Search = isSearching ? searchTerm : null,
+                SortBy = sortBy,
+                Desc = sortDescending
             };
 
             var response = await Api.Search(query);
@@ -282,8 +299,6 @@
         }
         catch (Exception ex)
         {
-            // errorMessage = $"Failed to load Product Category : {ex.Message}";
-
             await ShowError("Failed to load Product Category");
             items = new List<ProductCategoryResult>();
         }
@@ -293,6 +308,30 @@
         }
     }
 
+    private async Task Sort(string column)
+    {
+        if (sortBy == column)
+        {
+            sortDescending = !sortDescending;
+        }
+        else
+        {
+            sortBy = column;
+            sortDescending = false;
+        }
+
+        Page = 1;
+        await LoadData();
+    }
+
+    private string GetSortIcon(string column)
+    {
+        if (sortBy != column)
+        {
+            return "↕";
+        }
+        return sortDescending ? "▼" : "▲";
+    }
 
     async Task ChangePage(int newPage)
     {
@@ -536,6 +575,6 @@
 
         [StringLength(200, ErrorMessage = "Icon cannot exceed 200 characters")]
         public string Icon { get; set; } = string.Empty;
-       
+
     }
 }

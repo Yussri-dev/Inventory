@@ -57,24 +57,31 @@ namespace Inventory.Services.Features.Pos.Bootstrap
         {
             var tenantId = _tenant.TenantId;
 
-            // ── Charger les catalogs AVEC leurs composants pack ──────────────
+            var products = await _products
+            .Query()
+            .Where(p =>
+                !p.IsDeleted &&
+                p.TenantId == tenantId)
+            .ToListAsync(ct);
+
+            var catalogIds = products
+                .Select(p => p.CatalogProductId)
+                .Distinct()
+                .ToList();
+
             var productCatalogs = await _productCatalogs
                 .Query()
-                .Where(pc => !pc.IsDeleted && pc.TenantId == tenantId)
+                .Where(pc =>
+                    !pc.IsDeleted &&
+                    catalogIds.Contains(pc.Id))
                 .Include(pc => pc.PackComponents)
                     .ThenInclude(comp => comp.ComponentCatalog)
-                .ToListAsync(ct);
-
-            // ── Charger les produits ─────────────────────────────────────────
-            var products = await _products
-                .Query()
-                .Where(p => !p.IsDeleted && p.TenantId == tenantId)
                 .ToListAsync(ct);
 
             // ── Charger les produits categorie ─────────────────────────────────────────
             var productCategories = await _productCategory
                 .Query()
-                .Where(p => !p.IsDeleted && p.TenantId == tenantId)
+                .Where(p => !p.IsDeleted )
                 .ToListAsync(ct);
 
             // ── Charger les stocks ───────────────────────────────────────────
@@ -113,16 +120,34 @@ namespace Inventory.Services.Features.Pos.Bootstrap
                     var component = catalog.PackComponents.First();
                     packSize = component.Quantity;
 
-                    if (catalogToProductMap.TryGetValue(component.ComponentCatalogId, out var unitProductId))
+                    if (catalogToProductMap.TryGetValue(
+                            component.ComponentCatalogId,
+                            out var unitProductId))
+                    {
                         componentProductId = unitProductId;
+                    }
                 }
 
                 return new ProductResult
                 {
                     Id = p.Id,
                     CatalogProductId = p.CatalogProductId,
-                    CatalogName = catalog?.Name ?? "",
-                    CatalogBarcode = catalog?.Barcode ?? "",
+
+                    CatalogName =
+                        !string.IsNullOrWhiteSpace(p.Name)
+                            ? p.Name
+                            : catalog?.Name ?? "Unknown Product",
+
+                    CatalogBrand =
+                        !string.IsNullOrWhiteSpace(p.Brand)
+                            ? p.Brand
+                            : catalog?.Brand,
+
+                    CatalogBarcode =
+                        !string.IsNullOrWhiteSpace(p.Barcode)
+                            ? p.Barcode
+                            : catalog?.Barcode,
+
                     SalePrice = p.SalePrice,
                     SalePrice2 = p.SalePrice2,
                     SalePrice3 = p.SalePrice3,

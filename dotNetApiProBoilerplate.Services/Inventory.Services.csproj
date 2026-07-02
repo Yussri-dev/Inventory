@@ -7,6 +7,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Folder Include="Features\Products\Import\" />
     <Folder Include="Models\Filters\" />
     <Folder Include="Models\Requests\" />
   </ItemGroup>

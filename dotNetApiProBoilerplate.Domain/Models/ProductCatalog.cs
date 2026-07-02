@@ -7,7 +7,7 @@ using System.ComponentModel.DataAnnotations;
 
 namespace Inventory.Domain.Entities
 {
-    public class ProductCatalog : TenantEntity
+    public class ProductCatalog : GlobalEntity
     {
         [Key]
         public Guid Id { get; set; }
@@ -38,6 +38,7 @@ namespace Inventory.Domain.Entities
         public string UnitOfMeasure { get; set; } = "pcs"; // pcs, kg, g, l
 
         public bool IsPack { get; set; } = false;
+        public bool IsGlobal { get; set; }
 
         public Guid CategoryId { get; set; }
         public ProductCategory Category { get; set; }

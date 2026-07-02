@@ -4,10 +4,12 @@
 @using Inventory.Dto.CashSessions.Results
 @using Inventory.Dto.Enums
 @using Inventory.Ui.State
+@using Inventory.Ui.Services
 
 @inject AppState State
 @inject ICashSessionApi CashSessionApi
 @inject NavigationManager Navigation
+@implements IDisposable
 
 <div class="cash-session-container">
 
@@ -185,116 +187,62 @@
                 <div class="form-group">
                     <div class="rouleaux">
                         <h4>Rouleaux</h4>
-
                         <label>0.01 € * 25 </label>
-                        <input class="form-input"
-                               type="number" @bind="R001" min="0" />
-
+                        <input class="form-input" type="number" @bind="R001" min="0" />
                         <label>0.02 € * 25</label>
-                        <input class="form-input"
-                               type="number" @bind="R002" min="0" />
-
+                        <input class="form-input" type="number" @bind="R002" min="0" />
                         <label>0.05 € * 25</label>
-                        <input class="form-input"
-                               type="number" @bind="R005" min="0" />
-
+                        <input class="form-input" type="number" @bind="R005" min="0" />
                         <label>0.10 € * 25</label>
-                        <input class="form-input"
-                               type="number" @bind="R010" min="0" />
-
+                        <input class="form-input" type="number" @bind="R010" min="0" />
                         <label>0.20 € * 25</label>
-                        <input class="form-input"
-                               type="number" @bind="R020" min="0" />
-
+                        <input class="form-input" type="number" @bind="R020" min="0" />
                         <label>0.50 € * 25</label>
-                        <input class="form-input"
-                               type="number" @bind="R050" min="0" />
-
+                        <input class="form-input" type="number" @bind="R050" min="0" />
                         <label>1 € * 25</label>
-                        <input class="form-input"
-                               type="number" @bind="R1" min="0" />
-
+                        <input class="form-input" type="number" @bind="R1" min="0" />
                         <label>2 € * 25</label>
-                        <input class="form-input"
-                               type="number" @bind="R2" min="0" />
+                        <input class="form-input" type="number" @bind="R2" min="0" />
                     </div>
 
                     <div class="coins">
                         <h4>Coins</h4>
-
                         <label>0.01 €</label>
-                        <input class="form-input"
-                               type="number" @bind="C001" min="0" />
-
+                        <input class="form-input" type="number" @bind="C001" min="0" />
                         <label>0.02 €</label>
-                        <input class="form-input"
-                               type="number" @bind="C002" min="0" />
-
+                        <input class="form-input" type="number" @bind="C002" min="0" />
                         <label>0.05 €</label>
-                        <input class="form-input"
-                               type="number" @bind="C005" min="0" />
-
+                        <input class="form-input" type="number" @bind="C005" min="0" />
                         <label>0.10 €</label>
-                        <input class="form-input"
-                               type="number" @bind="C010" min="0" />
-
+                        <input class="form-input" type="number" @bind="C010" min="0" />
                         <label>0.20 €</label>
-                        <input class="form-input"
-                               type="number" @bind="C020" min="0" />
-
+                        <input class="form-input" type="number" @bind="C020" min="0" />
                         <label>0.50 €</label>
-                        <input class="form-input"
-                               type="number" @bind="C050" min="0" />
-
+                        <input class="form-input" type="number" @bind="C050" min="0" />
                         <label>1 €</label>
-                        <input class="form-input"
-                               type="number" @bind="C1" min="0" />
-
+                        <input class="form-input" type="number" @bind="C1" min="0" />
                         <label>2 €</label>
-                        <input class="form-input"
-                               type="number" @bind="C2" min="0" />
+                        <input class="form-input" type="number" @bind="C2" min="0" />
                     </div>
-                    
+
                     <div class="notes">
                         <h4>Billets</h4>
-
                         <label>5 €</label>
-                        <input class="form-input"
-                               type="number" @bind="B5" min="0" />
-
+                        <input class="form-input" type="number" @bind="B5" min="0" />
                         <label>10 €</label>
-                        <input class="form-input"
-                               type="number" @bind="B10" min="0" />
-
+                        <input class="form-input" type="number" @bind="B10" min="0" />
                         <label>20 €</label>
-                        <input class="form-input"
-                               type="number" @bind="B20" min="0" />
-
+                        <input class="form-input" type="number" @bind="B20" min="0" />
                         <label>50 €</label>
-                        <input class="form-input"
-                               type="number" @bind="B50" min="0" />
-
+                        <input class="form-input" type="number" @bind="B50" min="0" />
                         <label>100 €</label>
-                        <input class="form-input"
-                               type="number" @bind="B100" min="0" />
-
+                        <input class="form-input" type="number" @bind="B100" min="0" />
                         <label>200 €</label>
-                        <input class="form-input"
-                               type="number" @bind="B200" min="0" />
-
+                        <input class="form-input" type="number" @bind="B200" min="0" />
                         <label>500 €</label>
-                        <input class="form-input"
-                               type="number" @bind="B500" min="0" />
+                        <input class="form-input" type="number" @bind="B500" min="0" />
                     </div>
-                   
-
                 </div>
-
-             @*    <div class="difference-preview">
-                    <div>Coins: €@CoinsTotal</div>
-                    <div>Notes: €@NotesTotal</div>
-                    <div><strong>Total Cash: €@ActualCashCalculated</strong></div>
-                </div> *@
 
                 <div class="session-summary">
                     <div class="summary-item">
@@ -304,6 +252,7 @@
                         <div class="amount"><strong>Total Cash: €@ActualCashCalculated</strong></div>
                     </div>
                 </div>
+
                 @if (ActiveSession != null)
                 {
                     <div class="difference-preview">
@@ -311,7 +260,6 @@
                         <strong class="@GetDifferenceClass(Difference)">
                             €@Difference.ToString("F2")
                         </strong>
-
                     </div>
                 }
 
@@ -326,7 +274,7 @@
 
             <div class="modal-footer">
                 <button class="btn btn-secondary" @onclick="CloseCloseModal">Cancel</button>
-                <button class="btn btn-danger" @onclick="CloseSession" disabled="@(IsLoading)">
+                <button class="btn btn-danger" @onclick="CloseSession" disabled="@IsLoading">
                     @(IsLoading ? "Closing..." : "Close Session")
                 </button>
             </div>
@@ -335,6 +283,9 @@
 }
 
 @code {
+    // ── Local display state ──────────────────────────────────────────────────
+    // CHANGE 1: ActiveSession is now a local mirror of State.ActiveCashSession,
+    // not the authoritative source. The cache owns the truth; this page reflects it.
     CashSessionResult? ActiveSession;
     List<CashSessionResult> RecentSessions = new();
 
@@ -344,108 +295,98 @@
 
     decimal OpeningBalance;
     string OpeningNotes = "";
-    decimal ActualCash => ActualCashCalculated;
     string ClosingNotes = "";
 
     decimal Difference =>
-    ActiveSession == null
-        ? 0
-        : ActualCashCalculated - ActiveSession.ClosingAmountExpected;
+        ActiveSession == null
+            ? 0
+            : ActualCashCalculated - ActiveSession.ClosingAmountExpected;
 
-    bool HasAnyCashEntered => RouleauxTotal > 0 ||
-    CoinsTotal > 0 || NotesTotal > 0;
+    bool HasAnyCashEntered => RouleauxTotal > 0 || CoinsTotal > 0 || NotesTotal > 0;
 
-    //Rouleaux
-    int R001;
-    int R002;
-    int R005;
-    int R010;
-    int R020;
-    int R050;
-    int R1;
-    int R2;
-
+    // Rouleaux
+    int R001; int R002; int R005; int R010;
+    int R020; int R050; int R1; int R2;
 
     decimal RouleauxTotal =>
-    R001 * 25 * 0.01m +
-    R002 * 25 * 0.02m +
-    R005 * 25 * 0.05m +
-    R010 * 25 * 0.10m +
-    R020 * 25 * 0.20m +
-    R050 * 25 * 0.50m +
-    R1 * 25 * 1m +
-    R2 * 25 * 2m;
+        R001 * 25 * 0.01m + R002 * 25 * 0.02m +
+        R005 * 25 * 0.05m + R010 * 25 * 0.10m +
+        R020 * 25 * 0.20m + R050 * 25 * 0.50m +
+        R1 * 25 * 1m + R2 * 25 * 2m;
 
-    // PIECES (nombre de pièces)
-    int C001;
-    int C002;
-    int C005;
-    int C010;
-    int C020;
-    int C050;
-    int C1;
-    int C2;
+    // Coins
+    int C001; int C002; int C005; int C010;
+    int C020; int C050; int C1; int C2;
 
-    //Total Coins
     decimal CoinsTotal =>
-    C001 * 0.01m +
-    C002 * 0.02m +
-    C005 * 0.05m +
-    C010 * 0.10m +
-    C020 * 0.20m +
-    C050 * 0.50m +
-    C1 * 1m +
-    C2 * 2m;
+        C001 * 0.01m + C002 * 0.02m + C005 * 0.05m + C010 * 0.10m +
+        C020 * 0.20m + C050 * 0.50m + C1 * 1m + C2 * 2m;
 
-    // BILLETS (nombre de billets)
-    int B5;
-    int B10;
-    int B20;
-    int B50;
-    int B100;
-    int B200;
-    int B500;
+    // Billets
+    int B5; int B10; int B20; int B50; int B100; int B200; int B500;
 
-    // Total Billets
     decimal NotesTotal =>
-    B5 * 5m +
-    B10 * 10m +
-    B20 * 20m +
-    B50 * 50m +
-    B100 * 100m +
-    B200 * 200m +
-    B500 * 500m;
+        B5 * 5m + B10 * 10m + B20 * 20m + B50 * 50m +
+        B100 * 100m + B200 * 200m + B500 * 500m;
 
-    // Total Cash Calculated
-    decimal ActualCashCalculated => RouleauxTotal + CoinsTotal + NotesTotal ;
+    decimal ActualCashCalculated => RouleauxTotal + CoinsTotal + NotesTotal;
+
+    // ── Lifecycle ────────────────────────────────────────────────────────────
+
+    // CHANGE 2: Subscribe to OnChange so that if another page (e.g. POS after a sale)
+    // calls State.SetCashSessionAsync(), this page re-renders automatically to
+    // show the updated expected cash total without a manual reload.
+    protected override void OnInitialized()
+    {
+        State.OnChange += HandleStateChange;
+    }
 
     protected override async Task OnInitializedAsync()
     {
         await LoadData();
     }
 
+    // CHANGE 3: Unsubscribe on dispose to prevent memory leaks.
+    public void Dispose()
+    {
+        State.OnChange -= HandleStateChange;
+    }
+
+    private void HandleStateChange()
+    {
+        // Sync the local mirror when the cache updates externally
+        ActiveSession = State.ActiveCashSession;
+        InvokeAsync(StateHasChanged);
+    }
+
+    // ── Data loading ─────────────────────────────────────────────────────────
+
     async Task LoadData()
     {
         try
         {
+            // CHANGE 4: Use State.SetCashSessionAsync() instead of writing
+            // directly to State.ActiveCashSession and State.IsCashSessionLoaded
+            // (those properties are now read-only on the new AppState).
             if (!State.IsCashSessionLoaded)
             {
+                CashSessionResult? active = null;
                 try
                 {
-                    State.ActiveCashSession = await CashSessionApi.GetActive();
+                    active = await CashSessionApi.GetActive();
                 }
                 catch
                 {
-                    State.ActiveCashSession = null;
+                    active = null; // no active session is a valid state
                 }
 
-                State.IsCashSessionLoaded = true;
+                await State.SetCashSessionAsync(active);
             }
 
+            // Mirror the cached value into local state for rendering
             ActiveSession = State.ActiveCashSession;
 
             var allSessions = await CashSessionApi.GetAll();
-
             RecentSessions = allSessions
                 .Where(s => s.Status == CashSessionStatus.Closed)
                 .OrderByDescending(s => s.OpenedAt)
@@ -454,30 +395,26 @@
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error loading data: {ex.Message}");
+            Console.WriteLine($"Error loading cash session data: {ex.Message}");
         }
     }
 
-    // OPEN SESSION
+    // ── Open session ─────────────────────────────────────────────────────────
+
     void OpenCreateModal()
     {
-        ShowCreateModal = true;
         OpeningBalance = 0;
         OpeningNotes = "";
+        ShowCreateModal = true;
     }
 
-    void CloseCreateModal()
-    {
-        ShowCreateModal = false;
-    }
+    void CloseCreateModal() => ShowCreateModal = false;
 
     async Task CreateSession()
     {
-        if (OpeningBalance < 0)
-            return;
+        if (OpeningBalance < 0) return;
 
         IsLoading = true;
-
         try
         {
             var request = new CreateCashSessionRequest
@@ -486,17 +423,19 @@
                 OpeningNotes = OpeningNotes
             };
 
-            ActiveSession = await CashSessionApi.Create(request);
+            var created = await CashSessionApi.Create(request);
 
-            State.ActiveCashSession = ActiveSession;
-            State.IsCashSessionLoaded = true;
+            // CHANGE 5: Write through the proper async setter so the lock is
+            // respected and OnChange fires — any other subscribed component
+            // (e.g. a nav badge showing session status) updates automatically.
+            await State.SetCashSessionAsync(created);
+
+            // Mirror to local
+            ActiveSession = State.ActiveCashSession;
 
             CloseCreateModal();
 
-            RecentSessions = RecentSessions
-            .OrderByDescending(s => s.OpenedAt)
-            .Take(5)
-            .ToList();
+            // Recent sessions list doesn't include open sessions, no insert needed
         }
         catch (Exception ex)
         {
@@ -508,38 +447,33 @@
         }
     }
 
-    // CLOSE SESSION
+    // ── Close session ─────────────────────────────────────────────────────────
+
     void OpenCloseModal()
     {
-        ShowCloseModal = true;
         ResetCashCounters();
         ClosingNotes = "";
+        ShowCloseModal = true;
     }
 
     void ResetCashCounters()
     {
+        R001 = R002 = R005 = R010 = R020 = R050 = R1 = R2 = 0;
         C001 = C002 = C005 = C010 = C020 = C050 = C1 = C2 = 0;
         B5 = B10 = B20 = B50 = B100 = B200 = B500 = 0;
     }
 
-
-    void CloseCloseModal()
-    {
-        ShowCloseModal = false;
-    }
+    void CloseCloseModal() => ShowCloseModal = false;
 
     async Task CloseSession()
     {
-        if (ActiveSession == null || !HasAnyCashEntered)
-            return;
+        if (ActiveSession == null || !HasAnyCashEntered) return;
 
         IsLoading = true;
-
         try
         {
-            // Observabilité base (safe prod + debug)
             Console.WriteLine(
-                $"CashClose | Rouleaux={RouleauxTotal} |Coins={CoinsTotal} | Notes={NotesTotal} | Total={ActualCashCalculated} | Expected={ActiveSession.ClosingAmountExpected}"
+                $"CashClose | Rouleaux={RouleauxTotal} | Coins={CoinsTotal} | Notes={NotesTotal} | Total={ActualCashCalculated} | Expected={ActiveSession.ClosingAmountExpected}"
             );
 
             var request = new CloseCashSessionRequest
@@ -550,23 +484,21 @@
 
             await CashSessionApi.Close(ActiveSession.Id, request);
 
-            State.ActiveCashSession = null;
-            State.IsCashSessionLoaded = true;
+            // CHANGE 6: Clear the session through the proper setter (null = no active session).
+            await State.SetCashSessionAsync(null);
+
+            // Optimistic update of recent sessions list — avoids a full reload round-trip
+            var closedSession = ActiveSession;
+            closedSession.Status = CashSessionStatus.Closed;
+            closedSession.ClosedAt = DateTime.UtcNow;
+
+            RecentSessions.Insert(0, closedSession);
+            RecentSessions = RecentSessions.Take(5).ToList();
+
+            // Mirror cleared state
+            ActiveSession = State.ActiveCashSession; // null after SetCashSessionAsync(null)
 
             CloseCloseModal();
-
-            var closedSession = ActiveSession;
-
-            ActiveSession = null;
-
-            if (closedSession != null)
-            {
-                closedSession.Status = CashSessionStatus.Closed;
-                closedSession.ClosedAt = DateTime.UtcNow;
-
-                RecentSessions.Insert(0, closedSession);
-                RecentSessions = RecentSessions.Take(5).ToList();
-            }
         }
         catch (Exception ex)
         {
@@ -578,17 +510,14 @@
         }
     }
 
+    // ── Helpers ──────────────────────────────────────────────────────────────
 
-    // HELPERS
     string GetSessionDuration(DateTime openedAt)
     {
         var duration = DateTime.UtcNow - openedAt;
 
-        if (duration.TotalHours < 1)
-            return $"{(int)duration.TotalMinutes} min";
-
-        if (duration.TotalDays < 1)
-            return $"{(int)duration.TotalHours}h {duration.Minutes}min";
+        if (duration.TotalHours < 1) return $"{(int)duration.TotalMinutes} min";
+        if (duration.TotalDays < 1) return $"{(int)duration.TotalHours}h {duration.Minutes}min";
 
         return $"{(int)duration.TotalDays}d {duration.Hours}h";
     }
@@ -599,14 +528,6 @@
         return difference > 0 ? "success" : "danger";
     }
 
-    void NavigateToSales()
-    {
-        Navigation.NavigateTo("/sales");
-    }
-
-    void ViewHistory()
-    {
-        Navigation.NavigateTo("/cashmovements");
-    }
-
+    void NavigateToSales() => Navigation.NavigateTo("/sales");
+    void ViewHistory() => Navigation.NavigateTo("/cashmovements");
 }

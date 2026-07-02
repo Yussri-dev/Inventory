@@ -6,7 +6,7 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Inventory.Domain.Models
 {
-    public class PackComponent : TenantEntity
+    public class PackComponent : GlobalEntity
     {
         [Key]
         public Guid Id { get; set; }

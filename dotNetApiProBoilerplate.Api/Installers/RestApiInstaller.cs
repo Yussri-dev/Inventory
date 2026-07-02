@@ -4,21 +4,18 @@ namespace Inventory.Api.Installers
 {
     public static class RestApiInstaller
     {
-        public static WebApplicationBuilder InstallRestApi(this WebApplicationBuilder builder)
+        public static WebApplicationBuilder InstallRestApi(
+            this WebApplicationBuilder builder)
         {
-            builder.Services.AddControllers()
+            builder.Services
+                .AddControllers()
                 .AddJsonOptions(options =>
                 {
-                    options.JsonSerializerOptions.Converters.Add(new Converters.NullableGuidJsonConverter());
-               
-                    var enumConverter = options.JsonSerializerOptions.Converters.FirstOrDefault(
-                        c => c is JsonStringEnumConverter);
+                    options.JsonSerializerOptions.Converters.Add(
+                        new Converters.NullableGuidJsonConverter());
 
-                    if (enumConverter != null)
-                    {
-                        options.JsonSerializerOptions.Converters.Remove(enumConverter);
-                    }
-                
+                    options.JsonSerializerOptions.Converters.Add(
+                        new JsonStringEnumConverter());
                 });
 
             builder.Services.AddEndpointsApiExplorer();

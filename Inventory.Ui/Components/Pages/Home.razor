@@ -11,14 +11,14 @@
 
 <div class="analytics-page">
 
-    <h1>📊 Analytics Dashboard</h1>
-
-    <!-- PERIOD SELECTOR -->
-    <div class="period-selector">
-        <button class="@(SelectedPeriod == Period.Today ? "active" : "")" @onclick="() => SelectPeriod(Period.Today)">Today</button>
-        <button class="@(SelectedPeriod == Period.Week ? "active" : "")" @onclick="() => SelectPeriod(Period.Week)">This Week</button>
-        <button class="@(SelectedPeriod == Period.Month ? "active" : "")" @onclick="() => SelectPeriod(Period.Month)">This Month</button>
-        <button class="@(SelectedPeriod == Period.Year ? "active" : "")" @onclick="() => SelectPeriod(Period.Year)">This Year</button>
+    <div class="dashboard-header">
+        <h1>📊 Analytics Dashboard</h1>
+        <div class="period-selector">
+            <button class="@(SelectedPeriod == Period.Today ? "active" : "")" @onclick="() => SelectPeriod(Period.Today)">Today</button>
+            <button class="@(SelectedPeriod == Period.Week ? "active" : "")" @onclick="() => SelectPeriod(Period.Week)">This Week</button>
+            <button class="@(SelectedPeriod == Period.Month ? "active" : "")" @onclick="() => SelectPeriod(Period.Month)">This Month</button>
+            <button class="@(SelectedPeriod == Period.Year ? "active" : "")" @onclick="() => SelectPeriod(Period.Year)">This Year</button>
+        </div>
     </div>
 
     @if (IsLoading)
@@ -30,33 +30,67 @@
     }
     else
     {
-        <!-- KPI SUMMARY -->
-        <div class="kpi-grid">
+        <!-- KPI ROW 1 – FINANCIALS -->
+        <div class="kpi-section-label">Financials</div>
+        <div class="kpi-grid kpi-grid--6">
+
             <div class="kpi-card">
                 <div class="kpi-label">Revenue</div>
-                <div class="kpi-value positive">€@Profit.TotalRevenue.ToString("N2")</div>
+                <div class="kpi-value positive">€@Dashboard.Revenue.ToString("N2")</div>
             </div>
             <div class="kpi-card">
                 <div class="kpi-label">Refunds</div>
-                <div class="kpi-value negative">€@Profit.TotalRefunds.ToString("N2")</div>
+                <div class="kpi-value negative">€@Dashboard.Refunds.ToString("N2")</div>
             </div>
             <div class="kpi-card">
                 <div class="kpi-label">Cost</div>
-                <div class="kpi-value">€@Profit.TotalCost.ToString("N2")</div>
+                <div class="kpi-value">€@Dashboard.Cost.ToString("N2")</div>
             </div>
             <div class="kpi-card">
                 <div class="kpi-label">Profit</div>
-                <div class="kpi-value @(Profit.GrossProfit >= 0 ? "positive" : "negative")">
-                    €@Profit.GrossProfit.ToString("N2")
+                <div class="kpi-value @(Dashboard.Profit >= 0 ? "positive" : "negative")">
+                    €@Dashboard.Profit.ToString("N2")
+                </div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">Margin</div>
+                <div class="kpi-value @(Dashboard.Margin >= 20 ? "positive" : Dashboard.Margin >= 5 ? "warning" : "negative")">
+                    @Dashboard.Margin.ToString("N1") %
                 </div>
             </div>
             <div class="kpi-card">
                 <div class="kpi-label">Credit</div>
-                <div class="kpi-value warning">€@Profit.CreditRevenue.ToString("N2")</div>
+                <div class="kpi-value warning">€@Dashboard.CreditRevenue.ToString("N2")</div>
+            </div>
+
+        </div>
+
+        <!-- KPI ROW 2 – OPERATIONS -->
+        <div class="kpi-section-label">Operations</div>
+        <div class="kpi-grid kpi-grid--5">
+
+            <div class="kpi-card">
+                <div class="kpi-label">Sales</div>
+                <div class="kpi-value">@Dashboard.SalesCount</div>
             </div>
             <div class="kpi-card">
-                <div class="kpi-label">Margin</div>
-                <div class="kpi-value">@Profit.ProfitMargin.ToString("N2") %</div>
+                <div class="kpi-label">Average Basket</div>
+                <div class="kpi-value">€@Dashboard.AverageBasket.ToString("N2")</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">Cash Revenue</div>
+                <div class="kpi-value">€@Dashboard.CashRevenue.ToString("N2")</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">Card Revenue</div>
+                <div class="kpi-value">€@Dashboard.CardRevenue.ToString("N2")</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">Loss Rate</div>
+                <div class="kpi-value @(Dashboard.LossRate > 5 ? "negative" : "positive")">
+                    @Dashboard.LossRate.ToString("N2") %
+                    <span class="kpi-sub">€@Dashboard.TotalLoss.ToString("N2")</span>
+                </div>
             </div>
 
         </div>
@@ -64,14 +98,11 @@
         <!-- CHARTS ROW -->
         <div class="charts-row">
 
-            <!-- Donut: Revenue Breakdown -->
             <div class="chart-card">
                 <div class="chart-title">Revenue Breakdown</div>
                 @if (donutSeries.Any())
                 {
-                    <ApexChart TItem="ChartSlice"
-                               Options="@donutOptions"
-                               Height="280">
+                    <ApexChart TItem="ChartSlice" Options="@donutOptions" Height="260">
                         <ApexPointSeries TItem="ChartSlice"
                                          Items="donutSeries"
                                          SeriesType="SeriesType.Donut"
@@ -81,110 +112,219 @@
                 }
                 else
                 {
-                    <div class="empty-state">No data for this period.</div>
+
+                    <div class="empty-state">No data.</div>
                 }
             </div>
 
-            <!-- Bar: Profit Summary -->
             <div class="chart-card chart-card--wide">
                 <div class="chart-title">Profit Summary</div>
                 @if (barSeries.Any())
                 {
-                    <ApexChart TItem="ChartBar"
-                               Options="@barOptions"
-                               Height="280">
-                        <ApexPointSeries TItem="ChartBar"
-                                         Name="Revenue"
-                                         Items="barSeries"
-                                         SeriesType="SeriesType.Bar"
-                                         XValue="b => b.Label"
-                                         YValue="b => b.Revenue" />
-                        <ApexPointSeries TItem="ChartBar"
-                                         Name="Cost"
-                                         Items="barSeries"
-                                         SeriesType="SeriesType.Bar"
-                                         XValue="b => b.Label"
-                                         YValue="b => b.Cost" />
-                        <ApexPointSeries TItem="ChartBar"
-                                         Name="Profit"
-                                         Items="barSeries"
-                                         SeriesType="SeriesType.Bar"
-                                         XValue="b => b.Label"
-                                         YValue="b => b.Profit" />
-                        <ApexPointSeries TItem="ChartBar"
-                                         Name="Credit"
-                                         Items="barSeries"
-                                         SeriesType="SeriesType.Bar"
-                                         XValue="b => b.Label"
-                                         YValue="b => b.Credit" />
+                    <ApexChart TItem="ChartBar" Options="@barOptions" Height="260">
+                        <ApexPointSeries TItem="ChartBar" Name="Revenue" Items="barSeries" SeriesType="SeriesType.Bar" XValue="b => b.Label" YValue="b => b.Revenue" />
+                        <ApexPointSeries TItem="ChartBar" Name="Cost" Items="barSeries" SeriesType="SeriesType.Bar" XValue="b => b.Label" YValue="b => b.Cost" />
+                        <ApexPointSeries TItem="ChartBar" Name="Profit" Items="barSeries" SeriesType="SeriesType.Bar" XValue="b => b.Label" YValue="b => b.Profit" />
+                        <ApexPointSeries TItem="ChartBar" Name="Credit" Items="barSeries" SeriesType="SeriesType.Bar" XValue="b => b.Label" YValue="b => b.Credit" />
                     </ApexChart>
                 }
                 else
                 {
-                    <div class="empty-state">No data for this period.</div>
+
+                    <div class="empty-state">No data.</div>
+                }
+            </div>
+
+            <div class="chart-card">
+                <div class="chart-title">Payment Methods</div>
+                @if (paymentSeries.Any())
+                {
+                    <ApexChart TItem="ChartSlice" Options="@paymentDonutOptions" Height="260">
+                        <ApexPointSeries TItem="ChartSlice"
+                                         Items="paymentSeries"
+                                         SeriesType="SeriesType.Donut"
+                                         XValue="s => s.Label"
+                                         YValue="s => s.Value" />
+                    </ApexChart>
+                }
+                else
+                {
+
+                    <div class="empty-state">No data.</div>
                 }
             </div>
 
         </div>
 
-        <!-- LOSS PRODUCTS -->
-        <h2>⚠️ Loss Products</h2>
+        <!-- ===================== -->
+        <!-- TABS                  -->
+        <!-- ===================== -->
+        <div class="tab-bar">
+            <button class="@(ActiveTab == Tab.RecentSales ? "active" : "")" @onclick="() => ActiveTab = Tab.RecentSales">
+                🧾 Recent Sales
+                @if (Dashboard.RecentSales.Any())
+                {
+                    <span class="tab-badge">@Dashboard.RecentSales.Count</span>
+                }
+            </button>
+            <button class="@(ActiveTab == Tab.TopProducts ? "active" : "")" @onclick="() => ActiveTab = Tab.TopProducts">
+                🏆 Top Products
+                @if (Dashboard.TopProducts.Any())
+                {
+                    <span class="tab-badge">@Dashboard.TopProducts.Count</span>
+                }
+            </button>
+            <button class="@(ActiveTab == Tab.LossProducts ? "active" : "")" @onclick="() => ActiveTab = Tab.LossProducts">
+                ⚠️ Loss Products
+                @if (LossProducts.Any())
+                {
+                    <span class="tab-badge tab-badge--danger">@LossProducts.Count</span>
+                }
+            </button>
+            <button class="@(ActiveTab == Tab.Weekly ? "active" : "")" @onclick="() => ActiveTab = Tab.Weekly">
+                📈 Weekly Report
+            </button>
+        </div>
 
-        @if (LossProducts.Any())
-        {
-            <table class="table">
-                <thead>
-                    <tr>
-                        <th>Product</th>
-                        <th>Returned Qty</th>
-                        <th>Lost Revenue</th>
-                        <th>Reason</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach (var p in LossProducts)
-                    {
-                        <tr>
-                            <td>@p.ProductName</td>
-                            <td>@p.ReturnedQuantity</td>
-                            <td class="negative">€@p.LostRevenue.ToString("N2")</td>
-                            <td>@p.LossReason</td>
-                        </tr>
-                    }
-                </tbody>
-            </table>
-        }
-        else
-        {
-            <div class="empty-state">No loss products for this period.</div>
-        }
+        <div class="tab-panel">
 
-        <!-- WEEKLY REPORT -->
-        <h2>📈 Weekly Report (@Weekly.Week)</h2>
+            <!-- RECENT SALES -->
+            @if (ActiveTab == Tab.RecentSales)
+            {
+                @if (Dashboard.RecentSales.Any())
+                {
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>Invoice</th>
+                                <th>Time</th>
+                                <th>Customer</th>
+                                <th>Payment</th>
+                                <th>Total</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var sale in Dashboard.RecentSales)
+                            {
+                                <tr>
+                                    <td>@sale.InvoiceNumber</td>
+                                    <td>@sale.SaleDate.ToLocalTime().ToString("HH:mm")</td>
+                                    <td>@sale.CustomerName</td>
+                                    <td>@sale.PaymentSummary</td>
+                                    <td class="positive">€@sale.TotalAmount.ToString("N2")</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+                else
+                {
+                    <div class="empty-state">No recent sales for this period.</div>
+                }
+            }
 
-        <div class="kpi-grid kpi-grid--5">
-            <div class="kpi-card">
-                <div class="kpi-label">Revenue</div>
-                <div class="kpi-value">€@Weekly.Revenue.ToString("N2")</div>
-            </div>
-            <div class="kpi-card">
-                <div class="kpi-label">Expenses</div>
-                <div class="kpi-value">€@Weekly.Expenses.ToString("N2")</div>
-            </div>
-            <div class="kpi-card">
-                <div class="kpi-label">Profit</div>
-                <div class="kpi-value @(Weekly.Profit >= 0 ? "positive" : "negative")">
-                    €@Weekly.Profit.ToString("N2")
+            <!-- TOP PRODUCTS -->
+            @if (ActiveTab == Tab.TopProducts)
+            {
+                @if (Dashboard.TopProducts.Any())
+                {
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Product</th>
+                                <th>Qty Sold</th>
+                                <th>Revenue</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @{
+                                int rank = 1;
+                            }
+                            @foreach (var p in Dashboard.TopProducts)
+                            {
+                                <tr>
+                                    <td class="rank">@(rank++)</td>
+                                    <td>@p.ProductName</td>
+                                    <td>@p.QuantitySold</td>
+                                    <td class="positive">€@p.TotalRevenue.ToString("N2")</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+                else
+                {
+                    <div class="empty-state">No product sales for this period.</div>
+                }
+            }
+
+            <!-- LOSS PRODUCTS -->
+            @if (ActiveTab == Tab.LossProducts)
+            {
+                @if (LossProducts.Any())
+                {
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>Product</th>
+                                <th>Returned Qty</th>
+                                <th>Lost Revenue</th>
+                                <th>Reason</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var p in LossProducts)
+                            {
+                                <tr>
+                                    <td>@p.ProductName</td>
+                                    <td>@p.ReturnedQuantity</td>
+                                    <td class="negative">€@p.LostRevenue.ToString("N2")</td>
+                                    <td>@p.LossReason</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+                else
+                {
+                    <div class="empty-state">No loss products for this period.</div>
+                }
+            }
+
+            <!-- WEEKLY REPORT -->
+            @if (ActiveTab == Tab.Weekly)
+            {
+                <div class="kpi-grid kpi-grid--5" style="margin-bottom:0">
+                    <div class="kpi-card">
+                        <div class="kpi-label">Week</div>
+                        <div class="kpi-value">@Weekly.Week</div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-label">Revenue</div>
+                        <div class="kpi-value positive">€@Weekly.Revenue.ToString("N2")</div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-label">Expenses</div>
+                        <div class="kpi-value">€@Weekly.Expenses.ToString("N2")</div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-label">Profit</div>
+                        <div class="kpi-value @(Weekly.Profit >= 0 ? "positive" : "negative")">
+                            €@Weekly.Profit.ToString("N2")
+                        </div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-label">Sales</div>
+                        <div class="kpi-value">@Weekly.SalesCount</div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-label">Returns</div>
+                        <div class="kpi-value">@Weekly.ReturnsCount</div>
+                    </div>
                 </div>
-            </div>
-            <div class="kpi-card">
-                <div class="kpi-label">Sales</div>
-                <div class="kpi-value">@Weekly.SalesCount</div>
-            </div>
-            <div class="kpi-card">
-                <div class="kpi-label">Returns</div>
-                <div class="kpi-value">@Weekly.ReturnsCount</div>
-            </div>
+            }
+
         </div>
     }
 
@@ -192,104 +332,17 @@
 
 @code {
 
-    /// <summary>
-    /// Record
-    /// </summary>
+    // =========================
+    // ENUMS
+    // =========================
+
+    enum Tab { RecentSales, TopProducts, LossProducts, Weekly }
+
+    // =========================
+    // RECORDS & MODELS
+    // =========================
 
     record CacheEntry<T>(T Data, DateTime ExpiresAt);
-
-
-
-    // =========================
-    // STATE
-    // =========================
-    Dictionary<string, CacheEntry<ProfitAnalyticsResult>> ProfitCache = new();
-    Dictionary<string, CacheEntry<List<LossProductResult>>> LossCache = new();
-    Dictionary<string, CacheEntry<WeeklyReportResult>> WeeklyCache = new();
-
-
-    ProfitAnalyticsResult Profit = new();
-    List<LossProductResult> LossProducts = new();
-    WeeklyReportResult Weekly = new();
-
-    Period SelectedPeriod = Period.Today;
-    DateOnly From;
-    DateOnly To;
-    bool IsLoading = true;
-
-    string GetKey() => $"{From:yyyyMMdd}-{To:yyyyMMdd}";
-    static bool _redirectingToLogin = false;
-
-
-    // =========================
-    // LOAD
-    // =========================
-    bool _isFetching = false;
-
-    async Task LoadAnalytics()
-    {
-        if (_isFetching)
-        {
-            return;
-        }
-        _isFetching = true;
-        IsLoading = true;
-        StateHasChanged();
-
-        var key = GetKey();
-        var now = DateTime.UtcNow;
-
-        if (ProfitCache.TryGetValue(key, out var cachedProfit) && cachedProfit.ExpiresAt > now &&
-            LossCache.TryGetValue(key, out var cachedLoss) && cachedLoss.ExpiresAt > now &&
-            WeeklyCache.TryGetValue(key, out var cachedWeekly) && cachedWeekly.ExpiresAt > now)
-        {
-            Profit = cachedProfit.Data;
-            LossProducts = cachedLoss.Data;
-            Weekly = cachedWeekly.Data;
-            BuildChartData();
-            _isFetching = false;
-            IsLoading = false;
-            StateHasChanged();
-            return;
-        }
-
-        try
-        {
-            var profit = await AnalyticsApi.GetProfitAsync(From, To);
-            var loss = await AnalyticsApi.GetLossProductsAsync(From, To, 10);
-            var referenceDate = From.ToDateTime(TimeOnly.MinValue);
-            var weekly = await AnalyticsApi.GetWeeklyAsync(
-                referenceDate.Year,
-                ISOWeek.GetWeekOfYear(referenceDate)
-            );
-
-            var expiry = now.AddMinutes(2);
-
-            ProfitCache[key] = new(profit, expiry);
-            LossCache[key] = new(loss.Items.ToList(), expiry);
-            WeeklyCache[key] = new(weekly, expiry);
-
-            Profit = profit;
-            LossProducts = LossCache[key].Data;
-            Weekly = weekly;
-
-            BuildChartData();
-        }
-        catch (Refit.ApiException ex) when (ex.StatusCode == HttpStatusCode.Unauthorized)
-        {
-            HandleUnauthorized();
-        }
-        finally
-        {
-            _isFetching = false;
-            IsLoading = false;
-            StateHasChanged();
-        }
-    }
-
-    // =========================
-    // CHART MODELS
-    // =========================
 
     public class ChartSlice
     {
@@ -306,7 +359,33 @@
         public decimal Profit { get; set; }
     }
 
+    // =========================
+    // STATE
+    // =========================
+
+    DashboardSummaryResult Dashboard = new();
+    List<LossProductResult> LossProducts = new();
+    WeeklyReportResult Weekly = new();
+
+    Dictionary<string, CacheEntry<List<LossProductResult>>> LossCache = new();
+    Dictionary<string, CacheEntry<WeeklyReportResult>> WeeklyCache = new();
+
+    Period SelectedPeriod = Period.Today;
+    Tab ActiveTab = Tab.RecentSales;
+    DateOnly From;
+    DateOnly To;
+    bool IsLoading = true;
+    bool _isFetching = false;
+    static bool _redirectingToLogin = false;
+
+    string GetKey() => $"{From:yyyyMMdd}-{To:yyyyMMdd}";
+
+    // =========================
+    // CHART SERIES
+    // =========================
+
     List<ChartSlice> donutSeries = new();
+    List<ChartSlice> paymentSeries = new();
     List<ChartBar> barSeries = new();
 
     // =========================
@@ -315,58 +394,34 @@
 
     ApexChartOptions<ChartSlice> donutOptions = new()
     {
-        Chart = new Chart
-        {
-            Background = "transparent",
-            ForeColor = "#94a3b8",
-            Toolbar = new Toolbar { Show = false }
-        },
+        Chart = new Chart { Background = "transparent", ForeColor = "#94a3b8", Toolbar = new Toolbar { Show = false } },
         Theme = new Theme { Mode = Mode.Dark },
-        Colors = new List<string> { "#4f46e5", "#f59e0b", "#ef4444" },
-        Legend = new Legend
-        {
-            Position = LegendPosition.Bottom,
-            Labels = new LegendLabels { Colors = new ApexCharts.Color("#94a3b8") }
-        },
-        Tooltip = new Tooltip
-        {
-            Y = new TooltipY
-            {
-                Formatter = "function(val){ return '€' + val.toFixed(2); }"
-            }
-        },
-        PlotOptions = new PlotOptions
-        {
-            Pie = new PlotOptionsPie { Donut = new PlotOptionsDonut { Size = "68%" } }
-        }
+        Colors = new List<string> { "#4f46e5", "#f59e0b", "#ef4444", "#64748b" },
+        Legend = new Legend { Position = LegendPosition.Bottom, Labels = new LegendLabels { Colors = new ApexCharts.Color("#94a3b8") } },
+        Tooltip = new Tooltip { Y = new TooltipY { Formatter = "function(val){ return '€' + val.toFixed(2); }" } },
+        PlotOptions = new PlotOptions { Pie = new PlotOptionsPie { Donut = new PlotOptionsDonut { Size = "68%" } } }
+    };
+
+    ApexChartOptions<ChartSlice> paymentDonutOptions = new()
+    {
+        Chart = new Chart { Background = "transparent", ForeColor = "#94a3b8", Toolbar = new Toolbar { Show = false } },
+        Theme = new Theme { Mode = Mode.Dark },
+        Colors = new List<string> { "#22c55e", "#3b82f6", "#f59e0b" },
+        Legend = new Legend { Position = LegendPosition.Bottom, Labels = new LegendLabels { Colors = new ApexCharts.Color("#94a3b8") } },
+        Tooltip = new Tooltip { Y = new TooltipY { Formatter = "function(val){ return '€' + val.toFixed(2); }" } },
+        PlotOptions = new PlotOptions { Pie = new PlotOptionsPie { Donut = new PlotOptionsDonut { Size = "68%" } } }
     };
 
     ApexChartOptions<ChartBar> barOptions = new()
     {
-        Chart = new Chart
-        {
-            Background = "transparent",
-            ForeColor = "#94a3b8",
-            Toolbar = new Toolbar { Show = false }
-        },
+        Chart = new Chart { Background = "transparent", ForeColor = "#94a3b8", Toolbar = new Toolbar { Show = false } },
         Theme = new Theme { Mode = Mode.Dark },
-        Colors = new List<string> { "#4f46e5", "#f59e0b", "#22c55e" },
+        Colors = new List<string> { "#4f46e5", "#f59e0b", "#22c55e", "#64748b" },
         Legend = new Legend { Position = LegendPosition.Top },
-        Tooltip = new Tooltip
-        {
-            Y = new TooltipY
-            {
-                Formatter = "function(val){ return '€' + val.toFixed(2); }"
-            }
-        },
+        Tooltip = new Tooltip { Y = new TooltipY { Formatter = "function(val){ return '€' + val.toFixed(2); }" } },
         PlotOptions = new PlotOptions
         {
-            Bar = new PlotOptionsBar
-            {
-                BorderRadius = 6,
-                ColumnWidth = "55%",
-                BorderRadiusApplication = BorderRadiusApplication.End
-            }
+            Bar = new PlotOptionsBar { BorderRadius = 6, ColumnWidth = "55%", BorderRadiusApplication = BorderRadiusApplication.End }
         },
         Xaxis = new XAxis { Labels = new XAxisLabels { Style = new AxisLabelStyle { Colors = "#94a3b8" } } },
         Yaxis = new List<YAxis>
@@ -427,37 +482,103 @@
         }
     }
 
+    // =========================
+    // LOAD
+    // =========================
+
+    async Task LoadAnalytics()
+    {
+        if (_isFetching) return;
+
+        _isFetching = true;
+        IsLoading = true;
+        StateHasChanged();
+
+        var key = GetKey();
+        var now = DateTime.UtcNow;
+
+        if (LossCache.TryGetValue(key, out var cachedLoss) && cachedLoss.ExpiresAt > now &&
+            WeeklyCache.TryGetValue(key, out var cachedWeekly) && cachedWeekly.ExpiresAt > now)
+        {
+            try { Dashboard = await AnalyticsApi.GetDashboardSummaryAsync(From, To); }
+            catch (Refit.ApiException ex) when (ex.StatusCode == HttpStatusCode.Unauthorized)
+            { HandleUnauthorized(); return; }
+
+            LossProducts = cachedLoss.Data;
+            Weekly = cachedWeekly.Data;
+            BuildChartData();
+
+            _isFetching = false;
+            IsLoading = false;
+            StateHasChanged();
+            return;
+        }
+
+        try
+        {
+            Dashboard = await AnalyticsApi.GetDashboardSummaryAsync(From, To);
+
+            var loss = await AnalyticsApi.GetLossProductsAsync(From, To, 10);
+            var referenceDate = From.ToDateTime(TimeOnly.MinValue);
+            var weekly = await AnalyticsApi.GetWeeklyAsync(
+                referenceDate.Year,
+                ISOWeek.GetWeekOfYear(referenceDate));
+
+            var expiry = now.AddMinutes(2);
+            LossCache[key] = new(loss.Items.ToList(), expiry);
+            WeeklyCache[key] = new(weekly, expiry);
+
+            LossProducts = LossCache[key].Data;
+            Weekly = weekly;
+
+            BuildChartData();
+        }
+        catch (Refit.ApiException ex) when (ex.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            HandleUnauthorized();
+        }
+        finally
+        {
+            _isFetching = false;
+            IsLoading = false;
+            StateHasChanged();
+        }
+    }
 
     // =========================
-    // CHART DATA
+    // CHART DATA BUILDER
     // =========================
 
     void BuildChartData()
     {
-        // Donut — only show slices with value > 0
         donutSeries = new List<ChartSlice>
         {
-            new() { Label = "Revenue", Value = Profit.TotalRevenue },
-            new() { Label = "Credit", Value = Profit.CreditRevenue },
-            new() { Label = "Cost", Value = Profit.TotalCost },
-            new() { Label = "Refunds", Value = Profit.TotalRefunds }
+            new() { Label = "Revenue", Value = Dashboard.Revenue       },
+            new() { Label = "Credit",  Value = Dashboard.CreditRevenue },
+            new() { Label = "Cost",    Value = Dashboard.Cost          },
+            new() { Label = "Refunds", Value = Dashboard.Refunds       }
         }
-        .Where(x => x.Value > 0)
-        .ToList();
+        .Where(x => x.Value > 0).ToList();
 
-        // Bar — single group for selected period
+        paymentSeries = new List<ChartSlice>
+        {
+            new() { Label = "Cash",   Value = Dashboard.CashRevenue   },
+            new() { Label = "Card",   Value = Dashboard.CardRevenue   },
+            new() { Label = "Credit", Value = Dashboard.CreditRevenue }
+        }
+        .Where(x => x.Value > 0).ToList();
+
         barSeries = new List<ChartBar>
         {
             new()
             {
                 Label   = $"{From:dd/MM} - {To:dd/MM}",
-                Revenue = Profit.TotalRevenue,
-                Credit  = Profit.CreditRevenue,
-                Cost    = Profit.TotalCost,
-                Profit  = Profit.GrossProfit
+                Revenue = Dashboard.Revenue,
+                Credit  = Dashboard.CreditRevenue,
+                Cost    = Dashboard.Cost,
+                Profit  = Dashboard.Profit
             }
         };
-
     }
 
     // =========================

@@ -1,15 +1,19 @@
 ﻿.sale-container {
     display: grid;
-    grid-template-columns: 2.5fr 400px 100px;
+    grid-template-columns: 2fr 1.2fr 0.2fr;
+    height: 100vh;
+    overflow: hidden;
     gap: 12px;
-    padding: 20px;
-    min-height: 100vh;
+    padding: 12px;
     box-sizing: border-box;
 }
 
 .sale-left,
+.sale-center,
 .sale-right {
-    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
 }
 
 .card {
@@ -297,13 +301,6 @@
     display: flex;
     flex-direction: column;
     gap: 10px;
-}
-
-.sale-center {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    height: fit-content;
 }
 
 /* Tab Selector */
@@ -1848,9 +1845,12 @@ tr.overstock {
     }
 
     .cart-table {
+        flex: 1;
+        overflow-y: auto;
+        overflow-x: auto;
+        min-height: 0;
         height: auto;
         max-height: none;
-        overflow: visible;
     }
 
     .table thead {
@@ -1920,8 +1920,19 @@ tr.overstock {
     }
 
     .product-list-container {
-        max-height: 220px;
+        flex: 1;
+        overflow-y: auto;
+        overflow-x: hidden;
+        min-height: 0;
         height: auto;
+        max-height: none;
+        padding: 10px;
+    }
+
+    .header-section,
+    .totals-row,
+    .actions-footer {
+        flex: 0 0 auto;
     }
 
     .numpad-container {
@@ -1929,6 +1940,7 @@ tr.overstock {
         bottom: 0;
         z-index: 10;
         background: white;
+        flex: 0 0 auto;
     }
 
     .numpad .key-btn {

@@ -10,6 +10,7 @@ using Inventory.Dto.ProductCatalogs.Results;
 using Inventory.Dto.Products.Results;
 using Inventory.Dto.Queries;
 using Inventory.Infrastructure.Repositories;
+using Inventory.Services.Abstractions;
 using Inventory.Services.Context;
 using Inventory.Services.Exceptions;
 using Microsoft.EntityFrameworkCore;
@@ -24,16 +25,19 @@ namespace Inventory.Services
         private readonly IUnitOfWork _unitOfWork;
         private readonly IMapper _mapper;
         private readonly ITenantContext _tenantContext;
+        private readonly IProductProvisioningService _productProvisioningService;
 
         public ProductCatalogService(
             IRepository<ProductCatalog> repository,
-            IRepository<PackComponent> packComponentRepository, // NOUVEAU
+            IRepository<PackComponent> packComponentRepository,
+            IProductProvisioningService productProvisioningService,
             IUnitOfWork unitOfWork,
             IMapper mapper,
             ITenantContext tenantContext)
         {
             _repository = repository;
-            _packComponentRepository = packComponentRepository; // NOUVEAU
+            _packComponentRepository = packComponentRepository;
+            _productProvisioningService = productProvisioningService;
             _unitOfWork = unitOfWork;
             _mapper = mapper;
             _tenantContext = tenantContext;
@@ -77,8 +81,7 @@ namespace Inventory.Services
 
             var internalCodeExists = await _repository.ExistsAsync(c =>
                 c.InternalCode == request.InternalCode &&
-                !c.IsDeleted &&
-                c.TenantId == tenantId);
+                !c.IsDeleted);
 
             if (internalCodeExists)
                 throw new ConflictException("ProductCatalog with same InternalCode already exists.");
@@ -120,8 +123,7 @@ namespace Inventory.Services
 
                 var exists = await _repository.ExistsAsync(c =>
                     c.Barcode == request.Barcode &&
-                    !c.IsDeleted &&
-                    c.TenantId == tenantId);
+                    !c.IsDeleted);
 
                 if (exists)
                     throw new ConflictException("ProductCatalog with same barcode already exists.");
@@ -144,7 +146,7 @@ namespace Inventory.Services
             entity.InternalCode = request.InternalCode;
             entity.CreatedAt = DateTime.UtcNow;
             entity.CreatedByUserId = userId;
-            entity.TenantId = tenantId;
+            //entity.TenantId = tenantId;
             entity.IsPack = request.IsPack;
             entity.UnitOfMeasure = request.UnitOfMeasure;
             entity.SellingMode = request.SellingMode;
@@ -161,13 +163,16 @@ namespace Inventory.Services
                         PackCatalaogId = entity.Id,
                         ComponentCatalogId = comp.ComponentCatalogId,
                         Quantity = comp.Quantity,
-                        TenantId = tenantId,
+                        //TenantId = tenantId,
                         CreatedAt = DateTime.UtcNow
                     });
                 }
             }
 
             await _unitOfWork.SaveChangesAsync();
+
+            await _productProvisioningService.ProvisionCatalogProductToAllTenantsAsync(entity.Id, userId);
+
 
             return _mapper.Map<ProductCatalogResult>(entity);
         }
@@ -204,14 +209,12 @@ namespace Inventory.Services
         // =========================
         public async Task<ProductCatalogResult> UpdateAsync(Guid id, UpdateProductCatalogRequest request)
         {
-            var tenantId = _tenantContext.TenantId;
             var userId = _tenantContext.UserId;
 
             var catalog = await _repository.Query()
                 .FirstOrDefaultAsync(c =>
                     c.Id == id &&
-                    !c.IsDeleted &&
-                    c.TenantId == tenantId);
+                    !c.IsDeleted);
 
             if (catalog == null)
                 throw new NotFoundException("ProductCatalog", id);
@@ -235,8 +238,7 @@ namespace Inventory.Services
                 var exists = await _repository.ExistsAsync(c =>
                     c.InternalCode == request.InternalCode &&
                     c.Id != id &&
-                    !c.IsDeleted &&
-                    c.TenantId == tenantId);
+                    !c.IsDeleted);
 
                 if (exists)
                     throw new ConflictException("InternalCode already used.");
@@ -267,9 +269,9 @@ namespace Inventory.Services
 
                     var exists = await _repository.ExistsAsync(c =>
                         c.Barcode == request.Barcode &&
+                        c.InternalCode == request.InternalCode &&
                         c.Id != id &&
-                        !c.IsDeleted &&
-                        c.TenantId == tenantId);
+                        !c.IsDeleted);
 
                     if (exists)
                         throw new ConflictException("Barcode already used.");
@@ -314,7 +316,7 @@ namespace Inventory.Services
                         PackCatalaogId = id,
                         ComponentCatalogId = comp.ComponentCatalogId,
                         Quantity = comp.Quantity,
-                        TenantId = tenantId,
+                        //TenantId = catalog.TenantId,
                         CreatedAt = DateTime.UtcNow
                     });
                 }
@@ -334,8 +336,7 @@ namespace Inventory.Services
 
             var catalog = await _repository.Query()
                 .FirstOrDefaultAsync(c => c.Id == id
-                    && !c.IsDeleted
-                    && c.TenantId == tenantId);
+                    && !c.IsDeleted);
 
             if (catalog == null || catalog.IsDeleted)
                 throw new NotFoundException("ProductCatalog", id);

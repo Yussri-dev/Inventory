@@ -1,4 +1,5 @@
-﻿using Inventory.Ui;
+﻿using Inventory.LocalDB.Services.Interfaces;
+using Inventory.Ui;
 using Inventory.Ui.Authentification;
 using Inventory.Ui.Infrastructure;
 using Inventory.Ui.Interfaces;
@@ -7,7 +8,9 @@ using Inventory.Ui.State;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.Extensions.Logging;
 using MudBlazor.Services;
+using Inventory.LocalDB.Extensions;
 using Refit;
+
 #if WINDOWS
 using Inventory.Ui.Platforms.Windows.Printing;
 #endif
@@ -27,17 +30,23 @@ public static class MauiProgram
 
         builder.Services.AddMauiBlazorWebView();
 
-        #if DEBUG
-                builder.Services.AddBlazorWebViewDeveloperTools();
-                builder.Logging.AddDebug();
-        #endif
-
-        #if ANDROID
-                var apiBaseUrl = "https://10.0.2.2:7190";
-#else
-                var apiBaseUrl = "https://localhost:7190";
+#if DEBUG
+        builder.Services.AddBlazorWebViewDeveloperTools();
+        builder.Logging.AddDebug();
 #endif
 
+#if ANDROID
+        var apiBaseUrl = "https://10.0.2.2:7190";
+#else
+        var apiBaseUrl = "https://localhost:7190";
+#endif
+
+        // =========================
+        // LOCAL OFFLINE DATABASE
+        // =========================
+        var localDbPath = Path.Combine(FileSystem.AppDataDirectory, "inventory-pos.db");
+
+        builder.Services.AddLocalDb(localDbPath);
 
         // =========================
         // CORE SERVICES
@@ -60,6 +69,7 @@ public static class MauiProgram
         // STATES
         // =========================
         builder.Services.AddSingleton<AppState>();
+        builder.Services.AddSingleton<PosBootstrapService>();
         builder.Services.AddSingleton<PosState>();
 
         // =========================
@@ -71,6 +81,7 @@ public static class MauiProgram
         builder.Services.AddSecuredApi<IProductApi>(apiBaseUrl);
         builder.Services.AddSecuredApi<IProductCatalogApi>(apiBaseUrl);
         builder.Services.AddSecuredApi<IProductCategoryApi>(apiBaseUrl);
+        builder.Services.AddSecuredApi<IAdminProductApi>(apiBaseUrl);
 
         builder.Services.AddSecuredApi<ISupplierApi>(apiBaseUrl);
         builder.Services.AddSecuredApi<ICustomerApi>(apiBaseUrl);
@@ -95,13 +106,26 @@ public static class MauiProgram
         builder.Services.AddSecuredApi<IPosApi>(apiBaseUrl);
 
         builder.Services.AddSecuredApi<ILoyaltyCardsApi>(apiBaseUrl);
+
         builder.Services.AddMudServices();
-        //builder.Services.AddBlazoredLocalStorage();
 
-        //#if WINDOWS
-        //builder.Services.AddSingleton<ITicketPrinter, WindowsTicketPrinter>();
-        //#endif
+        // builder.Services.AddBlazoredLocalStorage();
 
-        return builder.Build();
+#if WINDOWS
+        // builder.Services.AddSingleton<ITicketPrinter, WindowsTicketPrinter>();
+#endif
+
+        var app = builder.Build();
+
+        // =========================
+        // INITIALIZE LOCAL DATABASE
+        // =========================
+        using (var scope = app.Services.CreateScope())
+        {
+            var initializer = scope.ServiceProvider.GetRequiredService<ILocalDatabaseInitializer>();
+            initializer.InitializeAsync().GetAwaiter().GetResult();
+        }
+
+        return app;
     }
 }

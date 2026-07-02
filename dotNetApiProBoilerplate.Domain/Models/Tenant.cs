@@ -130,7 +130,7 @@ namespace Inventory.Domain.Models
         public DateTime? TrialEndDate { get; set; }
 
         // Limites du plan
-        public int MaxUsers { get; set; } = 5;
+        public int MaxUsers { get; set; } = 20;
         public int MaxProducts { get; set; } = 1000;
         public int MaxLocations { get; set; } = 1;
         public int MaxMonthlyTransactions { get; set; } = 10000;

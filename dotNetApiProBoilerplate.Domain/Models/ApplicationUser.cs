@@ -40,7 +40,6 @@ namespace Inventory.Domain.Models
         [MaxLength(500)]
         public string? ProfilePictureUrl { get; set; }
 
-        [Required]
         public Guid? TenantId { get; set; }
 
         [ForeignKey(nameof(TenantId))]

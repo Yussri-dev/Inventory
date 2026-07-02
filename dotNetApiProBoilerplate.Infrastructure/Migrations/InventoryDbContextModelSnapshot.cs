@@ -631,6 +631,10 @@ namespace Inventory.Infrastructure.Migrations
 
                     b.HasIndex("TenantId");
 
+                    b.HasIndex("TenantId", "CatalogProductId")
+                        .IsUnique()
+                        .HasFilter("\"CatalogProductId\" IS NOT NULL AND \"IsDeleted\" = FALSE");
+
                     b.ToTable("Products");
                 });
 
@@ -677,6 +681,9 @@ namespace Inventory.Infrastructure.Migrations
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("boolean");
 
+                    b.Property<bool>("IsGlobal")
+                        .HasColumnType("boolean");
+
                     b.Property<bool>("IsPack")
                         .HasColumnType("boolean");
 
@@ -698,9 +705,6 @@ namespace Inventory.Infrastructure.Migrations
                     b.Property<int>("SellingMode")
                         .HasColumnType("integer");
 
-                    b.Property<Guid>("TenantId")
-                        .HasColumnType("uuid");
-
                     b.Property<string>("UnitOfMeasure")
                         .IsRequired()
                         .HasColumnType("text");
@@ -713,9 +717,55 @@ namespace Inventory.Infrastructure.Migrations
 
                     b.HasIndex("InternalCode");
 
-                    b.HasIndex("TenantId");
-
                     b.ToTable("ProductCatalogs");
+                });
+
+            modelBuilder.Entity("Inventory.Domain.Entities.ProductCategory", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Color")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("CreatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("DeletedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("DisplayOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Icon")
+                        .HasColumnType("text");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime?>("ModifiedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ModifiedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Name");
+
+                    b.ToTable("ProductCategory");
                 });
 
             modelBuilder.Entity("Inventory.Domain.Entities.Purchase", b =>
@@ -1669,7 +1719,10 @@ namespace Inventory.Infrastructure.Migrations
                     b.Property<string>("SecurityStamp")
                         .HasColumnType("text");
 
-                    b.Property<Guid>("TenantId")
+                    b.Property<Guid?>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("TenantId1")
                         .HasColumnType("uuid");
 
                     b.Property<bool>("TwoFactorEnabled")
@@ -1689,6 +1742,8 @@ namespace Inventory.Infrastructure.Migrations
                         .HasDatabaseName("UserNameIndex");
 
                     b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId1");
 
                     b.ToTable("AspNetUsers", (string)null);
                 });
@@ -2207,71 +2262,13 @@ namespace Inventory.Infrastructure.Migrations
                     b.Property<decimal>("Quantity")
                         .HasColumnType("decimal(18,3)");
 
-                    b.Property<Guid>("TenantId")
-                        .HasColumnType("uuid");
-
                     b.HasKey("Id");
 
                     b.HasIndex("ComponentCatalogId");
 
                     b.HasIndex("PackCatalaogId");
 
-                    b.HasIndex("TenantId");
-
                     b.ToTable("PackComponents");
-                });
-
-            modelBuilder.Entity("Inventory.Domain.Models.ProductCategory", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Color")
-                        .HasColumnType("text");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("CreatedByUserId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime?>("DeletedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid?>("DeletedByUserId")
-                        .HasColumnType("uuid");
-
-                    b.Property<int>("DisplayOrder")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("Icon")
-                        .HasColumnType("text");
-
-                    b.Property<bool>("IsDeleted")
-                        .HasColumnType("boolean");
-
-                    b.Property<DateTime?>("ModifiedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid?>("ModifiedByUserId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<Guid>("TenantId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("Name");
-
-                    b.HasIndex("TenantId");
-
-                    b.ToTable("ProductCategory");
                 });
 
             modelBuilder.Entity("Inventory.Domain.Models.Promotion", b =>
@@ -3324,21 +3321,13 @@ namespace Inventory.Infrastructure.Migrations
 
             modelBuilder.Entity("Inventory.Domain.Entities.ProductCatalog", b =>
                 {
-                    b.HasOne("Inventory.Domain.Models.ProductCategory", "Category")
+                    b.HasOne("Inventory.Domain.Entities.ProductCategory", "Category")
                         .WithMany("Products")
                         .HasForeignKey("CategoryId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.HasOne("Inventory.Domain.Models.Tenant", "Tenant")
-                        .WithMany()
-                        .HasForeignKey("TenantId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
                     b.Navigation("Category");
-
-                    b.Navigation("Tenant");
                 });
 
             modelBuilder.Entity("Inventory.Domain.Entities.Purchase", b =>
@@ -3605,10 +3594,13 @@ namespace Inventory.Infrastructure.Migrations
             modelBuilder.Entity("Inventory.Domain.Models.ApplicationUser", b =>
                 {
                     b.HasOne("Inventory.Domain.Models.Tenant", "Tenant")
-                        .WithMany("Users")
+                        .WithMany()
                         .HasForeignKey("TenantId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Inventory.Domain.Models.Tenant", null)
+                        .WithMany("Users")
+                        .HasForeignKey("TenantId1");
 
                     b.Navigation("Tenant");
                 });
@@ -3773,28 +3765,9 @@ namespace Inventory.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.HasOne("Inventory.Domain.Models.Tenant", "Tenant")
-                        .WithMany()
-                        .HasForeignKey("TenantId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
                     b.Navigation("ComponentCatalog");
 
                     b.Navigation("PackCatalog");
-
-                    b.Navigation("Tenant");
-                });
-
-            modelBuilder.Entity("Inventory.Domain.Models.ProductCategory", b =>
-                {
-                    b.HasOne("Inventory.Domain.Models.Tenant", "Tenant")
-                        .WithMany()
-                        .HasForeignKey("TenantId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Tenant");
                 });
 
             modelBuilder.Entity("Inventory.Domain.Models.Promotion", b =>
@@ -3984,6 +3957,11 @@ namespace Inventory.Infrastructure.Migrations
                     b.Navigation("UsedInPacks");
                 });
 
+            modelBuilder.Entity("Inventory.Domain.Entities.ProductCategory", b =>
+                {
+                    b.Navigation("Products");
+                });
+
             modelBuilder.Entity("Inventory.Domain.Entities.Purchase", b =>
                 {
                     b.Navigation("Lines");
@@ -4037,11 +4015,6 @@ namespace Inventory.Infrastructure.Migrations
             modelBuilder.Entity("Inventory.Domain.Models.LoyaltyCard", b =>
                 {
                     b.Navigation("Transactions");
-                });
-
-            modelBuilder.Entity("Inventory.Domain.Models.ProductCategory", b =>
-                {
-                    b.Navigation("Products");
                 });
 
             modelBuilder.Entity("Inventory.Domain.Models.SupplierReturn", b =>

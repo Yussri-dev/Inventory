@@ -145,12 +145,12 @@ namespace Inventory.Services
             if (request.PurchasePrice > request.SalePrice ||
                  request.PurchasePrice > request.SalePrice2 ||
                  request.PurchasePrice > request.SalePrice3)
-                {
-                    throw new ValidationException(new Dictionary<string, string[]>
+            {
+                throw new ValidationException(new Dictionary<string, string[]>
                         {
                             { "Price", new[] { "Purchase price cannot be greater than any sale price." } }
                         });
-                }
+            }
 
             if (request.MinStockLevel > request.MaxStockLevel)
             {
@@ -323,8 +323,8 @@ namespace Inventory.Services
                 .AsNoTracking()
                 .Where(p => !p.IsDeleted && p.TenantId == tenantId)
                 .Include(p => p.CatalogProduct)
-                    .ThenInclude(c => c.PackComponents)          
-                        .ThenInclude(pc => pc.ComponentCatalog)  
+                    .ThenInclude(c => c.PackComponents)
+                        .ThenInclude(pc => pc.ComponentCatalog)
                 .AsQueryable();
 
             // SEARCH
@@ -382,5 +382,82 @@ namespace Inventory.Services
             };
         }
 
+        public async Task<PagedResult<ProductResult>> QueryForAdminAsync(
+    ProductQuery query)
+        {
+            if (query.Page < 1)
+            {
+                throw new ValidationException(new Dictionary<string, string[]>
+        {
+            { "Page", new[] { "Page must be greater than or equal to 1." } }
+        });
+            }
+
+            if (query.PageSize < 1 || query.PageSize > 100)
+            {
+                throw new ValidationException(new Dictionary<string, string[]>
+        {
+            { "PageSize", new[] { "PageSize must be between 1 and 100." } }
+        });
+            }
+
+            var productsQuery = _repository.Query()
+                .AsNoTracking()
+                .Where(p => !p.IsDeleted)
+                .Include(p => p.CatalogProduct)
+                    .ThenInclude(c => c.PackComponents)
+                        .ThenInclude(pc => pc.ComponentCatalog)
+                .AsQueryable();
+
+            if (!string.IsNullOrWhiteSpace(query.Search))
+            {
+                var search = query.Search.Trim();
+
+                productsQuery = productsQuery.Where(p =>
+                    EF.Functions.ILike(p.CatalogProduct.Name, $"%{search}%") ||
+                    EF.Functions.ILike(p.CatalogProduct.Barcode, $"%{search}%") ||
+                    EF.Functions.ILike(p.CatalogProduct.Brand, $"%{search}%") ||
+                    EF.Functions.ILike(p.Name, $"%{search}%") ||
+                    EF.Functions.ILike(p.Barcode, $"%{search}%") ||
+                    EF.Functions.ILike(p.Sku, $"%{search}%"));
+            }
+
+            var sortBy = query.SortBy?.ToLower();
+
+            productsQuery = sortBy switch
+            {
+                "name" => query.Desc
+                    ? productsQuery.OrderByDescending(p => p.CatalogProduct.Name)
+                    : productsQuery.OrderBy(p => p.CatalogProduct.Name),
+
+                "barcode" => query.Desc
+                    ? productsQuery.OrderByDescending(p => p.CatalogProduct.Barcode)
+                    : productsQuery.OrderBy(p => p.CatalogProduct.Barcode),
+
+                "saleprice" => query.Desc
+                    ? productsQuery.OrderByDescending(p => p.SalePrice)
+                    : productsQuery.OrderBy(p => p.SalePrice),
+
+                _ => query.Desc
+                    ? productsQuery.OrderByDescending(p => p.CreatedAt)
+                    : productsQuery.OrderBy(p => p.CreatedAt)
+            };
+
+            var total = await productsQuery.CountAsync();
+
+            var items = await productsQuery
+                .Skip((query.Page - 1) * query.PageSize)
+                .Take(query.PageSize)
+                .ProjectTo<ProductResult>(_mapper.ConfigurationProvider)
+                .ToListAsync();
+
+            return new PagedResult<ProductResult>
+            {
+                Items = items,
+                TotalCount = total,
+                Page = query.Page,
+                PageSize = query.PageSize
+            };
+        }
     }
 }

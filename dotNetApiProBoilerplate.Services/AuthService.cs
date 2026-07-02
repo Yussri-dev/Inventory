@@ -4,6 +4,7 @@ using Inventory.Dto.Auth.Results;
 using Inventory.Dto.Enums;
 using Inventory.Infrastructure.Data;
 using Inventory.Infrastructure.Identity;
+using Inventory.Services.Abstractions;
 using Inventory.Services.Exceptions;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -11,317 +12,395 @@ using System.Security;
 
 namespace Inventory.Services
 {
-    public class AuthService
+    public sealed class AuthService
     {
         private readonly UserManager<ApplicationUser> _userManager;
         private readonly JwtTokenGenerator _jwt;
         private readonly InventoryDbContext _context;
+        private readonly IProductProvisioningService _productProvisioningService;
 
         public AuthService(
             UserManager<ApplicationUser> userManager,
             JwtTokenGenerator jwt,
-            InventoryDbContext context)
+            InventoryDbContext context,
+            IProductProvisioningService productProvisioningService)
         {
             _userManager = userManager;
             _jwt = jwt;
             _context = context;
+            _productProvisioningService = productProvisioningService;
         }
 
         /// <summary>
-        /// Register a new company owner - creates a new tenant
+        /// Registers a new company, creates its tenant and admin user,
+        /// then provisions products from the global product catalog.
         /// </summary>
-        public async Task<AuthResult> RegisterCompanyAsync(RegisterCompanyRequest request)
+        public async Task<AuthResult> RegisterCompanyAsync(
+            RegisterCompanyRequest request,
+            CancellationToken cancellationToken = default)
         {
-            // Check if user already exists
-            var existingUser = await _userManager.FindByEmailAsync(request.Email);
-            if (existingUser != null)
+            var normalizedEmail = request.Email.Trim();
+            var now = DateTime.UtcNow;
+            var limits = SubscriptionPlanResolver.GetLimits(request.SubscriptionPlan);
+
+            var existingUser =
+                await _userManager.FindByEmailAsync(normalizedEmail);
+
+            if (existingUser is not null)
             {
-                throw new ConflictException($"User with email '{request.Email}' already exists.");
+                throw new ConflictException(
+                    $"User with email '{normalizedEmail}' already exists.");
             }
 
-            // Create tenant for the company
-            var tenant = new Tenant
+            await using var transaction =
+                await _context.Database.BeginTransactionAsync(
+                    cancellationToken);
+
+            try
             {
-                Id = Guid.NewGuid(),
-                Name = request.CompanyName,
-                Email = request.Email,
-                IsActive = true,
-                CreatedAt = DateTime.UtcNow,
-                CreatedByUserId = Guid.Empty, // Will be updated after user is created
-                Currency = "EUR",
-                Locale = "fr-BE",
-                TimeZone = "Europe/Brussels",
-                DateFormat = "dd/MM/yyyy",
-                TimeFormat = "HH:mm",
-                DecimalPlaces = 2,
-                DefaultVatRate = 21.00m,
-                SubscriptionPlan = "Free",
-                IsTrialActive = true,
-                TrialEndDate = DateTime.UtcNow.AddDays(30),
-                MaxUsers = 5,
-                MaxProducts = 1000,
-                MaxLocations = 1,
-                MaxMonthlyTransactions = 10000,
-                CurrentUsers = 0,
-                CurrentProducts = 0,
-                CurrentLocations = 0,
-                CurrentMonthTransactions = 0,
-                LastTransactionCountReset = DateTime.UtcNow
-            };
-
-            _context.Tenants.Add(tenant);
-            await _context.SaveChangesAsync();
-
-            // Create company owner user (Admin role)
-            var user = new ApplicationUser
-            {
-                UserName = request.Email,
-                Email = request.Email,
-                FullName = request.FullName,
-                TenantId = tenant.Id,
-                Role = UserRole.Admin, // Owner is always Admin
-                IsActive = true,
-                CreatedAt = DateTime.UtcNow,
-                PreferredLanguage = "en",
-                PreferredTheme = "light"
-            };
-
-            var result = await _userManager.CreateAsync(user, request.Password);
-
-            if (!result.Succeeded)
-            {
-                // Rollback: Delete the tenant if user creation fails
-                _context.Tenants.Remove(tenant);
-                await _context.SaveChangesAsync();
-
-                var errors = new Dictionary<string, string[]>();
-                foreach (var error in result.Errors)
+                var tenant = new Tenant
                 {
-                    var key = error.Code switch
-                    {
-                        var code when code.Contains("Password") => "Password",
-                        var code when code.Contains("Email") => "Email",
-                        var code when code.Contains("UserName") => "Email",
-                        _ => "General"
-                    };
+                    Id = Guid.NewGuid(),
 
-                    if (errors.ContainsKey(key))
-                    {
-                        var existingErrors = errors[key].ToList();
-                        existingErrors.Add(error.Description);
-                        errors[key] = existingErrors.ToArray();
-                    }
-                    else
-                    {
-                        errors[key] = new[] { error.Description };
-                    }
+                    Name = request.CompanyName.Trim(),
+                    Email = request.Email.Trim(),
+
+                    IsActive = true,
+                    CreatedAt = now,
+                    CreatedByUserId = Guid.Empty,
+
+                    Currency = "EUR",
+                    Locale = "fr-BE",
+                    TimeZone = "Europe/Brussels",
+                    DateFormat = "dd/MM/yyyy",
+                    TimeFormat = "HH:mm",
+                    DecimalPlaces = 2,
+                    DefaultVatRate = 21m,
+
+                    SubscriptionPlan = request.SubscriptionPlan.ToString(),
+
+                    IsTrialActive = request.EnableTrial,
+
+                    TrialEndDate = request.EnableTrial ? now.AddDays(30) : null,
+
+                    MaxUsers = limits.MaxUsers,
+
+                    MaxProducts = limits.MaxProducts,
+
+                    MaxLocations = limits.MaxLocations,
+
+                    MaxMonthlyTransactions = limits.MaxMonthlyTransactions,
+
+                    CurrentUsers = 0,
+                    CurrentProducts = 0,
+                    CurrentLocations = 0,
+                    CurrentMonthTransactions = 0,
+
+                    LastTransactionCountReset = now
+                };
+
+                await _context.Tenants.AddAsync(
+                    tenant,
+                    cancellationToken);
+
+                await _context.SaveChangesAsync(cancellationToken);
+
+                var user = new ApplicationUser
+                {
+                    UserName = normalizedEmail,
+                    Email = normalizedEmail,
+                    FullName = request.FullName.Trim(),
+
+                    TenantId = tenant.Id,
+                    Role = UserRole.Admin,
+
+                    IsActive = true,
+                    CreatedAt = now,
+
+                    PreferredLanguage = "en",
+                    PreferredTheme = "light"
+                };
+
+                var identityResult = await _userManager.CreateAsync(
+                    user,
+                    request.Password);
+
+                if (!identityResult.Succeeded)
+                {
+                    throw CreateIdentityValidationException(
+                        identityResult);
                 }
 
-                throw new ValidationException(errors);
+                tenant.CreatedByUserId = user.Id;
+                tenant.CurrentUsers = 1;
+
+                var importedProductsCount =
+                    await _productProvisioningService
+                        .ProvisionCatalogProductsAsync(
+                            tenant.Id,
+                            user.Id,
+                            cancellationToken);
+
+                //tenant.CurrentProducts = importedProductsCount;
+
+                await _context.SaveChangesAsync(cancellationToken);
+
+                await transaction.CommitAsync(cancellationToken);
+
+                return GenerateResult(user);
             }
-
-            // Update tenant with the actual creator user ID
-            tenant.CreatedByUserId = user.Id;
-            tenant.CurrentUsers = 1;
-            await _context.SaveChangesAsync();
-
-            return GenerateResult(user);
+            catch
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                throw;
+            }
         }
 
         /// <summary>
-        /// Register a new user to an existing tenant (invited by admin)
+        /// Registers a new user inside an existing tenant.
         /// </summary>
-        public async Task<AuthResult> RegisterUserAsync(RegisterUserRequest request)
+        public async Task<AuthResult> RegisterUserAsync(
+            RegisterUserRequest request,
+            CancellationToken cancellationToken = default)
         {
-            // Verify tenant exists
-            var tenant = await _context.Tenants.FindAsync(request.TenantId);
-            if (tenant == null)
+            var tenant = await _context.Tenants
+                .FirstOrDefaultAsync(
+                    x => x.Id == request.TenantId,
+                    cancellationToken);
+
+            if (tenant is null)
             {
-                throw new NotFoundException("Tenant", request.TenantId.ToString());
+                throw new NotFoundException(
+                    "Tenant",
+                    request.TenantId.ToString());
             }
 
-            // Check if tenant can add more users
             if (tenant.CurrentUsers >= tenant.MaxUsers)
             {
-                throw new ForbiddenException($"Tenant has reached maximum user limit ({tenant.MaxUsers}).");
+                throw new ForbiddenException(
+                    $"Tenant has reached maximum user limit ({tenant.MaxUsers}).");
             }
 
-            // Check if user already exists
-            var existingUser = await _userManager.FindByEmailAsync(request.Email);
-            if (existingUser != null)
+            var normalizedEmail = request.Email.Trim();
+
+            var existingUser =
+                await _userManager.FindByEmailAsync(normalizedEmail);
+
+            if (existingUser is not null)
             {
-                throw new ConflictException($"User with email '{request.Email}' already exists.");
+                throw new ConflictException(
+                    $"User with email '{normalizedEmail}' already exists.");
             }
 
-            // Create new user for existing tenant
             var user = new ApplicationUser
             {
-                UserName = request.Email,
-                Email = request.Email,
-                FullName = request.FullName,
+                UserName = normalizedEmail,
+                Email = normalizedEmail,
+                FullName = request.FullName.Trim(),
+
                 TenantId = request.TenantId,
-                Role = request.Role, // Manager, Cashier, User, etc.
+                Role = request.Role,
+
                 IsActive = true,
                 CreatedAt = DateTime.UtcNow,
-                CreatedByUserId = request.CreatedByUserId, // Admin who invited them
+                CreatedByUserId = request.CreatedByUserId,
+
                 PreferredLanguage = "en",
                 PreferredTheme = "light"
             };
 
-            var result = await _userManager.CreateAsync(user, request.Password);
+            var identityResult = await _userManager.CreateAsync(
+                user,
+                request.Password);
 
-            if (!result.Succeeded)
+            if (!identityResult.Succeeded)
             {
-                var errors = new Dictionary<string, string[]>();
-                foreach (var error in result.Errors)
-                {
-                    var key = error.Code switch
-                    {
-                        var code when code.Contains("Password") => "Password",
-                        var code when code.Contains("Email") => "Email",
-                        var code when code.Contains("UserName") => "Email",
-                        _ => "General"
-                    };
-
-                    if (errors.ContainsKey(key))
-                    {
-                        var existingErrors = errors[key].ToList();
-                        existingErrors.Add(error.Description);
-                        errors[key] = existingErrors.ToArray();
-                    }
-                    else
-                    {
-                        errors[key] = new[] { error.Description };
-                    }
-                }
-
-                throw new ValidationException(errors);
+                throw CreateIdentityValidationException(
+                    identityResult);
             }
 
-            // Update tenant user count
             tenant.CurrentUsers++;
-            await _context.SaveChangesAsync();
+
+            await _context.SaveChangesAsync(cancellationToken);
 
             return GenerateResult(user);
         }
 
-        public async Task<AuthResult> LoginAsync(LoginRequest request)
+        public async Task<AuthResult> LoginAsync(
+            LoginRequest request,
+            CancellationToken cancellationToken = default)
         {
-            // Find user by email
-            var user = await _userManager.FindByEmailAsync(request.Email);
+            var user = await _userManager.FindByEmailAsync(
+                request.Email.Trim());
 
-            if (user == null)
+            if (user is null)
             {
-                throw new UnauthorizedAccessException("Invalid email or password.");
+                throw new UnauthorizedAccessException(
+                    "Invalid email or password.");
             }
 
+            if (user.Role != UserRole.SuperAdmin &&
+                user.TenantId is null)
+            {
+                throw new SecurityException(
+                    "User without tenant is invalid.");
+            }
 
-            // HARD INVARIANT
-            if (user.Role != UserRole.SuperAdmin && user.TenantId == null)
-                throw new SecurityException("User without tenant is invalid.");
-
-            // Check if user is active
             if (!user.IsActive)
-                throw new ForbiddenException("Account is deactivated.");
+            {
+                throw new ForbiddenException(
+                    "Account is deactivated.");
+            }
 
-            // SuperAdmin BYPASSES tenant lifecycle rules
             if (user.Role != UserRole.SuperAdmin)
             {
-                var tenant = await _context.Tenants.FindAsync(user.TenantId);
+                var tenant = await _context.Tenants
+                    .FirstOrDefaultAsync(
+                        x => x.Id == user.TenantId,
+                        cancellationToken);
 
-                if (tenant == null || !tenant.IsActive)
-                    throw new ForbiddenException("Company account is not active.");
+                if (tenant is null || !tenant.IsActive)
+                {
+                    throw new ForbiddenException(
+                        "Company account is not active.");
+                }
 
                 if (!tenant.IsSubscriptionActive())
-                    throw new ForbiddenException("Company subscription has expired.");
+                {
+                    throw new ForbiddenException(
+                        "Company subscription has expired.");
+                }
 
                 tenant.LastActivityAt = DateTime.UtcNow;
             }
 
-            // Check if account is locked
             if (await _userManager.IsLockedOutAsync(user))
-                throw new ForbiddenException("Account is locked. Please try again later.");
-
-            // Validate password
-            var valid = await _userManager.CheckPasswordAsync(user, request.Password);
-
-            if (!valid)
             {
-                await _userManager.AccessFailedAsync(user);
-                throw new UnauthorizedAccessException("Invalid email or password.");
+                throw new ForbiddenException(
+                    "Account is locked. Please try again later.");
             }
 
-            // Reset failed attempts
-            if (await _userManager.GetAccessFailedCountAsync(user) > 0)
-                await _userManager.ResetAccessFailedCountAsync(user);
+            var validPassword =
+                await _userManager.CheckPasswordAsync(
+                    user,
+                    request.Password);
 
-            // Update login info
+            if (!validPassword)
+            {
+                await _userManager.AccessFailedAsync(user);
+
+                throw new UnauthorizedAccessException(
+                    "Invalid email or password.");
+            }
+
+            if (await _userManager.GetAccessFailedCountAsync(user) > 0)
+            {
+                await _userManager.ResetAccessFailedCountAsync(user);
+            }
+
             user.LastLoginAt = DateTime.UtcNow;
             user.LastLoginIp = request.IpAddress;
-            await _userManager.UpdateAsync(user);
 
-            await _context.SaveChangesAsync();
+            var updateResult =
+                await _userManager.UpdateAsync(user);
+
+            if (!updateResult.Succeeded)
+            {
+                throw CreateIdentityValidationException(
+                    updateResult);
+            }
+
+            await _context.SaveChangesAsync(cancellationToken);
+
+            if (user.Role != UserRole.SuperAdmin &&
+                user.TenantId.HasValue &&
+                user.TenantId.Value != Guid.Empty)
+            {
+                await _productProvisioningService.ProvisionCatalogProductsAsync(
+                    user.TenantId.Value,
+                    user.Id,
+                    cancellationToken);
+            }
 
             return GenerateResult(user);
         }
 
-
-        public async Task<AuthResult> RefreshTokenAsync(string userId)
+        public async Task<AuthResult> RefreshTokenAsync(
+            string userId)
         {
             var user = await _userManager.FindByIdAsync(userId);
 
-            if (user == null)
+            if (user is null)
             {
-                throw new NotFoundException("User", userId);
+                throw new NotFoundException(
+                    "User",
+                    userId);
             }
 
             if (!user.IsActive)
             {
-                throw new ForbiddenException("Account is deactivated.");
+                throw new ForbiddenException(
+                    "Account is deactivated.");
             }
 
             if (await _userManager.IsLockedOutAsync(user))
             {
-                throw new ForbiddenException("Account is locked.");
+                throw new ForbiddenException(
+                    "Account is locked.");
             }
 
             return GenerateResult(user);
         }
 
-        public async Task ChangePasswordAsync(string userId, string currentPassword, string newPassword)
+        public async Task ChangePasswordAsync(
+            string userId,
+            string currentPassword,
+            string newPassword)
         {
             var user = await _userManager.FindByIdAsync(userId);
 
-            if (user == null)
+            if (user is null)
             {
-                throw new NotFoundException("User", userId);
+                throw new NotFoundException(
+                    "User",
+                    userId);
             }
 
-            var result = await _userManager.ChangePasswordAsync(user, currentPassword, newPassword);
+            var result =
+                await _userManager.ChangePasswordAsync(
+                    user,
+                    currentPassword,
+                    newPassword);
 
             if (!result.Succeeded)
             {
-                var errors = new Dictionary<string, string[]>
-                {
-                    { "Password", result.Errors.Select(e => e.Description).ToArray() }
-                };
-                throw new ValidationException(errors);
+                throw CreateIdentityValidationException(result);
             }
 
             user.PasswordChangedAt = DateTime.UtcNow;
             user.MustChangePassword = false;
-            await _userManager.UpdateAsync(user);
+
+            var updateResult =
+                await _userManager.UpdateAsync(user);
+
+            if (!updateResult.Succeeded)
+            {
+                throw CreateIdentityValidationException(
+                    updateResult);
+            }
         }
 
         private AuthResult GenerateResult(ApplicationUser user)
         {
             var tenant = user.TenantId.HasValue
-                ? _context.Tenants.FirstOrDefault(t => t.Id == user.TenantId.Value)
+                ? _context.Tenants.FirstOrDefault(
+                    x => x.Id == user.TenantId.Value)
                 : null;
 
-            Guid? tenantIdForToken = user.Role == UserRole.SuperAdmin
-                ? null
-                : user.TenantId;
+            Guid? tenantIdForToken =
+                user.Role == UserRole.SuperAdmin
+                    ? null
+                    : user.TenantId;
 
             return new AuthResult
             {
@@ -329,18 +408,65 @@ namespace Inventory.Services
                     user.Id,
                     user.Email!,
                     tenantIdForToken,
-                    user.Role.ToString()
-                ),
+                    user.Role.ToString()),
+
                 ExpiresAt = DateTime.UtcNow.AddHours(2),
+
                 UserId = user.Id,
                 Email = user.Email!,
                 TenantId = user.TenantId,
                 FullName = user.FullName,
                 Role = user.Role.ToString(),
+
                 TrialEndDate = tenant?.TrialEndDate,
                 IsTrialActive = tenant?.IsTrialActive ?? false
             };
         }
 
+        private static ValidationException
+            CreateIdentityValidationException(
+                IdentityResult identityResult)
+        {
+            var groupedErrors =
+                new Dictionary<string, List<string>>();
+
+            foreach (var error in identityResult.Errors)
+            {
+                var key = error.Code switch
+                {
+                    var code when code.Contains(
+                        "Password",
+                        StringComparison.OrdinalIgnoreCase)
+                        => "Password",
+
+                    var code when code.Contains(
+                        "Email",
+                        StringComparison.OrdinalIgnoreCase)
+                        => "Email",
+
+                    var code when code.Contains(
+                        "UserName",
+                        StringComparison.OrdinalIgnoreCase)
+                        => "Email",
+
+                    _ => "General"
+                };
+
+                if (!groupedErrors.TryGetValue(
+                    key,
+                    out var messages))
+                {
+                    messages = new List<string>();
+                    groupedErrors[key] = messages;
+                }
+
+                messages.Add(error.Description);
+            }
+
+            return new ValidationException(
+                groupedErrors.ToDictionary(
+                    x => x.Key,
+                    x => x.Value.ToArray()));
+        }
     }
 }

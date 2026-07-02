@@ -66,6 +66,8 @@ namespace Inventory.Api.Installers
             builder.Services.AddScoped<IDocumentNumberService, DocumentNumberService>();
             builder.Services.AddScoped<ICashSessionService, CashSessionService>();
             builder.Services.AddScoped<ITicketFormatter, PdfTicketFormatter>();
+
+            builder.Services.AddScoped<IProductProvisioningService, ProductProvisioningService>();
             builder.Services.AddScoped<IPackService, PackService>();
             builder.Services.AddScoped<UserService>();
 

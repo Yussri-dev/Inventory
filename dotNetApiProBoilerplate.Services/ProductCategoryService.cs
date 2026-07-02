@@ -2,7 +2,6 @@
 using AutoMapper.QueryableExtensions;
 using Inventory.Domain.Entities;
 using Inventory.Dto.Pages.Results;
-using Inventory.Dto.ProductCatalogs.Results;
 using Inventory.Dto.ProductCategory.Requests;
 using Inventory.Dto.ProductCategory.Results;
 using Inventory.Dto.Queries;
@@ -24,8 +23,7 @@ namespace Inventory.Services
             IRepository<ProductCategory> repository,
             IUnitOfWork unitOfWork,
             IMapper mapper,
-            ITenantContext tenantContext
-            )
+            ITenantContext tenantContext)
         {
             _repository = repository;
             _unitOfWork = unitOfWork;
@@ -33,9 +31,9 @@ namespace Inventory.Services
             _tenantContext = tenantContext;
         }
 
-        public async Task<ProductCategoryResult> CreateAsync(CreateProductCategoryRequest request)
+        public async Task<ProductCategoryResult> CreateAsync(
+            CreateProductCategoryRequest request)
         {
-            var tenantId = _tenantContext.TenantId;
             var userId = _tenantContext.UserId;
 
             if (string.IsNullOrWhiteSpace(request.Name))
@@ -46,63 +44,74 @@ namespace Inventory.Services
                 });
             }
 
+            var name = request.Name.Trim();
+
             var exists = await _repository.ExistsAsync(c =>
-                 c.Name == request.Name && !c.IsDeleted);
+                c.Name == name &&
+                !c.IsDeleted);
 
             if (exists)
-                throw new ConflictException("Category already exists");
+                throw new ConflictException("Category already exists.");
 
             var entity = _mapper.Map<ProductCategory>(request);
 
             entity.Id = Guid.NewGuid();
-            entity.Name = request.Name.Trim();
+            entity.Name = name;
             entity.Color = request.Color?.Trim();
             entity.Icon = request.Icon?.Trim();
             entity.DisplayOrder = request.DisplayOrder;
-            entity.TenantId = tenantId;
+
+            // ProductCategory is GLOBAL
+            //entity.TenantId = null;
+
+            entity.CreatedAt = DateTime.UtcNow;
+            entity.CreatedByUserId = userId;
 
             await _repository.AddAsync(entity);
-
             await _unitOfWork.SaveChangesAsync();
+
             return _mapper.Map<ProductCategoryResult>(entity);
         }
 
         public async Task<ProductCategoryResult> GetByIdAsync(Guid id)
         {
             var entity = await _repository.Query()
-                .FirstOrDefaultAsync(c => c.Id == id && !c.IsDeleted);
+                .AsNoTracking()
+                .FirstOrDefaultAsync(c =>
+                    c.Id == id &&
+                    !c.IsDeleted);
 
             if (entity == null)
-            {
-                throw new NotFoundException("Category not found", id);
-            }
+                throw new NotFoundException("ProductCategory", id);
 
             return _mapper.Map<ProductCategoryResult>(entity);
-
         }
 
         public async Task<List<ProductCategoryResult>> GetAllAsync()
         {
             var categories = await _repository.Query()
+                .AsNoTracking()
                 .Where(c => !c.IsDeleted)
+                .OrderBy(c => c.DisplayOrder)
+                .ThenBy(c => c.Name)
                 .ToListAsync();
 
             return _mapper.Map<List<ProductCategoryResult>>(categories);
         }
 
-        public async Task<ProductCategoryResult> UpdateAsync(Guid id, UpdateProductCategoryRequest request)
+        public async Task<ProductCategoryResult> UpdateAsync(
+            Guid id,
+            UpdateProductCategoryRequest request)
         {
-            var tenantId = _tenantContext.TenantId;
             var userId = _tenantContext.UserId;
 
             var category = await _repository.Query()
-                .FirstOrDefaultAsync(
-                    c => c.Id == id && !c.IsDeleted &&
-                    c.TenantId == tenantId
-                );
+                .FirstOrDefaultAsync(c =>
+                    c.Id == id &&
+                    !c.IsDeleted);
 
             if (category == null)
-                throw new NotFoundException("Category not found", id);
+                throw new NotFoundException("ProductCategory", id);
 
             if (string.IsNullOrWhiteSpace(request.Name))
             {
@@ -112,14 +121,30 @@ namespace Inventory.Services
                 });
             }
 
+            var name = request.Name.Trim();
+
+            var exists = await _repository.ExistsAsync(c =>
+                c.Id != id &&
+                c.Name == name &&
+                !c.IsDeleted);
+
+            if (exists)
+                throw new ConflictException("Category already exists.");
 
             _mapper.Map(request, category);
+
+            category.Name = name;
+            category.Color = request.Color?.Trim();
+            category.Icon = request.Icon?.Trim();
+            category.DisplayOrder = request.DisplayOrder;
+
+            // Keep category global
+            //category.TenantId = null;
 
             category.ModifiedAt = DateTime.UtcNow;
             category.ModifiedByUserId = userId;
 
             _repository.Update(category);
-
             await _unitOfWork.SaveChangesAsync();
 
             return _mapper.Map<ProductCategoryResult>(category);
@@ -127,17 +152,13 @@ namespace Inventory.Services
 
         public async Task<bool> DeleteAsync(Guid id)
         {
-            var tenantId = _tenantContext.TenantId;
-
             var category = await _repository.Query()
-                .FirstOrDefaultAsync(
-                    c => c.Id == id
-                    && !c.IsDeleted
-                    && c.TenantId == tenantId
-                );
+                .FirstOrDefaultAsync(c =>
+                    c.Id == id &&
+                    !c.IsDeleted);
 
             if (category == null)
-                throw new NotFoundException("Category not found", id);
+                throw new NotFoundException("ProductCategory", id);
 
             category.IsDeleted = true;
             category.DeletedAt = DateTime.UtcNow;
@@ -145,16 +166,18 @@ namespace Inventory.Services
 
             _repository.Update(category);
             await _unitOfWork.SaveChangesAsync();
+
             return true;
         }
 
-        public async Task<PagedResult<ProductCategoryResult>> QueryAsync(ProductCategoryQuery query)
+        public async Task<PagedResult<ProductCategoryResult>> QueryAsync(
+            ProductCategoryQuery query)
         {
             if (query.Page < 1)
             {
                 throw new ValidationException(new Dictionary<string, string[]>
                 {
-                    {"Page", new[]{"Page must be >= 1"} }
+                    { "Page", new[] { "Page must be >= 1." } }
                 });
             }
 
@@ -162,29 +185,26 @@ namespace Inventory.Services
             {
                 throw new ValidationException(new Dictionary<string, string[]>
                 {
-                    {"PageSize", new[]{"PageSize must be between 1 and 1000"} }
+                    { "PageSize", new[] { "PageSize must be between 1 and 1000." } }
                 });
             }
 
             var dbQuery = _repository.Query()
+                .AsNoTracking()
                 .Where(x => !x.IsDeleted);
 
-            // =========================
-            // SEARCH
-            // =========================
             if (!string.IsNullOrWhiteSpace(query.Search))
             {
                 var search = query.Search.Trim();
 
                 dbQuery = dbQuery.Where(p =>
                     EF.Functions.ILike(p.Name, $"%{search}%") ||
-                    (p.Color != null && EF.Functions.ILike(p.Color, $"%{search}%"))
-                );
+                    (p.Color != null &&
+                     EF.Functions.ILike(p.Color, $"%{search}%")) ||
+                    (p.Icon != null &&
+                     EF.Functions.ILike(p.Icon, $"%{search}%")));
             }
 
-            // =========================
-            // SORT (SAFE)
-            // =========================
             var sortBy = query.SortBy?.ToLower();
 
             dbQuery = sortBy switch
@@ -197,19 +217,17 @@ namespace Inventory.Services
                     ? dbQuery.OrderByDescending(p => p.Color)
                     : dbQuery.OrderBy(p => p.Color),
 
+                "displayorder" => query.Desc
+                    ? dbQuery.OrderByDescending(p => p.DisplayOrder)
+                    : dbQuery.OrderBy(p => p.DisplayOrder),
+
                 _ => query.Desc
                     ? dbQuery.OrderByDescending(p => p.CreatedAt)
-                    : dbQuery.OrderBy(p => p.CreatedAt),
+                    : dbQuery.OrderBy(p => p.CreatedAt)
             };
 
-            // =========================
-            // COUNT
-            // =========================
             var total = await dbQuery.CountAsync();
 
-            // =========================
-            // DATA
-            // =========================
             var items = await dbQuery
                 .Skip((query.Page - 1) * query.PageSize)
                 .Take(query.PageSize)
@@ -221,9 +239,8 @@ namespace Inventory.Services
                 Items = items,
                 TotalCount = total,
                 Page = query.Page,
-                PageSize = query.PageSize,
+                PageSize = query.PageSize
             };
         }
-
     }
 }

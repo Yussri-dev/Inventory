@@ -30,6 +30,7 @@ namespace Inventory.Api.Controllers
         [ProducesResponseType(typeof(object), StatusCodes.Status201Created)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
+        [Authorize(Roles = "SuperAdmin")]
         public async Task<IActionResult> Create(
             [FromBody] CreateProductCategoryRequest request,
 
@@ -77,6 +78,7 @@ namespace Inventory.Api.Controllers
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
+        [Authorize(Roles = "SuperAdmin")]
         public async Task<IActionResult> Update(
             Guid id,
             [FromBody] UpdateProductCategoryRequest request,
@@ -92,8 +94,9 @@ namespace Inventory.Api.Controllers
         }
 
         [HttpDelete("{id:guid}")]
-        [ProducesResponseType(StatusCodes.Status204NoContent)] // Deleted
-        [ProducesResponseType(StatusCodes.Status404NotFound)]  // Not found
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [Authorize(Roles = "SuperAdmin")]
         public async Task<IActionResult> Delete(Guid id, CancellationToken cancellationToken)
         {
             await _mediator.Send(

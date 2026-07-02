@@ -1,4 +1,5 @@
-﻿using System.ComponentModel.DataAnnotations;
+﻿using Inventory.Dto.Enums;
+using System.ComponentModel.DataAnnotations;
 
 namespace Inventory.Dto.Auth.Requests
 {
@@ -19,6 +20,11 @@ namespace Inventory.Dto.Auth.Requests
         [Required(ErrorMessage = "Full name is required")]
         [MaxLength(200, ErrorMessage = "Full name cannot exceed 200 characters")]
         public string FullName { get; set; } = null!;
+
+        //[Required]
+        public SubscriptionPlan SubscriptionPlan { get; set; }
+
+        public bool EnableTrial { get; set; } = true;
     }
 
 

@@ -63,6 +63,10 @@
     <ItemGroup>
 		<PackageReference Include="Blazor-ApexCharts" Version="6.0.1" />
 		<PackageReference Include="Microsoft.AspNetCore.Components.Authorization" Version="9.0.12" />
+		<PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.10">
+		  <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+		  <PrivateAssets>all</PrivateAssets>
+		</PackageReference>
         <PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
         <PackageReference Include="Microsoft.AspNetCore.Components.WebView.Maui" Version="$(MauiVersion)" />
         <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="9.0.8" />
@@ -73,6 +77,7 @@
 
     <ItemGroup>
       <ProjectReference Include="..\dotNetApiProBoilerplate.Dto\Inventory.Dto.csproj" />
+      <ProjectReference Include="..\Inventory.LocalDB\Inventory.LocalDB.csproj" />
     </ItemGroup>
 
 </Project>

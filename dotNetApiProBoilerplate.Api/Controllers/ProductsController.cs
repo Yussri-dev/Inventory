@@ -136,5 +136,20 @@ namespace Inventory.Api.Controllers
             );
             return Ok(result);
         }
+
+        [HttpGet("/api/admin/products/search")]
+        [Authorize(Roles = "SuperAdmin")]
+        [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        public async Task<IActionResult> SearchForAdmin(
+    [FromQuery] ProductQuery query,
+    CancellationToken cancellationToken)
+        {
+            var result = await _mediator.Send(
+                new SearchProductsForAdminQuery(query),
+                cancellationToken);
+
+            return Ok(result);
+        }
     }
 }

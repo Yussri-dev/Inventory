@@ -20,6 +20,14 @@ namespace Inventory.Infrastructure.Data
         {
             base.OnModelCreating(builder);
 
+
+            builder.Entity<ApplicationUser>()
+                .HasOne(user => user.Tenant)
+                .WithMany()
+                .HasForeignKey(user => user.TenantId)
+                .IsRequired(false)
+                .OnDelete(DeleteBehavior.Restrict);
+
             // ============================
             // INDEXES FOR PERFORMANCE
             // ============================
@@ -43,11 +51,20 @@ namespace Inventory.Infrastructure.Data
             builder.Entity<AuditLog>().HasIndex(e => e.TenantId);
             builder.Entity<Promotion>().HasIndex(e => e.TenantId);
             builder.Entity<SystemConfiguration>().HasIndex(e => e.TenantId);
-            builder.Entity<PackComponent>().HasIndex(e => e.TenantId);
+            //builder.Entity<PackComponent>().HasIndex(e => e.TenantId);
 
             // Additional useful indexes
             builder.Entity<Product>().HasIndex(e => e.Barcode);
             builder.Entity<Product>().HasIndex(e => e.Sku);
+            builder.Entity<Product>()
+            .HasIndex(product => new
+            {
+                product.TenantId,
+                product.CatalogProductId
+            })
+            .IsUnique()
+            .HasFilter(
+                "\"CatalogProductId\" IS NOT NULL AND \"IsDeleted\" = FALSE");
             builder.Entity<Sale>().HasIndex(e => e.SaleDate);
             builder.Entity<Purchase>().HasIndex(e => e.PurchaseDate);
             builder.Entity<Customer>().HasIndex(e => e.Email);

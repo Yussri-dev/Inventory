@@ -6,7 +6,7 @@ using System.ComponentModel.DataAnnotations;
 
 namespace Inventory.Domain.Entities
 {
-    public class ProductCategory  : TenantEntity
+    public class ProductCategory  : GlobalEntity
     {
         public Guid Id { get; set; }
 

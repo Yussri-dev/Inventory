@@ -8,6 +8,8 @@
 @inject NavigationManager Nav
 @inject ICashSessionApi CashSessionApi
 @inject AppState State
+@implements IDisposable
+
 
 <div class="sale-container">
 
@@ -275,7 +277,19 @@
     // =========================================================================
     // LIFECYCLE
     // =========================================================================
+    protected override void OnInitialized()
+    {
+        State.OnChange += HandleStateChange;
+    }
+
     protected override Task OnInitializedAsync() => Task.CompletedTask;
+
+    private void HandleStateChange() => InvokeAsync(StateHasChanged);
+
+    public void Dispose()
+    {
+        State.OnChange -= HandleStateChange;
+    }
 
     // =========================================================================
     // CUSTOMER SEARCH
@@ -379,18 +393,17 @@
             {
                 try
                 {
-                    State.ActiveCashSession = await CashSessionApi.GetActive();
-                    State.IsCashSessionLoaded = true;
+                    var active = await CashSessionApi.GetActive();
+                    await State.SetCashSessionAsync(active);
                 }
                 catch
                 {
-                    // await JS.InvokeVoidAsync("alert", "No active cash session.\n\nPlease open one.");
-                    ShowError($"No active cash session.");
-
+                    ShowError("No active cash session.");
                     Nav.NavigateTo("/cashsessions");
                     return;
                 }
             }
+
             isLoadingData = true;
             errorMessage = null;
 

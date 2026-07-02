@@ -1,4 +1,6 @@
-﻿using Inventory.Dto.Sales.Results;
+﻿using Inventory.Dto.Analytics.Results;
+using Inventory.Dto.Sales.Results;
+using Inventory.Services.Features.Analytics.Dashboard;
 using Inventory.Services.Features.Analytics.Loss;
 using Inventory.Services.Features.Analytics.Profit;
 using Inventory.Services.Features.Analytics.WeeklyReport;
@@ -56,6 +58,18 @@ namespace Inventory.Api.Controllers
         {
             var result = await _mediator.Send(
                 new GetWeeklyReportQuery(year, week));
+            return Ok(result);
+        }
+
+        [HttpGet("dashboard-summary")]
+        [ProducesResponseType(typeof(DashboardSummaryResult), StatusCodes.Status200OK)]
+        public async Task<IActionResult> GetDashboardSummary(
+    [FromQuery] DateOnly? from,
+    [FromQuery] DateOnly? to)
+        {
+            var result = await _mediator.Send(
+                new GetDashboardSummaryQuery(from, to));
+
             return Ok(result);
         }
     }

@@ -1,5 +1,5 @@
 ﻿/* ===============================
-   ANALYTICS DASHBOARD – FIX LAYOUT
+   ANALYTICS DASHBOARD
    =============================== */
 
 .analytics-page {
@@ -8,7 +8,6 @@
     margin: 0;
 }
 
-    /* HEADER */
     .analytics-page h1 {
         font-size: 26px;
         font-weight: 800;
@@ -18,21 +17,50 @@
         gap: 10px;
     }
 
-/* PERIOD SELECTOR */
+/* ===============================
+   SECTION LABEL
+   =============================== */
+
+.kpi-section-label {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 12px;
+    padding-left: 2px;
+}
+
+/* ===============================
+   PERIOD SELECTOR
+   =============================== */
+.dashboard-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 32px;
+}
+
+    .dashboard-header h1 {
+        font-size: 26px;
+        font-weight: 800;
+        margin: 0;
+    }
+
 .period-selector {
     display: flex;
-    gap: 12px;
-    margin-bottom: 32px;
+    gap: 8px;
 }
 
     .period-selector button {
         background: transparent;
         border: 1px solid var(--border);
         color: var(--muted);
-        padding: 8px 16px;
+        padding: 8px 18px;
         border-radius: 999px;
         font-size: 13px;
         cursor: pointer;
+        transition: border-color .15s, color .15s, background .15s;
     }
 
         .period-selector button:hover {
@@ -40,33 +68,59 @@
             color: #fff;
         }
 
+        .period-selector button.active {
+            background: var(--primary);
+            border-color: var(--primary);
+            color: #fff;
+            font-weight: 600;
+        }
+
 /* ===============================
-   KPI GRID – FIXED
+   KPI GRID
    =============================== */
+
 .kpi-grid {
     display: grid;
-    grid-template-columns: repeat(5, minmax(180px, 1fr));
-    gap: 18px;
+    gap: 16px;
     width: 100%;
-    margin-bottom: 40px;
+    margin-bottom: 28px;
+}
+
+.kpi-grid--6 {
+    grid-template-columns: repeat(6, minmax(140px, 1fr));
+}
+
+.kpi-grid--5 {
+    grid-template-columns: repeat(5, minmax(150px, 1fr));
 }
 
 .kpi-card {
-    background: linear-gradient( 180deg, rgba(255,255,255,.04), rgba(255,255,255,.01) );
+    background: linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.01));
     border: 1px solid var(--border);
     border-radius: 14px;
-    padding: 20px;
+    padding: 18px 20px;
+    transition: border-color .15s;
 }
 
+    .kpi-card:hover {
+        border-color: rgba(255,255,255,.15);
+    }
+
 .kpi-label {
-    font-size: 13px;
+    font-size: 12px;
     color: var(--muted);
-    margin-bottom: 6px;
+    margin-bottom: 8px;
+    font-weight: 500;
 }
 
 .kpi-value {
     font-size: 22px;
     font-weight: 800;
+    line-height: 1.1;
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    flex-wrap: wrap;
 }
 
     .kpi-value.positive {
@@ -77,29 +131,127 @@
         color: var(--danger);
     }
 
+    .kpi-value.warning {
+        color: #f59e0b;
+    }
+
+.kpi-sub {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--muted);
+}
+
 /* ===============================
-   LOSS PRODUCTS TABLE
+   CHARTS ROW
    =============================== */
-.table {
-    width: 100%;
-    margin-bottom: 40px;
-    border-collapse: collapse;
-    background: linear-gradient( 180deg, rgba(255,255,255,.04), rgba(255,255,255,.01) );
+
+.charts-row {
+    display: grid;
+    grid-template-columns: 1fr 2fr 1fr;
+    gap: 16px;
+    margin-bottom: 32px;
+}
+
+.chart-card {
+    background: linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.01));
     border: 1px solid var(--border);
     border-radius: 14px;
-    overflow: hidden;
+    padding: 20px;
+}
+
+.chart-title {
+    font-size: 13px;
+    font-weight: 700;
+    margin-bottom: 14px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: .05em;
+}
+
+/* ===============================
+   TABS
+   =============================== */
+
+.tab-bar {
+    display: flex;
+    gap: 4px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 0;
+    flex-wrap: wrap;
+}
+
+    .tab-bar button {
+        background: transparent;
+        border: none;
+        border-bottom: 2px solid transparent;
+        color: var(--muted);
+        padding: 10px 18px;
+        font-size: 13px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: color .15s, border-color .15s;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: -1px;
+    }
+
+        .tab-bar button:hover {
+            color: #fff;
+        }
+
+        .tab-bar button.active {
+            color: #fff;
+            border-bottom-color: var(--primary);
+            font-weight: 600;
+        }
+
+.tab-badge {
+    background: rgba(255,255,255,.1);
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 700;
+    padding: 1px 7px;
+    border-radius: 999px;
+    line-height: 1.6;
+}
+
+.tab-badge--danger {
+    background: rgba(239, 68, 68, .15);
+    color: var(--danger);
+}
+
+.tab-panel {
+    background: linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.01));
+    border: 1px solid var(--border);
+    border-top: none;
+    border-radius: 0 0 14px 14px;
+    padding: 24px;
+    min-height: 180px;
+}
+
+/* ===============================
+   TABLES
+   =============================== */
+
+.table {
+    width: 100%;
+    border-collapse: collapse;
 }
 
     .table th {
-        padding: 14px 16px;
-        font-size: 12px;
+        padding: 10px 14px;
+        font-size: 11px;
         color: var(--muted);
         text-align: left;
         border-bottom: 1px solid var(--border);
+        font-weight: 600;
+        letter-spacing: .06em;
+        text-transform: uppercase;
     }
 
     .table td {
-        padding: 14px 16px;
+        padding: 13px 14px;
         font-size: 13px;
         border-bottom: 1px solid var(--border);
     }
@@ -108,37 +260,121 @@
         border-bottom: none;
     }
 
+    .table tr:hover td {
+        background: rgba(255,255,255,.02);
+    }
+
+    .table .positive {
+        color: #22c55e;
+        font-weight: 600;
+    }
+
     .table .negative {
         color: var(--danger);
         font-weight: 600;
     }
 
+    .table .warning {
+        color: #f59e0b;
+        font-weight: 600;
+    }
+
+    .table .rank {
+        color: var(--muted);
+        font-weight: 700;
+        font-size: 12px;
+        width: 32px;
+    }
+
 /* ===============================
-   WEEKLY REPORT – GRID FIX
+   EMPTY / LOADING STATES
    =============================== */
-.analytics-page h2 {
-    margin-top: 40px;
-    margin-bottom: 18px;
-    font-size: 18px;
-    font-weight: 700;
+
+.empty-state {
+    padding: 40px 20px;
+    text-align: center;
+    color: var(--muted);
+    font-size: 14px;
 }
 
-    .analytics-page h2 + .kpi-grid {
-        grid-template-columns: repeat(6, minmax(160px, 1fr));
-        margin-bottom: 0;
+.loading-state {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 60px 20px;
+    color: var(--muted);
+    font-size: 15px;
+}
+
+.spinner {
+    width: 22px;
+    height: 22px;
+    border: 2px solid var(--border);
+    border-top-color: var(--primary);
+    border-radius: 50%;
+    animation: spin .7s linear infinite;
+    flex-shrink: 0;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
     }
+}
 
 /* ===============================
    RESPONSIVE
    =============================== */
-@media (max-width: 1200px) {
-    .kpi-grid {
+
+@media (max-width: 1400px) {
+    .kpi-grid--6 {
+        grid-template-columns: repeat(3, 1fr);
+    }
+
+    .charts-row {
+        grid-template-columns: 1fr 1fr;
+    }
+
+        .charts-row .chart-card:last-child {
+            grid-column: 1 / -1;
+        }
+}
+
+@media (max-width: 1100px) {
+    .kpi-grid--5 {
         grid-template-columns: repeat(3, 1fr);
     }
 }
 
+@media (max-width: 900px) {
+    .charts-row {
+        grid-template-columns: 1fr;
+    }
+}
+
 @media (max-width: 768px) {
-    .kpi-grid {
+    .kpi-grid--6,
+    .kpi-grid--5 {
         grid-template-columns: repeat(2, 1fr);
+    }
+
+    .analytics-page h1 {
+        font-size: 20px;
+    }
+
+    .tab-bar button {
+        padding: 10px 12px;
+        font-size: 12px;
+    }
+
+    .tab-panel {
+        padding: 16px;
+    }
+}
+
+@media (max-width: 480px) {
+    .kpi-grid--6,
+    .kpi-grid--5 {
+        grid-template-columns: 1fr;
     }
 }

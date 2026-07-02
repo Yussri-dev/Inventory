@@ -4,6 +4,7 @@
 @inject ISecureStorageService SecureStorage
 @inject NavigationManager Nav
 @inject AuthenticationStateProvider AuthStateProvider
+@inject AppState State
 
 @using System.Text.Json
 @using Inventory.Ui.Authentification
@@ -135,6 +136,10 @@
             {
                 jwt.NotifyUserLoggedIn(token);
             }
+
+            State.InvalidatePos();
+
+
             Nav.NavigateTo("/");
         }
         catch (ApiException ex)

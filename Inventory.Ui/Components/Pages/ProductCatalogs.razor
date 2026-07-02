@@ -7,7 +7,10 @@
 @using Inventory.Dto.ProductCatalogs.Requests
 @using Inventory.Dto.ProductCategory.Results
 @using Inventory.Ui.State
+@using Inventory.Ui.Services
 @inject AppState State
+@inject PosBootstrapService Bootstrap
+@implements IDisposable
 
 <h3>Product Catalogs</h3>
 <div class="page-container">
@@ -71,13 +74,6 @@
                                         <option value="Unit">Unit (pcs)</option>
                                         <option value="Weight">Weight (kg / g / l)</option>
                                     </InputSelect>
-
-                                    @* <label>Manufacturer</label>
-                        <InputText placeholder="Manufacturer (optional)"
-                                   class="inputText"
-                                   @bind-Value="form.Manufacturer"
-                                   disabled="@isLoading" />
-                        <ValidationMessage For="@(() => form.Manufacturer)" /> *@
                                 </div>
                             </div>
 
@@ -127,7 +123,6 @@
                             <!-- PACK SECTION -->
                             <div class="form-field">
                                 <label>
-                                    @* <InputCheckbox @bind-Value="form.IsPack" disabled="@isLoading" /> *@
                                     <InputCheckbox @bind-Value="form.IsPack"
                                                    disabled="@(form.SellingMode != SellingMode.Unit)" />
                                     This product is a pack
@@ -142,21 +137,22 @@
                                     <div class="form-row">
                                         <div class="form-field">
                                             <label>Unit product (contained in this pack) *</label>
-                                            <InputSelect @bind-Value="form.ComponentCatalogId"
-                                                         class="inputText"
-                                                         disabled="@isLoading">
-                                                <option value="@Guid.Empty">-- Select unit product --</option>
-                                                @foreach (var cat in UnitCatalogs)
-                                                {
-                                                    <option value="@cat.Id">
-                                                        @cat.Name
-                                                        @if (!string.IsNullOrEmpty(cat.Barcode))
-                                                        {
-                                                            <text> [@cat.Barcode]</text>
-                                                        }
-                                                    </option>
-                                                }
-                                            </InputSelect>
+                                            <MudAutocomplete T="ProductCatalogResult"
+                                                             Label="Unit product (contained in this pack)"
+                                                             Value="selectedComponentCatalog"
+                                                             ValueChanged="OnComponentCatalogChanged"
+                                                             SearchFunc="SearchUnitCatalogServer"
+                                                             ToStringFunc="FormatCatalog"
+                                                             Clearable="true"
+                                                             Dense="true"
+                                                             ResetValueOnEmptyText="true"
+                                                             CoerceText="false"
+                                                             CoerceValue="false"
+                                                             MinCharacters="0"
+                                                             MaxItems="30"
+                                                             Disabled="@isLoading"
+                                                             Placeholder="Search unit product by name, barcode or internal code" />
+
                                             @if (form.IsPack && form.ComponentCatalogId == Guid.Empty)
                                             {
                                                 <small style="color: red;">Please select the unit product</small>
@@ -175,12 +171,11 @@
                                         </div>
                                     </div>
 
-                                    @if (form.ComponentCatalogId != Guid.Empty && form.PackQuantity > 0)
+                                    @if (selectedComponentCatalog != null && form.PackQuantity > 0)
                                     {
-                                        var unit = UnitCatalogs.FirstOrDefault(c => c.Id == form.ComponentCatalogId);
                                         <div style="margin-top: 8px; padding: 8px; background: #e8f5e9; border-radius: 4px; font-size: 13px;">
-                                            ✅ <strong>@form.Name</strong> contains
-                                            <strong>@form.PackQuantity</strong> × <strong>@(unit?.Name ?? "")</strong>
+                                            <strong>@form.Name</strong> contains
+                                            <strong>@form.PackQuantity</strong> × <strong>@selectedComponentCatalog.Name</strong>
                                         </div>
                                     }
                                 </div>
@@ -255,7 +250,7 @@
         </div>
 
         <div class="results-header">
-            <span>@items.Count / @TotalCount Product(s) found.</span>
+            <span>@ItemsCount / @TotalCount Product(s) found.</span>
             @if (isSearching)
             {
                 <button class="btn small ghost" @onclick="ClearSearch">Show All</button>
@@ -269,11 +264,10 @@
                     <th>Barcode</th>
                     <th>Int. Code</th>
                     <th>Brand</th>
-                    @* <th>Manufacturer</th> *@
                     <th>Unit</th>
                     <th>Pack</th>
                     <th>Mode</th>
-                    <th style="width:160px"></th>
+                    <th style="width:160px">Actions</th>
                 </tr>
             </thead>
             <tbody>
@@ -298,7 +292,6 @@
                         <td><code>@p.Barcode</code></td>
                         <td><code>@p.InternalCode</code></td>
                         <td>@(p.Brand ?? "-")</td>
-                        @* <td>@(p.Manufacturer ?? "-")</td> *@
                         <td>@(p.UnitOfMeasure ?? "-")</td>
                         <td>
                             @if (p.IsPack && p.PackComponents.Any())
@@ -313,12 +306,10 @@
                                 <span class="muted">-</span>
                             }
                         </td>
-                        <td>
-                            @p.SellingMode
-                        </td>
+                        <td>@p.SellingMode</td>
                         <td class="actions-end">
                             <button class="btn small ghost"
-                                    @onclick="() => StartEdit(p)"
+                                    @onclick="() => StartEditAsync(p)"
                                     disabled="@isLoading">
                                 Edit
                             </button>
@@ -335,7 +326,6 @@
     }
 </div>
 
-
 @if (showDeleteConfirm && productToDelete != null)
 {
     <div class="modal-overlay" @onclick="CancelDelete">
@@ -350,7 +340,6 @@
         </div>
     </div>
 }
-
 
 @if (!string.IsNullOrEmpty(successMessage))
 {
@@ -369,9 +358,12 @@
 }
 
 @code {
+    // ── Page-local display state ─────────────────────────────────────────────
     private List<ProductCatalogResult>? items;
-    private List<ProductCatalogResult> allCatalogs = new(); // pour le select des unités
+    // allCatalogs and categories now come from AppState cache
     private List<ProductCategoryResult> categories = new();
+
+    private ProductCatalogResult? selectedComponentCatalog;
 
     private Guid? editingId;
     private ProductCatalogForm form = new();
@@ -383,27 +375,154 @@
     private ProductCatalogResult? productToDelete;
     private string searchTerm = string.Empty;
     private bool isSearching;
+    private string sortBy = "DisplayOrder";
+    private bool sortDescending = false;
 
     int Page = 1;
     int PageSize = 10;
     int TotalCount;
-
+    int ItemsCount;
 
     bool showProduct;
-    // Catalogues unitaires disponibles pour le select pack (exclus les packs eux-mêmes)
-    List<ProductCatalogResult> UnitCatalogs =>
-        allCatalogs.Where(c => !c.IsPack).ToList();
+
+    // ── Derived from AppState cache (no extra API call needed) ───────────────
+    // All catalogs for the pack dropdown — read directly from the singleton cache
+    private List<ProductCatalogResult> UnitCatalogs =>
+    State.ProductsCatalog?
+        .Where(c => !c.IsPack && c.SellingMode == SellingMode.Unit)
+        .OrderBy(c => c.Name)
+        .ToList()
+    ?? new List<ProductCatalogResult>();
+    // ── Lifecycle ────────────────────────────────────────────────────────────
+    private Task<IEnumerable<ProductCatalogResult>> SearchUnitCatalogLocal(
+        string? value,
+        CancellationToken cancellationToken)
+    {
+        var source = UnitCatalogs;
+
+        if (source.Count == 0)
+            return Task.FromResult(Enumerable.Empty<ProductCatalogResult>());
+
+        if (string.IsNullOrWhiteSpace(value))
+            return Task.FromResult(source.Take(20).AsEnumerable());
+
+        value = value.Trim();
+
+        var result = source
+            .Where(c =>
+                (!string.IsNullOrWhiteSpace(c.Name) &&
+                 c.Name.Contains(value, StringComparison.OrdinalIgnoreCase))
+                ||
+                (!string.IsNullOrWhiteSpace(c.Barcode) &&
+                 c.Barcode.Contains(value, StringComparison.OrdinalIgnoreCase))
+                ||
+                (!string.IsNullOrWhiteSpace(c.Brand) &&
+                 c.Brand.Contains(value, StringComparison.OrdinalIgnoreCase))
+                ||
+                (!string.IsNullOrWhiteSpace(c.InternalCode) &&
+                 c.InternalCode.Contains(value, StringComparison.OrdinalIgnoreCase)))
+            .Take(30);
+
+        return Task.FromResult(result);
+    }
+
+    private async Task<IEnumerable<ProductCatalogResult>> SearchUnitCatalogServer(
+    string? value,
+    CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            value = string.Empty;
+        }
+
+        var query = new ProductCatalogQuery
+        {
+            Page = 1,
+            PageSize = 30,
+            Search = value.Trim(),
+            SortBy = "Name",
+            Desc = false
+        };
+
+        var response = await Api.Search(query);
+
+        var result = response.Items?
+            .Where(c =>
+                !c.IsPack &&
+                c.SellingMode == SellingMode.Unit &&
+                c.Id != editingId)
+            .OrderBy(c => c.Name)
+            .ToList()
+            ?? new List<ProductCatalogResult>();
+
+        return result;
+    }
+
+    private string FormatCatalog(ProductCatalogResult? catalog)
+    {
+        if (catalog == null)
+            return string.Empty;
+
+        if (!string.IsNullOrWhiteSpace(catalog.Barcode))
+            return $"{catalog.Name} [{catalog.Barcode}]";
+
+        return catalog.Name;
+    }
+
+    private Task OnComponentCatalogChanged(ProductCatalogResult? catalog)
+    {
+        selectedComponentCatalog = catalog;
+        form.ComponentCatalogId = catalog?.Id ?? Guid.Empty;
+
+        return Task.CompletedTask;
+    }
+
+    // CHANGE 1: Subscribe to AppState.OnChange so this page re-renders when
+    // another page (e.g. POS) calls InvalidatePos() or SetPosDataAsync().
+    protected override void OnInitialized()
+    {
+        State.OnChange += HandleStateChange;
+    }
 
     protected override async Task OnInitializedAsync()
     {
         Page = 1;
-        await LoadAllCatalogsForSelect();
-        await LoadCategories();
+
+        await Bootstrap.EnsureLoadedAsync();
+
+        await LoadCategoriesFromCacheOrApi();
         await LoadData();
     }
-
-    private async Task LoadCategories()
+    // CHANGE 3: Must unsubscribe to prevent memory leaks when the page is disposed.
+    public void Dispose()
     {
+        State.OnChange -= HandleStateChange;
+    }
+
+    // Called by AppState when any cache entry changes (e.g. after InvalidatePos)
+    private void HandleStateChange()
+    {
+        // Refresh the categories binding from the updated cache
+        if (State.ProductsCategory != null)
+            categories = State.ProductsCategory;
+
+        InvokeAsync(StateHasChanged);
+    }
+
+    // ── Data loading ─────────────────────────────────────────────────────────
+
+    // CHANGE 4: Categories are now read from AppState cache if available.
+    // This avoids a redundant CategoryApi.GetAll() call on every page visit.
+    private async Task LoadCategoriesFromCacheOrApi()
+    {
+        if (State.ProductsCategory != null)
+        {
+            // Already in cache — use it instantly, no network call
+            categories = State.ProductsCategory;
+            return;
+        }
+
+        // Not in cache yet — fall back to direct API call
         try
         {
             var result = await CategoryApi.GetAll();
@@ -415,24 +534,10 @@
         }
     }
 
-    // Charger tous les catalogs pour le select (sans pagination)
-    private async Task LoadAllCatalogsForSelect()
-    {
-        try
-        {
-            var response = await Api.Search(new ProductCatalogQuery
-            {
-                Page = 1,
-                PageSize = 1000
-            });
-            allCatalogs = response.Items?.ToList() ?? new();
-        }
-        catch
-        {
-            allCatalogs = new();
-        }
-    }
-
+    // CHANGE 5: LoadData() no longer calls LoadAllCatalogsForSelect() separately.
+    // UnitCatalogs is now a computed property reading State.ProductsCatalog,
+    // which Bootstrap keeps up to date. After Create/Update/Delete we call
+    // Bootstrap.EnsureLoadedAsync() to refresh the cache in the background.
     private async Task LoadData()
     {
         try
@@ -444,26 +549,47 @@
             {
                 Page = Page,
                 PageSize = PageSize,
-                Search = isSearching ? searchTerm : null
+                Search = isSearching ? searchTerm : null,
+                SortBy = sortBy,
+                Desc = sortDescending
             };
 
             var response = await Api.Search(query);
             items = response.Items?.ToList() ?? new();
             TotalCount = response.TotalCount;
-
-            // Mettre à jour le cache local aussi
-            await LoadAllCatalogsForSelect();
+            ItemsCount = ((Page - 1) * PageSize) + items.Count;
         }
-        catch (Exception ex)
+        catch
         {
-            // errorMessage = $"Failed to load products: {ex.Message}";
-            ShowError($"Failed to load products ! ");
+            ShowError("Failed to load products!");
             items = new();
+            TotalCount = 0;
+            ItemsCount = 0;
         }
         finally
         {
             isLoadingData = false;
         }
+    }
+
+    private async Task Sort(string column)
+    {
+        if (sortBy == column)
+            sortDescending = !sortDescending;
+        else
+        {
+            sortBy = column;
+            sortDescending = false;
+        }
+
+        Page = 1;
+        await LoadData();
+    }
+
+    private string GetSortIcon(string column)
+    {
+        if (sortBy != column) return string.Empty;
+        return sortDescending ? "DESC" : "ASC";
     }
 
     private async Task Search()
@@ -493,15 +619,20 @@
             await Search();
     }
 
-    private void AddProduct()
+    private async Task AddProduct()
     {
+        await Bootstrap.EnsureLoadedAsync();
+
+        if (State.ProductsCatalog == null || State.ProductsCatalog.Count == 0)
+        {
+            ShowError("Product catalog cache is empty.");
+            return;
+        }
+
         showProduct = true;
     }
 
-    private void CloseProductModel()
-    {
-        showProduct = false;
-    }
+    private void CloseProductModel() => showProduct = false;
 
     private async Task ClearSearch()
     {
@@ -510,6 +641,8 @@
         Page = 1;
         await LoadData();
     }
+
+    // ── Form submit ──────────────────────────────────────────────────────────
 
     private async Task HandleSubmit()
     {
@@ -524,7 +657,7 @@
             ShowError("Unit products must use pcs.");
             return;
         }
-        // Validation pack
+
         if (form.IsPack)
         {
             if (form.ComponentCatalogId == Guid.Empty)
@@ -567,27 +700,27 @@
                 PackComponents = form.IsPack && form.ComponentCatalogId != Guid.Empty
                     ? new List<CreatePackComponentRequest>
                     {
-                        new()
-                        {
-                            ComponentCatalogId = form.ComponentCatalogId,
-                            Quantity = form.PackQuantity
-                        }
+                        new() { ComponentCatalogId = form.ComponentCatalogId, Quantity = form.PackQuantity }
                     }
                     : new List<CreatePackComponentRequest>()
             };
 
             await Api.Create(request);
-            InvalidatePosCache();
-            ShowSuccess($"Product €{form.Name}created successfully !");
 
+            // CHANGE 6: Invalidate then eagerly reload so the pack dropdown
+            // and any other page using the cache are immediately up to date.
+            State.InvalidatePos();
+            await Bootstrap.EnsureLoadedAsync();
+
+            ShowSuccess($"Product '{form.Name}' created successfully!");
             ResetForm();
 
             if (isSearching) await Search();
             else await LoadData();
         }
-        catch (Exception ex)
+        catch
         {
-            ShowError("Failed to create product");
+            ShowError("Failed to create product.");
         }
         finally
         {
@@ -597,13 +730,11 @@
 
     private async Task Update()
     {
-        if (editingId == null)
-            return;
+        if (editingId == null) return;
 
         try
         {
             isLoading = true;
-            // ClearMessages();
 
             var request = new UpdateProductCatalogRequest
             {
@@ -618,31 +749,27 @@
                 CategoryId = form.CategoryId,
                 IsPack = form.IsPack,
                 SellingMode = form.SellingMode,
-
                 PackComponents = form.IsPack && form.ComponentCatalogId != Guid.Empty
                     ? new List<CreatePackComponentRequest>
                     {
-                        new()
-                        {
-                            ComponentCatalogId = form.ComponentCatalogId,
-                            Quantity = form.PackQuantity
-                        }
+                        new() { ComponentCatalogId = form.ComponentCatalogId, Quantity = form.PackQuantity }
                     }
                     : new List<CreatePackComponentRequest>()
             };
 
             await Api.Update(editingId.Value, request);
-            InvalidatePosCache();
-            ShowSuccess($"Product {form.Name} updated successfully.");
+
+            State.InvalidatePos();
+            await Bootstrap.EnsureLoadedAsync();
+
+            ShowSuccess($"Product '{form.Name}' updated successfully.");
             ResetForm();
 
-            if (isSearching) await Search();
-            else await LoadData();
+            await LoadData();
         }
-        catch (Exception ex)
+        catch
         {
-            // errorMessage = $"Failed to update product: {ex.Message}";
-            ShowError("Failed to update product");
+            ShowError("Failed to update product.");
         }
         finally
         {
@@ -650,17 +777,11 @@
         }
     }
 
-    private void InvalidatePosCache()
-    {
-        State.InvalidatePos();
-    }
-
     private void ConfirmDelete(ProductCatalogResult product)
     {
         productToDelete = product;
         showDeleteConfirm = true;
     }
-
 
     private void CancelDelete()
     {
@@ -670,28 +791,29 @@
 
     private async Task ConfirmDeleteAction()
     {
-        if (productToDelete == null)
-            return;
+        if (productToDelete == null) return;
 
         try
         {
             isLoading = true;
             showDeleteConfirm = false;
-            // ClearMessages();
 
             var productName = productToDelete.Name;
             await Api.Delete(productToDelete.Id);
-            InvalidatePosCache();
+
+            // CHANGE 6 (same pattern): invalidate + background reload
+            State.InvalidatePos();
+            await Bootstrap.EnsureLoadedAsync();
+
             ShowSuccess($"Product '{productName}' deleted successfully.");
             productToDelete = null;
 
             if (isSearching) await Search();
             else await LoadData();
         }
-        catch (Exception ex)
+        catch
         {
-            // errorMessage = $"Failed to delete product: {ex.Message}";
-            ShowError($"Failed to delete product !");
+            ShowError("Failed to delete product!");
         }
         finally
         {
@@ -699,10 +821,55 @@
         }
     }
 
-    private void StartEdit(ProductCatalogResult p)
+    private async Task<ProductCatalogResult?> FindCatalogByIdAsync(Guid id, string? fallbackName = null)
     {
+        if (id == Guid.Empty)
+            return null;
+
+        var fromCache = State.ProductsCatalog?
+            .FirstOrDefault(x => x.Id == id);
+
+        if (fromCache != null)
+            return fromCache;
+
+        if (!string.IsNullOrWhiteSpace(fallbackName))
+        {
+            var response = await Api.Search(new ProductCatalogQuery
+            {
+                Page = 1,
+                PageSize = 30,
+                Search = fallbackName,
+                SortBy = "Name",
+                Desc = false
+            });
+
+            var fromApi = response.Items?
+                .FirstOrDefault(x => x.Id == id);
+
+            if (fromApi != null)
+                return fromApi;
+        }
+
+        var fallbackResponse = await Api.Search(new ProductCatalogQuery
+        {
+            Page = 1,
+            PageSize = 200,
+            Search = null,
+            SortBy = "Name",
+            Desc = false
+        });
+
+        return fallbackResponse.Items?
+            .FirstOrDefault(x => x.Id == id);
+    }
+
+    private async Task StartEditAsync(ProductCatalogResult p)
+    {
+        await Bootstrap.EnsureLoadedAsync();
+
         showProduct = true;
         editingId = p.Id;
+
         form.Name = p.Name;
         form.Barcode = p.Barcode;
         form.InternalCode = p.InternalCode;
@@ -713,12 +880,19 @@
         form.CategoryId = p.CategoryId;
         form.IsPack = p.IsPack;
         form.SellingMode = p.SellingMode;
-        // Restaurer le composant si c'est un pack
+
+        selectedComponentCatalog = null;
+
         if (p.IsPack && p.PackComponents.Any())
         {
             var comp = p.PackComponents.First();
+
             form.ComponentCatalogId = comp.ComponentCatalogId;
             form.PackQuantity = comp.Quantity;
+
+            selectedComponentCatalog = await FindCatalogByIdAsync(
+                comp.ComponentCatalogId,
+                comp.ComponentName);
         }
         else
         {
@@ -726,8 +900,7 @@
             form.PackQuantity = 0;
         }
 
-        // ClearMessages();
-
+        StateHasChanged();
     }
 
     private void CancelEdit() => ResetForm();
@@ -737,19 +910,17 @@
         editingId = null;
         showProduct = false;
         form = new ProductCatalogForm();
+        selectedComponentCatalog = null;
     }
 
-    // private void ClearMessages() { errorMessage = null; successMessage = null; }
+    // ── Toast helpers ────────────────────────────────────────────────────────
 
     void ShowError(string message)
     {
         errorMessage = null;
         StateHasChanged();
-
         errorMessage = message;
-
         StateHasChanged();
-
         _ = Task.Delay(3000).ContinueWith(_ =>
         {
             errorMessage = null;
@@ -761,17 +932,16 @@
     {
         successMessage = null;
         StateHasChanged();
-
         successMessage = message;
-
         StateHasChanged();
-
         _ = Task.Delay(3000).ContinueWith(_ =>
         {
             successMessage = null;
             InvokeAsync(StateHasChanged);
         });
     }
+
+    // ── Form model ───────────────────────────────────────────────────────────
 
     private sealed class ProductCatalogForm
     {
@@ -798,10 +968,11 @@
 
         [StringLength(10)]
         public string UnitOfMeasure { get; set; } = "pcs";
+
         [StringLength(50)]
         [Required(ErrorMessage = "Internal code is required")]
         public string InternalCode { get; set; } = string.Empty;
-        // Pack fields
+
         public bool IsPack { get; set; } = false;
         public Guid ComponentCatalogId { get; set; } = Guid.Empty;
         public decimal PackQuantity { get; set; } = 0;
