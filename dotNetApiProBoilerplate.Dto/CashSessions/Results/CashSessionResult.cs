@@ -7,7 +7,7 @@ namespace Inventory.Dto.CashSessions.Results
     public class CashSessionResult
     {
         public Guid Id { get; set; }
-
+        public Guid ClientOperationId { get; set; }
         public string SessionNumber { get; set; } = null!;
 
         public DateTime OpenedAt { get; set; }

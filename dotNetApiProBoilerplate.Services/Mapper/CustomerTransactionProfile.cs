@@ -27,15 +27,8 @@ namespace Inventory.Services.Mapper
                 // Navigation
                 .ForMember(dest => dest.Customer, opt => opt.Ignore())
                 // Strings — update contrôlé
-                .ForMember(dest => dest.Type,
-                    opt => opt.Condition(src => src.Type != null))
                 .ForMember(dest => dest.Description,
-                    opt => opt.Condition(src => src.Description != null))
-                // Value types — toujours mappés
-                .ForMember(dest => dest.Amount, opt => opt.MapFrom(src => src.Amount))
-                .ForMember(dest => dest.BalanceBefore, opt => opt.MapFrom(src => src.BalanceBefore))
-                .ForMember(dest => dest.BalanceAfter, opt => opt.MapFrom(src => src.BalanceAfter))
-                .ForMember(dest => dest.SaleId, opt => opt.MapFrom(src => src.SaleId));
+                    opt => opt.Condition(src => src.Description != null));
 
             // =========================
             // RESULT

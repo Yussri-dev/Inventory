@@ -29,6 +29,7 @@ namespace Inventory.Services
         private readonly IDocumentNumberService _documentNumberService;
         private readonly ITenantContext _tenantContext;
         private readonly IRepository<CashMovement> _cashMovementRepository;
+        private readonly IRepository<CashSession> _cashSessionRepository;
         private readonly ICashSessionService _cashSessionService;
 
         public ReturnService(
@@ -44,8 +45,8 @@ namespace Inventory.Services
             IMapper mapper,
             IDocumentNumberService documentNumberService,
             IRepository<CashMovement> cashMovementRepository,
+            IRepository<CashSession> cashSessionRepository,
             ICashSessionService cashSessionService,
-
             ITenantContext tenantContext)
         {
             _repository = repository;
@@ -61,6 +62,7 @@ namespace Inventory.Services
             _documentNumberService = documentNumberService;
             _tenantContext = tenantContext;
             _cashMovementRepository = cashMovementRepository;
+            _cashSessionRepository = cashSessionRepository;
             _cashSessionService = cashSessionService;
         }
 
@@ -83,6 +85,7 @@ namespace Inventory.Services
 
             entity.Id = Guid.NewGuid();
             entity.TenantId = tenantId;
+            entity.ClientOperationId = Guid.NewGuid();
             entity.ReturnNumber = await _documentNumberService.GenerateAsync("RETURN");
             entity.ReturnDate = request.ReturnDate == default ? DateTime.UtcNow : request.ReturnDate;
             entity.TotalAmount = request.TotalAmount;
@@ -100,8 +103,73 @@ namespace Inventory.Services
         // =========================
         public async Task<ReturnResult> CreateCompleteAsync(CreateCompleteReturnRequest request)
         {
+            ArgumentNullException.ThrowIfNull(request);
+
             var tenantId = _tenantContext.TenantId;
-            var activeCashSessionId = await _cashSessionService.EnsureActiveSessionAsync();
+
+            if (request.ClientOperationId == Guid.Empty)
+            {
+                throw new ValidationException(
+                    new Dictionary<string, string[]>
+                    {
+                        {
+                            nameof(request.ClientOperationId),
+                            new[] { "ClientOperationId is required." }
+                        }
+                    });
+            }
+
+            /*
+             * Idempotency check must happen before stock, customer,
+             * summary, or cash mutations.
+             */
+            var existingReturn =
+                await _repository.GetSingleAsync(item =>
+                    item.TenantId == tenantId &&
+                    item.ClientOperationId ==
+                        request.ClientOperationId &&
+                    !item.IsDeleted);
+
+            if (existingReturn != null)
+            {
+                return _mapper.Map<ReturnResult>(
+                    existingReturn);
+            }
+
+            Guid requestedCashSessionId;
+
+            if (request.CashSessionId.HasValue &&
+                request.CashSessionId.Value != Guid.Empty)
+            {
+                /*
+                 * Offline retry: use the original historical session,
+                 * even when it is already closed.
+                 */
+                requestedCashSessionId =
+                    request.CashSessionId.Value;
+            }
+            else
+            {
+                /*
+                 * Backward-compatible path for older online clients.
+                 */
+                requestedCashSessionId =
+                    await _cashSessionService
+                        .EnsureActiveSessionAsync();
+            }
+
+            var cashSession =
+                await _cashSessionRepository
+                    .GetSingleAsync(item =>
+                        item.Id == requestedCashSessionId &&
+                        item.TenantId == tenantId &&
+                        !item.IsDeleted);
+
+            if (cashSession == null)
+            {
+                throw new ValidationException(
+                    "The cash session was not found for the current tenant.");
+            }
 
             // =========================
             // VALIDATION
@@ -137,18 +205,54 @@ namespace Inventory.Services
             // =========================
             // CREATE RETURN HEADER
             // =========================
+            var now = DateTime.UtcNow;
+
             var entity = new Return
             {
                 Id = Guid.NewGuid(),
                 TenantId = tenantId,
-                SaleId = sale.Id,
-                ReturnNumber = await _documentNumberService.GenerateAsync("RETURN"),
-                ReturnDate = request.ReturnDate == default ? DateTime.UtcNow : request.ReturnDate,
-                CreatedAt = DateTime.UtcNow,
-                ModifiedAt = DateTime.UtcNow
-            };
 
-            entity.TotalAmount = request.Lines.Sum(l => l.Quantity * l.UnitPrice);
+                ClientOperationId =
+                    request.ClientOperationId,
+
+                SaleId =
+                    sale.Id,
+
+                CashSessionId =
+                    cashSession.Id,
+
+                ReturnNumber =
+                    await _documentNumberService.GenerateAsync("RETURN"),
+
+                ReturnDate =
+                    request.ReturnDate == default
+                        ? now
+                        : EnsureUtc(request.ReturnDate),
+
+                TotalAmount =
+                    RoundMoney(
+                        request.Lines.Sum(line =>
+                            line.Quantity *
+                            line.UnitPrice)),
+
+                RefundMethod =
+                    request.RefundType,
+
+                Reason =
+                    BuildReturnReason(request),
+
+                IsProcessed =
+                    true,
+
+                ProcessedAt =
+                    now,
+
+                CreatedAt =
+                    now,
+
+                ModifiedAt =
+                    now
+            };
 
             await _repository.AddAsync(entity);
 
@@ -162,6 +266,7 @@ namespace Inventory.Services
                     Id = Guid.NewGuid(),
                     TenantId = tenantId,
                     ReturnId = entity.Id,
+                    SaleLineId = lineItem.SaleLineId,
                     ProductId = lineItem.ProductId,
                     Quantity = lineItem.Quantity,
                     UnitPrice = lineItem.UnitPrice,
@@ -313,7 +418,7 @@ namespace Inventory.Services
             if (cashRefund > 0)
             {
                 var last = await _cashMovementRepository.GetLastAsync(
-                    m => m.CashSessionId == activeCashSessionId &&
+                    m => m.CashSessionId == cashSession.Id &&
                          !m.IsDeleted &&
                          m.TenantId == tenantId,
                     m => m.MovementDate
@@ -329,7 +434,7 @@ namespace Inventory.Services
                 {
                     Id = Guid.NewGuid(),
                     TenantId = tenantId,
-                    CashSessionId = activeCashSessionId,
+                    CashSessionId = cashSession.Id,
                     Type = CashMovementType.Refund,
                     Amount = cashRefund,
                     BalanceBefore = balanceBefore,
@@ -425,6 +530,56 @@ namespace Inventory.Services
             await _unitOfWork.SaveChangesAsync();
 
             return true;
+        }
+
+        private static DateTime EnsureUtc(
+            DateTime value)
+        {
+            return value.Kind switch
+            {
+                DateTimeKind.Utc =>
+                    value,
+
+                DateTimeKind.Local =>
+                    value.ToUniversalTime(),
+
+                _ =>
+                    DateTime.SpecifyKind(
+                        value,
+                        DateTimeKind.Utc)
+            };
+        }
+
+        private static decimal RoundMoney(
+            decimal value)
+        {
+            return Math.Round(
+                value,
+                2,
+                MidpointRounding.AwayFromZero);
+        }
+
+        private static string? BuildReturnReason(
+    CreateCompleteReturnRequest request)
+        {
+            var reasons = request.Lines
+                .Select(x => x.Reason?.Trim())
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            if (reasons.Count == 0)
+            {
+                return null;
+            }
+
+            var result = string.Join(
+                " | ",
+                reasons);
+
+            return result.Length <= 1000
+                ? result
+                : result[..1000];
         }
 
         // =========================

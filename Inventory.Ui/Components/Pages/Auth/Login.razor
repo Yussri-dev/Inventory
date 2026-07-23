@@ -1,189 +1,792 @@
 ﻿@page "/login"
 @layout AuthLayout
+
+@using System.Text.Json
+@using Inventory.Dto.Auth.Requests
+@using Inventory.Dto.Auth.Results
+@using Inventory.LocalDB.Services.Interfaces
+@using Inventory.Ui.Authentification
+@using Inventory.Ui.Services
+@using Inventory.Ui.Services.Sync
+@using Microsoft.AspNetCore.Components.Authorization
+@using Refit
+@using System.Security.Claims
+
 @inject IAuthApiOpen AuthApi
 @inject ISecureStorageService SecureStorage
 @inject NavigationManager Nav
 @inject AuthenticationStateProvider AuthStateProvider
 @inject AppState State
 
-@using System.Text.Json
-@using Inventory.Ui.Authentification
-@using Microsoft.AspNetCore.Components.Authorization
+@inject ILocalUserSessionService LocalUserSessionService
+@inject ILocalTenantContext LocalTenantContext
+
+@inject ILocalProductCategoryQueryService LocalCategoryQuery
+@inject ILocalProductCatalogQueryService LocalCatalogQuery
+
+@inject ILocalProductSyncService ProductSync
+@inject ILocalStockSyncService StockSync
+
+@inject LocalDataBootstrapService LocalDataBootstrap
+
+@inject ILocalCustomerSyncService CustomerSync
 
 <div class="login-card">
+
     <div class="login-header">
+
         <div class="logo-circle">
             <span class="logo-icon">🏪</span>
         </div>
+
         <h2>Welcome Back</h2>
-        <p class="subtitle">Sign in to your account</p>
+
+        <p class="subtitle">
+            Sign in to your account
+        </p>
+
     </div>
 
-    @if (!string.IsNullOrEmpty(Error))
+    @if (!string.IsNullOrWhiteSpace(Error))
     {
         <div class="alert alert-error">
+
             <span class="alert-icon">⚠️</span>
+
             <span>@Error</span>
+
         </div>
     }
 
-    <form class="login-form" @onsubmit="LoginAsync" @onsubmit:preventDefault>
+    @if (IsSynchronizing)
+    {
+        <div class="alert">
+
+            <span class="spinner"></span>
+
+            <span>
+                Preparing products and offline data...
+            </span>
+
+        </div>
+    }
+
+    <form class="login-form"
+          @onsubmit="LoginAsync"
+          @onsubmit:preventDefault>
+
         <div class="form-group">
-            <label class="form-label">Email Address</label>
+
+            <label class="form-label">
+                Email Address
+            </label>
+
             <div class="input-wrapper">
-                <span class="input-icon">📧</span>
-                <input class="form-input" type="email"
-                       @bind="Model.Email" @bind:event="oninput"
+
+                <span class="input-icon">
+                    📧
+                </span>
+
+                <input class="form-input"
+                       type="email"
+                       @bind="Model.Email"
+                       @bind:event="oninput"
                        placeholder="your@email.com"
-                       autocomplete="username" disabled="@IsLoading" />
+                       autocomplete="username"
+                       disabled="@IsLoading" />
+
             </div>
+
         </div>
 
         <div class="form-group">
-            <label class="form-label">Password</label>
+
+            <label class="form-label">
+                Password
+            </label>
+
             <div class="input-wrapper">
-                <span class="input-icon">🔒</span>
-                <input class="form-input" type="password"
-                       @bind="Model.Password" @bind:event="oninput"
+
+                <span class="input-icon">
+                    🔒
+                </span>
+
+                <input class="form-input"
+                       type="password"
+                       @bind="Model.Password"
+                       @bind:event="oninput"
                        placeholder="Enter your password"
-                       autocomplete="current-password" disabled="@IsLoading" />
+                       autocomplete="current-password"
+                       disabled="@IsLoading" />
+
             </div>
+
         </div>
 
-        <button class="btn-login" type="submit" disabled="@IsLoading">
+        <button class="btn-login"
+                type="submit"
+                disabled="@IsLoading">
+
             @if (IsLoading)
             {
                 <span class="spinner"></span>
-                <span>Logging in...</span>
-            }
+
+                <span>
+                    @(IsSynchronizing
+                                    ? "Synchronizing..."
+                                    : "Logging in...")
+            </span>
+                        }
             else
             {
                 <span>Sign In</span>
-                <span class="btn-arrow">→</span>
+
+                <span class="btn-arrow">
+                    →
+                </span>
             }
+
         </button>
+
     </form>
 
     <div class="login-footer">
-        @if (DaysLeft != null)
+
+        @if (DaysLeft.HasValue)
         {
             <div class="trial-info">
-                Trial ends in <strong>@DaysLeft</strong> days
+
+                Trial ends in
+
+                <strong>
+                    @DaysLeft.Value
+                </strong>
+
+                days
+
             </div>
         }
-        <p class="footer-text">Forgot your password? <a href="/forgot-password">Reset it</a></p>
+
+        <p class="footer-text">
+
+            Forgot your password?
+
+            <a href="/forgot-password">
+                Reset it
+            </a>
+
+        </p>
+
+        <p class="footer-text">
+            Offline access is available after the first successful synchronization.
+        </p>
+
     </div>
+
 </div>
 
 @code {
+    private const string SuperAdminRole =
+    "SuperAdmin";
+
+    private static bool IsSuperAdmin(
+        string? role)
+    {
+        return string.Equals(
+            role?.Trim(),
+            SuperAdminRole,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
     private LoginRequest Model = new();
+
     private bool IsLoading;
+    private bool IsSynchronizing;
+
     private string Error = string.Empty;
+
     private int? DaysLeft;
 
     protected override async Task OnInitializedAsync()
     {
+        var authenticationState =
+            await AuthStateProvider
+                .GetAuthenticationStateAsync();
+
+        var user =
+            authenticationState.User;
+
+        if (user.Identity?.IsAuthenticated != true)
+        {
+            return;
+        }
+
+        var role =
+            user.FindFirst(
+                ClaimTypes.Role)?.Value
+            ?? user.FindFirst(
+                "role")?.Value
+            ?? user.FindFirst(
+                "Role")?.Value;
+
+        /*
+         * Une session SuperAdmin sans tenant est valide.
+         */
+        if (IsSuperAdmin(
+                role))
+        {
+            LocalTenantContext.Clear();
+
+            Nav.NavigateTo(
+                "/",
+                replace: true);
+
+            return;
+        }
+
+        var tenantIdClaim =
+            user.FindFirst(
+                "TenantId")?.Value
+            ?? user.FindFirst(
+                "tenantId")?.Value
+            ?? user.FindFirst(
+                "tenant_id")?.Value;
+
+        if (Guid.TryParse(
+                tenantIdClaim,
+                out var tenantId) &&
+            tenantId != Guid.Empty)
+        {
+            LocalTenantContext.SetTenant(
+                tenantId);
+
+            Nav.NavigateTo(
+                "/",
+                replace: true);
+
+            return;
+        }
+
+        /*
+         * Pour un utilisateur non-SuperAdmin, l'absence de tenant
+         * indique une session invalide.
+         */
+        await SecureStorage.RemoveTokenAsync();
+
         if (AuthStateProvider is JwtAuthStateProvider jwt)
         {
-            var state = await jwt.GetAuthenticationStateAsync();
-            if (state.User.Identity?.IsAuthenticated == true)
-            {
-                Nav.NavigateTo("/", replace: true);
-                return;
-            }
+            jwt.NotifyUserLoggedOut();
         }
-        else
-        {
-            // Fallback for web
-            var token = await SecureStorage.GetTokenAsync();
-            if (!string.IsNullOrWhiteSpace(token))
-                Nav.NavigateTo("/", replace: true);
-        }
+
+        LocalTenantContext.Clear();
+
+        Error =
+            "Your local session could not be restored. Please sign in again.";
     }
 
     private async Task LoginAsync()
     {
-        // Validation côté client — évite l'appel API inutile
-        if (string.IsNullOrWhiteSpace(Model.Email) || string.IsNullOrWhiteSpace(Model.Password))
+        if (IsLoading)
+            return;
+
+        NormalizeForm();
+
+        if (string.IsNullOrWhiteSpace(Model.Email) ||
+            string.IsNullOrWhiteSpace(Model.Password))
         {
-            Error = "Please enter your email and password.";
+            Error =
+                "Please enter your email and password.";
+
             return;
         }
 
         Error = string.Empty;
         IsLoading = true;
+        IsSynchronizing = false;
 
         try
         {
-            var result = await AuthApi.Login(Model);
-
-            if (string.IsNullOrWhiteSpace(result.AccessToken))
-            {
-                Error = "Invalid login response.";
-                return;
-            }
-
-            if (result.TrialEndDate != null)
-                DaysLeft = (int)Math.Ceiling((result.TrialEndDate.Value - DateTime.UtcNow).TotalDays);
-
-            var token = result.AccessToken.StartsWith("Bearer ")
-                ? result.AccessToken["Bearer ".Length..]
-                : result.AccessToken;
-
-            await SecureStorage.SaveTokenAsync(token);
-
-            if (AuthStateProvider is JwtAuthStateProvider jwt)
-            {
-                jwt.NotifyUserLoggedIn(token);
-            }
-
-            State.InvalidatePos();
-
-
-            Nav.NavigateTo("/");
+            await LoginOnlineAsync();
         }
-        catch (ApiException ex)
+        catch (TaskCanceledException)
         {
-            Error = ParseApiError(ex.Content) ?? ex.ReasonPhrase ?? "Login failed.";
+            await TryLoginOfflineAsync(
+                "The server request timed out.");
         }
-        catch (Exception ex)
+        catch (HttpRequestException)
         {
-            Error = ex.Message;
+            await TryLoginOfflineAsync(
+                "The API server is unavailable.");
+        }
+        catch (ApiException exception)
+        {
+            Error =
+                ParseApiError(exception.Content)
+                ?? exception.ReasonPhrase
+                ?? "Login failed.";
+        }
+        catch (Exception exception)
+        {
+            Error =
+                exception.GetBaseException().Message;
+
+            System.Diagnostics.Debug.WriteLine(
+                $"Login failed: {exception}");
         }
         finally
         {
+            IsSynchronizing = false;
             IsLoading = false;
         }
     }
 
-    private static string? ParseApiError(string? json)
+    private async Task LoginOnlineAsync()
     {
-        if (string.IsNullOrWhiteSpace(json)) return null;
+        var result =
+            await AuthApi.Login(
+                Model);
+
+        ValidateAuthResult(
+            result);
+
+        var accessToken =
+            NormalizeBearerToken(
+                result!.AccessToken);
+
+        SetTrialInformation(
+            result.TrialEndDate);
+
+        /*
+         * Enregistrer le JWT pour les appels API authentifiés.
+         */
+        await SecureStorage.SaveTokenAsync(
+            accessToken);
+
+        /*
+         * SuperAdmin global :
+         *
+         * - aucun TenantId requis ;
+         * - aucun contexte SQLite tenant ;
+         * - pas de synchronisation des stocks, ventes ou caisses ;
+         * - accès au catalogue global en ligne.
+         */
+        if (IsSuperAdmin(
+                result.Role))
+        {
+            LocalTenantContext.Clear();
+
+            if (AuthStateProvider is JwtAuthStateProvider superAdminJwt)
+            {
+                superAdminJwt.NotifyUserLoggedIn(
+                    accessToken);
+            }
+
+            State.InvalidatePos();
+
+            Nav.NavigateTo(
+                "/",
+                replace: true);
+
+            return;
+        }
+
+        /*
+         * Pour un utilisateur normal, ValidateAuthResult garantit
+         * maintenant la présence du TenantId.
+         */
+        var tenantId =
+            result.TenantId!.Value;
+
+        await LocalUserSessionService
+            .SaveFromAuthResultAsync(
+                result,
+                Model.Password);
+
+        LocalTenantContext.SetTenant(
+            tenantId);
+
+        IsSynchronizing =
+            true;
+
+        await InvokeAsync(
+            StateHasChanged);
+
+        await SynchronizeAfterOnlineLoginAsync();
+
+        if (AuthStateProvider is JwtAuthStateProvider jwt)
+        {
+            jwt.NotifyUserLoggedIn(
+                accessToken);
+        }
+
+        State.InvalidatePos();
+
+        Nav.NavigateTo(
+            "/",
+            replace: true);
+    }
+
+    private async Task SynchronizeAfterOnlineLoginAsync()
+    {
+        try
+        {
+            /*
+             * Ordre attendu dans LocalDataBootstrapService :
+             *
+             * 1. envoyer la SyncQueue ;
+             * 2. synchroniser les catégories ;
+             * 3. synchroniser les catalogues et packs ;
+             * 4. synchroniser les produits du tenant ;
+             * 5. synchroniser les stocks.
+             */
+            await LocalDataBootstrap
+                .InitializeAfterLoginAsync();
+        }
+        catch (Exception exception)
+            when (IsNetworkFailure(exception))
+        {
+            /*
+             * Le login a réussi mais la connexion est tombée
+             * pendant la synchronisation.
+             *
+             * On continue seulement si SQLite contient déjà
+             * les données nécessaires.
+             */
+            var hasOfflineData =
+                await HasRequiredOfflineDataAsync();
+
+            if (!hasOfflineData)
+            {
+                LocalTenantContext.Clear();
+
+                throw new InvalidOperationException(
+                    "The first synchronization could not be completed. " +
+                    "Connect to the server and try again.",
+                    exception);
+            }
+
+            System.Diagnostics.Debug.WriteLine(
+                "The server became unavailable during synchronization. " +
+                "Existing SQLite data will be used.");
+        }
+    }
+
+    private async Task TryLoginOfflineAsync(
+        string networkMessage)
+    {
+        /*
+         * Le mot de passe reste obligatoire en mode offline.
+         */
+        var localUser =
+            await LocalUserSessionService
+                .ValidateOfflineLoginAsync(
+                    Model.Email,
+                    Model.Password);
+
+        if (localUser == null)
+        {
+            Error =
+                $"{networkMessage} " +
+                "Offline login failed. " +
+                "Check your email and password, " +
+                "or log in online first.";
+
+            return;
+        }
+
+        /*
+         * Cette conversion fonctionne aussi si TenantId est
+         * un Guid non nullable dans le modèle local.
+         */
+        Guid? tenantIdCandidate =
+            localUser.TenantId;
+
+        if (!tenantIdCandidate.HasValue ||
+            tenantIdCandidate.Value == Guid.Empty)
+        {
+            Error =
+                "The local account is not associated with a tenant.";
+
+            return;
+        }
+
+        var tenantId =
+            tenantIdCandidate.Value;
+
+        /*
+         * Toujours définir le tenant avant la vérification SQLite.
+         */
+        LocalTenantContext.SetTenant(
+            tenantId);
+
+        var hasOfflineData =
+            await HasRequiredOfflineDataAsync();
+
+        if (!hasOfflineData)
+        {
+            LocalTenantContext.Clear();
+
+            Error =
+                "This device has not completed its first synchronization. " +
+                "Connect to the API and log in online before using offline mode.";
+
+            return;
+        }
+
+        if (AuthStateProvider is JwtAuthStateProvider jwt)
+        {
+            jwt.NotifyUserLoggedInOffline(
+                localUser.UserId,
+                localUser.Email,
+                localUser.FullName,
+                localUser.Role,
+                tenantId);
+        }
+
+        State.InvalidatePos();
+
+        Nav.NavigateTo(
+            "/",
+            replace: true);
+    }
+
+    private async Task<bool> HasRequiredOfflineDataAsync()
+    {
+        try
+        {
+            var hasCategories =
+                await LocalCategoryQuery.HasLocalDataAsync();
+
+            var hasCatalogs =
+                await LocalCatalogQuery.HasLocalDataAsync();
+
+            var productsInitialized =
+                await ProductSync
+                    .HasInitialSyncCompletedAsync();
+
+            var stocksInitialized =
+                await StockSync
+                    .HasInitialSyncCompletedAsync();
+
+            var customersInitialized =
+                await CustomerSync
+                .HasInitialSyncCompletedAsync();
+
+            return hasCategories &&
+        hasCatalogs &&
+        productsInitialized &&
+        stocksInitialized &&
+        customersInitialized;
+        }
+        catch (Exception exception)
+        {
+            System.Diagnostics.Debug.WriteLine(
+                $"Offline data verification failed: {exception}");
+
+            return false;
+        }
+    }
+
+    private static void ValidateAuthResult(
+     AuthResult? result)
+    {
+        if (result == null)
+        {
+            throw new InvalidOperationException(
+                "Invalid login response.");
+        }
+
+        if (string.IsNullOrWhiteSpace(
+                result.AccessToken))
+        {
+            throw new InvalidOperationException(
+                "Invalid login response: missing access token.");
+        }
+
+        if (result.UserId == Guid.Empty)
+        {
+            throw new InvalidOperationException(
+                "Invalid login response: missing user id.");
+        }
+
+        if (string.IsNullOrWhiteSpace(
+                result.Email))
+        {
+            throw new InvalidOperationException(
+                "Invalid login response: missing email.");
+        }
+
+        if (string.IsNullOrWhiteSpace(
+                result.Role))
+        {
+            throw new InvalidOperationException(
+                "Invalid login response: missing role.");
+        }
+
+        /*
+         * Un SuperAdmin est global et peut ne pas avoir de TenantId.
+         *
+         * Les autres rôles doivent obligatoirement appartenir
+         * à un tenant.
+         */
+        if (!IsSuperAdmin(result.Role) &&
+            (!result.TenantId.HasValue ||
+             result.TenantId.Value == Guid.Empty))
+        {
+            throw new InvalidOperationException(
+                "This account is not associated with a tenant.");
+        }
+    }
+
+    private void NormalizeForm()
+    {
+        Model.Email =
+            Model.Email?.Trim() ?? string.Empty;
+    }
+
+    private void SetTrialInformation(
+        DateTime? trialEndDate)
+    {
+        if (!trialEndDate.HasValue)
+        {
+            DaysLeft = null;
+            return;
+        }
+
+        DaysLeft = Math.Max(
+            0,
+            (int)Math.Ceiling(
+                (trialEndDate.Value - DateTime.UtcNow)
+                .TotalDays));
+    }
+
+    private static bool IsNetworkFailure(
+        Exception exception)
+    {
+        Exception? currentException =
+            exception;
+
+        while (currentException != null)
+        {
+            if (currentException is HttpRequestException ||
+                currentException is TaskCanceledException ||
+                currentException is TimeoutException)
+            {
+                return true;
+            }
+
+            currentException =
+                currentException.InnerException;
+        }
+
+        return false;
+    }
+
+    private static string NormalizeBearerToken(
+        string accessToken)
+    {
+        if (string.IsNullOrWhiteSpace(accessToken))
+            return string.Empty;
+
+        return accessToken.StartsWith(
+            "Bearer ",
+            StringComparison.OrdinalIgnoreCase)
+
+            ? accessToken["Bearer ".Length..]
+                .Trim()
+
+            : accessToken.Trim();
+    }
+
+    private static string? ParseApiError(
+        string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+            return null;
 
         try
         {
-            using var doc = JsonDocument.Parse(json);
-            var root = doc.RootElement;
+            using var document =
+                JsonDocument.Parse(json);
 
-            if (root.TryGetProperty("errors", out var errors))
+            var root =
+                document.RootElement;
+
+            if (root.TryGetProperty(
+                    "errors",
+                    out var errors) &&
+                errors.ValueKind ==
+                    JsonValueKind.Object)
             {
-                var messages = new List<string>();
-                foreach (var field in errors.EnumerateObject())
-                    foreach (var msg in field.Value.EnumerateArray())
-                        messages.Add(msg.GetString() ?? "");
+                var messages =
+                    new List<string>();
+
+                foreach (var field
+                         in errors.EnumerateObject())
+                {
+                    if (field.Value.ValueKind !=
+                        JsonValueKind.Array)
+                    {
+                        continue;
+                    }
+
+                    foreach (var messageElement
+                             in field.Value.EnumerateArray())
+                    {
+                        var message =
+                            messageElement.GetString();
+
+                        if (!string.IsNullOrWhiteSpace(
+                            message))
+                        {
+                            messages.Add(message);
+                        }
+                    }
+                }
 
                 if (messages.Count > 0)
-                    return string.Join(" • ", messages);
+                {
+                    return string.Join(
+                        " • ",
+                        messages);
+                }
             }
 
-            foreach (var key in new[] { "detail", "message", "title" })
-                if (root.TryGetProperty(key, out var prop) && prop.ValueKind == JsonValueKind.String)
-                    if (!string.IsNullOrWhiteSpace(prop.GetString()))
-                        return prop.GetString();
+            foreach (var key in new[]
+                     {
+                         "detail",
+                         "message",
+                         "title"
+                     })
+            {
+                if (!root.TryGetProperty(
+                        key,
+                        out var property))
+                {
+                    continue;
+                }
+
+                if (property.ValueKind !=
+                    JsonValueKind.String)
+                {
+                    continue;
+                }
+
+                var value =
+                    property.GetString();
+
+                if (!string.IsNullOrWhiteSpace(
+                    value))
+                {
+                    return value;
+                }
+            }
         }
-        catch
+        catch (JsonException)
         {
-            return json?.Length > 120 ? json[..120] + "…" : json;
+            return json.Length > 120
+                ? json[..120] + "…"
+                : json;
         }
 
         return null;

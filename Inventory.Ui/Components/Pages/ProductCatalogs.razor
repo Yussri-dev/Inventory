@@ -1,203 +1,362 @@
 ﻿@page "/productCatalogs"
-@inject IProductCatalogApi Api
-@inject IProductCategoryApi CategoryApi
+
+@using System.ComponentModel.DataAnnotations
+@using System.Net.Http
 @using Inventory.Dto.Enums
 @using Inventory.Dto.PackComponent.Requests
-@using Inventory.Dto.ProductCatalogs.Results
 @using Inventory.Dto.ProductCatalogs.Requests
+@using Inventory.Dto.ProductCatalogs.Results
 @using Inventory.Dto.ProductCategory.Results
+@using Inventory.Dto.Queries
+@using Inventory.LocalDB.Services.Interfaces
+@using Inventory.Ui.Services.Sync
 @using Inventory.Ui.State
-@using Inventory.Ui.Services
+@using Microsoft.AspNetCore.Components.Web
+
+@inject ILocalProductCategoryQueryService LocalCategoryQuery
+@inject ILocalProductCatalogQueryService LocalCatalogQuery
+
+@inject ILocalProductCatalogSyncService ProductCatalogSync
+@inject ILocalProductCategorySyncService ProductCategorySync
+
+@inject IProductCatalogApi Api
 @inject AppState State
-@inject PosBootstrapService Bootstrap
-@implements IDisposable
 
 <h3>Product Catalogs</h3>
+
 <div class="page-container">
+
+    @if (isOfflineMode)
+    {
+        <div class="alert warning">
+            Offline mode — products, categories and packs are loaded from SQLite.
+            Create, edit and delete are unavailable.
+        </div>
+    }
+
+    @if (isSynchronizing)
+    {
+        <div class="alert">
+            Synchronizing categories, products and packs...
+        </div>
+    }
 
     @if (showProduct)
     {
-        <div class="product-modal-overlay" @onclick="CloseProductModel">
-            <div class="product-modal" @onclick:stopPropagation="true">
+        <div class="product-modal-overlay"
+             @onclick="CloseProductModal">
+
+            <div class="product-modal"
+                 @onclick:stopPropagation="true">
+
                 <div class="card">
-                    <h4>@(editingId == null ? "Create product" : "Edit product")</h4>
-                    <EditForm Model="form" OnValidSubmit="HandleSubmit">
+                    <h4>
+                        @(editingId == null
+                            ? "Create product"
+                            : "Edit product")
+                    </h4>
+
+                    <EditForm Model="form"
+                              OnValidSubmit="HandleSubmit">
+
                         <DataAnnotationsValidator />
+
                         <div class="form-grid">
 
-                            <!-- BASE FIELDS -->
+                            <!-- NAME / UNIT -->
                             <div class="form-row">
+
                                 <div class="form-field">
                                     <label>Name *</label>
+
                                     <InputText placeholder="Product name"
                                                class="inputText"
                                                @bind-Value="form.Name"
-                                               disabled="@isLoading" />
+                                               disabled="@(isLoading || isOfflineMode)" />
+
                                     <ValidationMessage For="@(() => form.Name)" />
                                 </div>
 
                                 <div class="form-field">
-                                    <label>Unit of Measure</label>
+                                    <label>Unit of Measure *</label>
+
                                     <InputSelect @bind-Value="form.UnitOfMeasure"
                                                  class="inputText"
-                                                 disabled="@isLoading">
+                                                 disabled="@(isLoading || isOfflineMode)">
+
                                         <option value="pcs">Pieces</option>
                                         <option value="kg">Kilogram</option>
                                         <option value="g">Gram</option>
                                         <option value="l">Litre</option>
+
                                     </InputSelect>
 
                                     <ValidationMessage For="@(() => form.UnitOfMeasure)" />
 
-                                    @if (form.SellingMode == SellingMode.Weight && form.UnitOfMeasure == "pcs")
+                                    @if (form.SellingMode == SellingMode.Weight &&
+                                         form.UnitOfMeasure == "pcs")
                                     {
                                         <small style="color:red;">
-                                            Weight products must use kg, g or l
+                                            Weight products must use kg, g or l.
                                         </small>
                                     }
                                 </div>
 
                             </div>
 
+                            <!-- BRAND / SELLING MODE -->
                             <div class="form-row">
+
                                 <div class="form-field">
                                     <label>Brand</label>
-                                    <InputText placeholder="Brand (optional)"
+
+                                    <InputText placeholder="Brand"
                                                class="inputText"
                                                @bind-Value="form.Brand"
-                                               disabled="@isLoading" />
+                                               disabled="@(isLoading || isOfflineMode)" />
+
                                     <ValidationMessage For="@(() => form.Brand)" />
                                 </div>
+
                                 <div class="form-field">
                                     <label>Selling Mode</label>
-                                    <InputSelect @bind-Value="form.SellingMode" class="inputText">
-                                        <option value="Unit">Unit (pcs)</option>
-                                        <option value="Weight">Weight (kg / g / l)</option>
+
+                                    <InputSelect @bind-Value="form.SellingMode"
+                                                 class="inputText"
+                                                 disabled="@(isLoading || isOfflineMode)">
+
+                                        <option value="Unit">
+                                            Unit (pcs)
+                                        </option>
+
+                                        <option value="Weight">
+                                            Weight (kg / g / l)
+                                        </option>
+
                                     </InputSelect>
                                 </div>
+
                             </div>
 
+                            <!-- BARCODE / INTERNAL CODE -->
                             <div class="form-row">
+
                                 <div class="form-field">
                                     <label>Barcode *</label>
+
                                     <InputText placeholder="Barcode"
                                                class="inputText"
                                                @bind-Value="form.Barcode"
-                                               disabled="@isLoading" />
+                                               disabled="@(isLoading || isOfflineMode)" />
+
                                     <ValidationMessage For="@(() => form.Barcode)" />
                                 </div>
 
                                 <div class="form-field">
                                     <label>Internal Code *</label>
+
                                     <InputText placeholder="Internal code"
                                                class="inputText"
                                                @bind-Value="form.InternalCode"
-                                               disabled="@isLoading" />
+                                               disabled="@(isLoading || isOfflineMode)" />
+
                                     <ValidationMessage For="@(() => form.InternalCode)" />
                                 </div>
+
                             </div>
 
+                            <!-- MANUFACTURER / CATEGORY -->
                             <div class="form-row">
+
+                                <div class="form-field">
+                                    <label>Manufacturer</label>
+
+                                    <InputText placeholder="Manufacturer"
+                                               class="inputText"
+                                               @bind-Value="form.Manufacturer"
+                                               disabled="@(isLoading || isOfflineMode)" />
+
+                                    <ValidationMessage For="@(() => form.Manufacturer)" />
+                                </div>
+
                                 <div class="form-field">
                                     <label>Category</label>
-                                    <InputSelect @bind-Value="form.CategoryId" class="inputText" disabled="@isLoading">
-                                        <option value="@Guid.Empty">-- No category --</option>
-                                        @foreach (var cat in categories)
+
+                                    <InputSelect @bind-Value="form.CategoryId"
+                                                 class="inputText"
+                                                 disabled="@(isLoading || isOfflineMode)">
+
+                                        <option value="@Guid.Empty">
+                                            -- No category --
+                                        </option>
+
+                                        @foreach (var category in categories)
                                         {
-                                            <option value="@cat.Id">@cat.Name</option>
+                                            <option value="@category.Id">
+                                                @category.Name
+                                            </option>
                                         }
+
                                     </InputSelect>
                                 </div>
+
                             </div>
 
+                            <!-- DESCRIPTION -->
                             <div class="form-field">
                                 <label>Description</label>
-                                <InputTextArea placeholder="Product description (optional)"
+
+                                <InputTextArea placeholder="Product description"
                                                class="inputText"
                                                rows="3"
                                                @bind-Value="form.Description"
-                                               disabled="@isLoading" />
+                                               disabled="@(isLoading || isOfflineMode)" />
+
                                 <ValidationMessage For="@(() => form.Description)" />
                             </div>
 
-                            <!-- PACK SECTION -->
+                            <!-- PACK -->
                             <div class="form-field">
                                 <label>
-                                    <InputCheckbox @bind-Value="form.IsPack"
-                                                   disabled="@(form.SellingMode != SellingMode.Unit)" />
+                                    <InputCheckbox
+                                        @bind-Value="form.IsPack"
+                                        disabled="@(
+                                            isLoading ||
+                                            isOfflineMode ||
+                                            form.SellingMode != SellingMode.Unit)" />
+
                                     This product is a pack
                                 </label>
                             </div>
 
-                            @if (form.IsPack && form.SellingMode == SellingMode.Unit)
+                            @if (form.IsPack &&
+                                 form.SellingMode == SellingMode.Unit)
                             {
-                                <div class="card" style="background: #f8f9fa; padding: 12px;">
-                                    <h5>📦 Pack Configuration</h5>
+                                <div class="card"
+                                     style="
+                                         background:#f8f9fa;
+                                         padding:12px;">
+
+                                    <h5>Pack Configuration</h5>
 
                                     <div class="form-row">
-                                        <div class="form-field">
-                                            <label>Unit product (contained in this pack) *</label>
-                                            <MudAutocomplete T="ProductCatalogResult"
-                                                             Label="Unit product (contained in this pack)"
-                                                             Value="selectedComponentCatalog"
-                                                             ValueChanged="OnComponentCatalogChanged"
-                                                             SearchFunc="SearchUnitCatalogServer"
-                                                             ToStringFunc="FormatCatalog"
-                                                             Clearable="true"
-                                                             Dense="true"
-                                                             ResetValueOnEmptyText="true"
-                                                             CoerceText="false"
-                                                             CoerceValue="false"
-                                                             MinCharacters="0"
-                                                             MaxItems="30"
-                                                             Disabled="@isLoading"
-                                                             Placeholder="Search unit product by name, barcode or internal code" />
 
-                                            @if (form.IsPack && form.ComponentCatalogId == Guid.Empty)
-                                            {
-                                                <small style="color: red;">Please select the unit product</small>
-                                            }
-                                        </div>
                                         <div class="form-field">
-                                            <label>Quantity of units in this pack *</label>
-                                            <InputNumber @bind-Value="form.PackQuantity"
-                                                         class="inputText"
-                                                         placeholder="ex: 6"
-                                                         disabled="@isLoading" />
-                                            @if (form.IsPack && form.PackQuantity <= 0)
+                                            <label>
+                                                Unit product contained in this pack *
+                                            </label>
+
+                                            <MudAutocomplete
+                                                T="ProductCatalogResult"
+                                                Label="Unit product"
+                                                Value="selectedComponentCatalog"
+                                                ValueChanged="OnComponentCatalogChanged"
+                                                SearchFunc="SearchUnitCatalogLocal"
+                                                ToStringFunc="FormatCatalog"
+                                                Clearable="true"
+                                                Dense="true"
+                                                ResetValueOnEmptyText="true"
+                                                CoerceText="false"
+                                                CoerceValue="false"
+                                                MinCharacters="0"
+                                                MaxItems="30"
+                                                Disabled="@(isLoading || isOfflineMode)"
+                                                Placeholder="Search by name, barcode or internal code" />
+
+                                            @if (form.ComponentCatalogId == Guid.Empty)
                                             {
-                                                <small style="color: red;">Quantity must be greater than 0</small>
+                                                <small style="color:red;">
+                                                    Please select the unit product.
+                                                </small>
                                             }
                                         </div>
+
+                                        <div class="form-field">
+                                            <label>
+                                                Quantity of units in this pack *
+                                            </label>
+
+                                            <InputNumber
+                                                @bind-Value="form.PackQuantity"
+                                                class="inputText"
+                                                placeholder="Example: 6"
+                                                disabled="@(isLoading || isOfflineMode)" />
+
+                                            @if (form.PackQuantity <= 0)
+                                            {
+                                                <small style="color:red;">
+                                                    Quantity must be greater than zero.
+                                                </small>
+                                            }
+                                        </div>
+
                                     </div>
 
-                                    @if (selectedComponentCatalog != null && form.PackQuantity > 0)
+                                    @if (selectedComponentCatalog != null &&
+                                         form.PackQuantity > 0)
                                     {
-                                        <div style="margin-top: 8px; padding: 8px; background: #e8f5e9; border-radius: 4px; font-size: 13px;">
-                                            <strong>@form.Name</strong> contains
-                                            <strong>@form.PackQuantity</strong> × <strong>@selectedComponentCatalog.Name</strong>
+                                        <div style="
+                                                margin-top:8px;
+                                                padding:8px;
+                                                background:#e8f5e9;
+                                                border-radius:4px;
+                                                font-size:13px;">
+
+                                            <strong>@form.Name</strong>
+                                            contains
+
+                                            <strong>
+                                                @form.PackQuantity
+                                            </strong>
+
+                                            ×
+
+                                            <strong>
+                                                @selectedComponentCatalog.Name
+                                            </strong>
                                         </div>
                                     }
+
                                 </div>
                             }
 
+                            <!-- ACTIONS -->
                             <div class="actions-end">
-                                @if (editingId == null)
+
+                                <button type="submit"
+                                        class="btn primary"
+                                        disabled="@(
+                                            isLoading ||
+                                            isOfflineMode ||
+                                            isSynchronizing)">
+
+                                    @if (isLoading)
+                                    {
+                                        <span>Saving...</span>
+                                    }
+                                    else if (editingId == null)
+                                    {
+                                        <span>Create</span>
+                                    }
+                                    else
+                                    {
+                                        <span>Update</span>
+                                    }
+
+                                </button>
+
+                                @if (editingId != null)
                                 {
-                                    <button type="submit" class="btn primary" disabled="@isLoading">
-                                        @(isLoading ? "Creating..." : "Create")
-                                    </button>
-                                }
-                                else
-                                {
-                                    <button type="submit" class="btn primary" disabled="@isLoading">
-                                        @(isLoading ? "Updating..." : "Update")
-                                    </button>
-                                    <button type="button" class="btn ghost" @onclick="CancelEdit" disabled="@isLoading">
+                                    <button type="button"
+                                            class="btn ghost"
+                                            @onclick="CancelEdit"
+                                            disabled="@isLoading">
                                         Cancel
                                     </button>
                                 }
+
                             </div>
+
                         </div>
                     </EditForm>
                 </div>
@@ -205,100 +364,206 @@
         </div>
     }
 
+    <!-- SEARCH -->
     <div class="card">
         <h4>Search Products</h4>
+
         <div class="search-grid">
+
             <input type="text"
-                   placeholder="Search by name or barcode..."
+                   placeholder="Search by name, barcode or internal code"
                    @bind="searchTerm"
                    @bind:event="oninput"
                    @onkeyup="OnSearchKeyUp"
-                   disabled="@isLoading" />
+                   disabled="@(isLoading || isLoadingData)" />
+
             <div class="search-actions">
-                <button class="btn primary" @onclick="Search" disabled="@isLoading">Search</button>
-                <button class="btn ghost" @onclick="ClearSearch" disabled="@isLoading">Clear</button>
-                <button class="btn btn-warning" @onclick="AddProduct">Add</button>
+
+                <button class="btn primary"
+                        @onclick="Search"
+                        disabled="@isLoadingData">
+                    Search
+                </button>
+
+                <button class="btn ghost"
+                        @onclick="ClearSearch"
+                        disabled="@isLoadingData">
+                    Clear
+                </button>
+
+                <button class="btn ghost"
+                        @onclick="SynchronizeManuallyAsync"
+                        disabled="@isSynchronizing">
+                    @(isSynchronizing ? "Syncing..." : "Sync")
+                </button>
+
+                <button class="btn btn-warning"
+                        @onclick="AddProduct"
+                        disabled="@(
+                            isLoading ||
+                            isOfflineMode ||
+                            isSynchronizing)">
+                    Add
+                </button>
+
             </div>
         </div>
     </div>
 
+    <!-- DATA -->
     @if (isLoadingData)
     {
         <div class="loading-container">
-            <p>Loading products...</p>
+            <p>Loading products from SQLite...</p>
         </div>
     }
-    else if (items == null || items.Count == 0)
+    else if (items.Count == 0)
     {
-        <p>@(isSearching ? "No products found matching your search." : "No products.")</p>
+        <p>
+            @(isSearching
+                ? "No products match your search."
+                : "No products are stored locally.")
+        </p>
     }
     else
     {
         <div class="pager">
-            <button class="btn ghost" disabled="@(Page == 1)"
+
+            <button class="btn ghost"
+                    disabled="@(Page <= 1)"
                     @onclick="() => ChangePage(Page - 1)">
                 Prev
             </button>
+
             <span class="muted">
-                Page @Page / @(Math.Ceiling((double)TotalCount / PageSize))
+                Page @Page / @TotalPages
             </span>
+
             <button class="btn ghost"
-                    disabled="@(Page* PageSize >= TotalCount)"
+                    disabled="@(Page >= TotalPages)"
                     @onclick="() => ChangePage(Page + 1)">
                 Next
             </button>
+
         </div>
 
         <div class="results-header">
-            <span>@ItemsCount / @TotalCount Product(s) found.</span>
+
+            <span>
+                @ItemsCount / @TotalCount product(s) found
+            </span>
+
             @if (isSearching)
             {
-                <button class="btn small ghost" @onclick="ClearSearch">Show All</button>
+                <button class="btn small ghost"
+                        @onclick="ClearSearch">
+                    Show All
+                </button>
             }
+
         </div>
 
         <table class="table">
             <thead>
                 <tr>
-                    <th>Name</th>
-                    <th>Barcode</th>
-                    <th>Int. Code</th>
-                    <th>Brand</th>
+                    <th @onclick="() => Sort(nameof(ProductCatalogResult.Name))">
+                        Name
+                        @GetSortIcon(nameof(ProductCatalogResult.Name))
+                    </th>
+
+                    <th @onclick="() => Sort(nameof(ProductCatalogResult.Barcode))">
+                        Barcode
+                        @GetSortIcon(nameof(ProductCatalogResult.Barcode))
+                    </th>
+
+                    <th @onclick="() => Sort(nameof(ProductCatalogResult.InternalCode))">
+                        Int. Code
+                        @GetSortIcon(nameof(ProductCatalogResult.InternalCode))
+                    </th>
+
+                    <th @onclick="() => Sort(nameof(ProductCatalogResult.Brand))">
+                        Brand
+                        @GetSortIcon(nameof(ProductCatalogResult.Brand))
+                    </th>
+
                     <th>Unit</th>
                     <th>Pack</th>
                     <th>Mode</th>
                     <th style="width:160px">Actions</th>
                 </tr>
             </thead>
+
             <tbody>
-                @foreach (var p in items)
+                @foreach (var product in items)
                 {
                     <tr>
                         <td>
                             <div class="product-name">
-                                @p.Name
-                                @if (p.IsPack)
+                                @product.Name
+
+                                @if (product.IsPack)
                                 {
-                                    <span class="badge" style="background:#6f42c1; color:white; font-size:10px; padding:2px 6px; border-radius:4px; margin-left:6px;">
+                                    <span class="badge"
+                                          style="
+                                              background:#6f42c1;
+                                              color:white;
+                                              font-size:10px;
+                                              padding:2px 6px;
+                                              border-radius:4px;
+                                              margin-left:6px;">
                                         PACK
                                     </span>
                                 }
                             </div>
-                            @if (!string.IsNullOrEmpty(p.Description))
+
+                            @if (!string.IsNullOrWhiteSpace(product.Description))
                             {
-                                <div class="product-desc">@p.Description</div>
+                                <div class="product-desc">
+                                    @product.Description
+                                </div>
                             }
                         </td>
-                        <td><code>@p.Barcode</code></td>
-                        <td><code>@p.InternalCode</code></td>
-                        <td>@(p.Brand ?? "-")</td>
-                        <td>@(p.UnitOfMeasure ?? "-")</td>
+
                         <td>
-                            @if (p.IsPack && p.PackComponents.Any())
+                            <code>@product.Barcode</code>
+                        </td>
+
+                        <td>
+                            <code>@product.InternalCode</code>
+                        </td>
+
+                        <td>
+                            @(string.IsNullOrWhiteSpace(product.Brand)
+                                ? "-"
+                                : product.Brand)
+                        </td>
+
+                        <td>
+                            @(string.IsNullOrWhiteSpace(product.UnitOfMeasure)
+                                ? "-"
+                                : product.UnitOfMeasure)
+                        </td>
+
+                        <td>
+                            @if (product.IsPack &&
+                                 product.PackComponents?.Any() == true)
                             {
-                                var comp = p.PackComponents.First();
+                                var component =
+                                    product.PackComponents.First();
+
                                 <span style="font-size:12px;">
-                                    📦 @comp.Quantity × @comp.ComponentName
+                                    @component.Quantity
+                                    ×
+                                    @(string.IsNullOrWhiteSpace(
+                                        component.ComponentName)
+                                        ? "Unknown product"
+                                        : component.ComponentName)
+                                </span>
+                            }
+                            else if (product.IsPack)
+                            {
+                                <span class="muted">
+                                    Pack without component details
                                 </span>
                             }
                             else
@@ -306,42 +571,82 @@
                                 <span class="muted">-</span>
                             }
                         </td>
-                        <td>@p.SellingMode</td>
+
+                        <td>
+                            @product.SellingMode
+                        </td>
+
                         <td class="actions-end">
+
                             <button class="btn small ghost"
-                                    @onclick="() => StartEditAsync(p)"
-                                    disabled="@isLoading">
+                                    @onclick="() => StartEditAsync(product)"
+                                    disabled="@(
+                                        isLoading ||
+                                        isOfflineMode ||
+                                        isSynchronizing)">
                                 Edit
                             </button>
+
                             <button class="btn small danger"
-                                    @onclick="() => ConfirmDelete(p)"
-                                    disabled="@isLoading">
+                                    @onclick="() => ConfirmDelete(product)"
+                                    disabled="@(
+                                        isLoading ||
+                                        isOfflineMode ||
+                                        isSynchronizing)">
                                 Delete
                             </button>
+
                         </td>
                     </tr>
                 }
             </tbody>
         </table>
     }
+
 </div>
 
-@if (showDeleteConfirm && productToDelete != null)
+<!-- DELETE CONFIRMATION -->
+@if (showDeleteConfirm &&
+     productToDelete != null)
 {
-    <div class="modal-overlay" @onclick="CancelDelete">
-        <div class="modal-content" @onclick:stopPropagation="true">
+    <div class="modal-overlay"
+         @onclick="CancelDelete">
+
+        <div class="modal-content"
+             @onclick:stopPropagation="true">
+
             <h4>Confirm Delete</h4>
-            <p>Are you sure you want to delete <strong>@productToDelete.Name</strong>?</p>
-            <p class="text-muted">This action cannot be undone.</p>
+
+            <p>
+                Are you sure you want to delete
+                <strong>@productToDelete.Name</strong>?
+            </p>
+
+            <p class="text-muted">
+                This action cannot be undone.
+            </p>
+
             <div class="modal-actions">
-                <button class="btn ghost" @onclick="CancelDelete">Cancel</button>
-                <button class="btn danger" @onclick="ConfirmDeleteAction">Delete</button>
+
+                <button class="btn ghost"
+                        @onclick="CancelDelete"
+                        disabled="@isLoading">
+                    Cancel
+                </button>
+
+                <button class="btn danger"
+                        @onclick="ConfirmDeleteAction"
+                        disabled="@isLoading">
+                    @(isLoading ? "Deleting..." : "Delete")
+                </button>
+
             </div>
         </div>
     </div>
 }
 
-@if (!string.IsNullOrEmpty(successMessage))
+<!-- SUCCESS -->
+@if (!string.IsNullOrWhiteSpace(successMessage))
 {
     <div class="toast-success">
         <span class="toast-icon"></span>
@@ -349,7 +654,8 @@
     </div>
 }
 
-@if (!string.IsNullOrEmpty(errorMessage))
+<!-- ERROR -->
+@if (!string.IsNullOrWhiteSpace(errorMessage))
 {
     <div class="toast-error">
         <span class="toast-icon"></span>
@@ -358,186 +664,180 @@
 }
 
 @code {
-    // ── Page-local display state ─────────────────────────────────────────────
-    private List<ProductCatalogResult>? items;
-    // allCatalogs and categories now come from AppState cache
+    private List<ProductCatalogResult> items = new();
     private List<ProductCategoryResult> categories = new();
 
     private ProductCatalogResult? selectedComponentCatalog;
+    private ProductCatalogResult? productToDelete;
+
+    private ProductCatalogForm form = new();
 
     private Guid? editingId;
-    private ProductCatalogForm form = new();
+
+    private bool showProduct;
+    private bool showDeleteConfirm;
+
     private bool isLoading;
     private bool isLoadingData;
+
+    private bool isOfflineMode = true;
+    private bool isSynchronizing;
+    private bool syncAttempted;
+
+    private bool isSearching;
+
+    private string searchTerm = string.Empty;
+    private string sortBy = nameof(ProductCatalogResult.Name);
+
+    private bool sortDescending;
+
     private string? errorMessage;
     private string? successMessage;
-    private bool showDeleteConfirm;
-    private ProductCatalogResult? productToDelete;
-    private string searchTerm = string.Empty;
-    private bool isSearching;
-    private string sortBy = "DisplayOrder";
-    private bool sortDescending = false;
 
-    int Page = 1;
-    int PageSize = 10;
-    int TotalCount;
-    int ItemsCount;
+    private int messageVersion;
 
-    bool showProduct;
+    private int Page = 1;
+    private int PageSize = 10;
+    private int TotalCount;
+    private int ItemsCount;
 
-    // ── Derived from AppState cache (no extra API call needed) ───────────────
-    // All catalogs for the pack dropdown — read directly from the singleton cache
-    private List<ProductCatalogResult> UnitCatalogs =>
-    State.ProductsCatalog?
-        .Where(c => !c.IsPack && c.SellingMode == SellingMode.Unit)
-        .OrderBy(c => c.Name)
-        .ToList()
-    ?? new List<ProductCatalogResult>();
-    // ── Lifecycle ────────────────────────────────────────────────────────────
-    private Task<IEnumerable<ProductCatalogResult>> SearchUnitCatalogLocal(
-        string? value,
-        CancellationToken cancellationToken)
-    {
-        var source = UnitCatalogs;
+    private bool CanUseServer =>
+        !isOfflineMode &&
+        !isSynchronizing;
 
-        if (source.Count == 0)
-            return Task.FromResult(Enumerable.Empty<ProductCatalogResult>());
-
-        if (string.IsNullOrWhiteSpace(value))
-            return Task.FromResult(source.Take(20).AsEnumerable());
-
-        value = value.Trim();
-
-        var result = source
-            .Where(c =>
-                (!string.IsNullOrWhiteSpace(c.Name) &&
-                 c.Name.Contains(value, StringComparison.OrdinalIgnoreCase))
-                ||
-                (!string.IsNullOrWhiteSpace(c.Barcode) &&
-                 c.Barcode.Contains(value, StringComparison.OrdinalIgnoreCase))
-                ||
-                (!string.IsNullOrWhiteSpace(c.Brand) &&
-                 c.Brand.Contains(value, StringComparison.OrdinalIgnoreCase))
-                ||
-                (!string.IsNullOrWhiteSpace(c.InternalCode) &&
-                 c.InternalCode.Contains(value, StringComparison.OrdinalIgnoreCase)))
-            .Take(30);
-
-        return Task.FromResult(result);
-    }
-
-    private async Task<IEnumerable<ProductCatalogResult>> SearchUnitCatalogServer(
-    string? value,
-    CancellationToken cancellationToken)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            value = string.Empty;
-        }
-
-        var query = new ProductCatalogQuery
-        {
-            Page = 1,
-            PageSize = 30,
-            Search = value.Trim(),
-            SortBy = "Name",
-            Desc = false
-        };
-
-        var response = await Api.Search(query);
-
-        var result = response.Items?
-            .Where(c =>
-                !c.IsPack &&
-                c.SellingMode == SellingMode.Unit &&
-                c.Id != editingId)
-            .OrderBy(c => c.Name)
-            .ToList()
-            ?? new List<ProductCatalogResult>();
-
-        return result;
-    }
-
-    private string FormatCatalog(ProductCatalogResult? catalog)
-    {
-        if (catalog == null)
-            return string.Empty;
-
-        if (!string.IsNullOrWhiteSpace(catalog.Barcode))
-            return $"{catalog.Name} [{catalog.Barcode}]";
-
-        return catalog.Name;
-    }
-
-    private Task OnComponentCatalogChanged(ProductCatalogResult? catalog)
-    {
-        selectedComponentCatalog = catalog;
-        form.ComponentCatalogId = catalog?.Id ?? Guid.Empty;
-
-        return Task.CompletedTask;
-    }
-
-    // CHANGE 1: Subscribe to AppState.OnChange so this page re-renders when
-    // another page (e.g. POS) calls InvalidatePos() or SetPosDataAsync().
-    protected override void OnInitialized()
-    {
-        State.OnChange += HandleStateChange;
-    }
+    private int TotalPages =>
+        Math.Max(
+            1,
+            (int)Math.Ceiling(
+                TotalCount / (double)PageSize));
 
     protected override async Task OnInitializedAsync()
     {
         Page = 1;
+        errorMessage = null;
+        isOfflineMode = true;
 
-        await Bootstrap.EnsureLoadedAsync();
-
-        await LoadCategoriesFromCacheOrApi();
+        // Toujours lire SQLite avant toute tentative réseau.
+        await LoadCategoriesFromLocalAsync();
         await LoadData();
     }
-    // CHANGE 3: Must unsubscribe to prevent memory leaks when the page is disposed.
-    public void Dispose()
+
+    protected override Task OnAfterRenderAsync(
+        bool firstRender)
     {
-        State.OnChange -= HandleStateChange;
+        if (!firstRender || syncAttempted)
+            return Task.CompletedTask;
+
+        syncAttempted = true;
+
+        // La page est déjà affichée depuis SQLite.
+        _ = InvokeAsync(
+            () => TrySynchronizeWithServerAsync());
+
+        return Task.CompletedTask;
     }
 
-    // Called by AppState when any cache entry changes (e.g. after InvalidatePos)
-    private void HandleStateChange()
+    private async Task TrySynchronizeWithServerAsync(
+        bool showFeedback = false)
     {
-        // Refresh the categories binding from the updated cache
-        if (State.ProductsCategory != null)
-            categories = State.ProductsCategory;
-
-        InvokeAsync(StateHasChanged);
-    }
-
-    // ── Data loading ─────────────────────────────────────────────────────────
-
-    // CHANGE 4: Categories are now read from AppState cache if available.
-    // This avoids a redundant CategoryApi.GetAll() call on every page visit.
-    private async Task LoadCategoriesFromCacheOrApi()
-    {
-        if (State.ProductsCategory != null)
-        {
-            // Already in cache — use it instantly, no network call
-            categories = State.ProductsCategory;
+        if (isSynchronizing)
             return;
-        }
 
-        // Not in cache yet — fall back to direct API call
         try
         {
-            var result = await CategoryApi.GetAll();
-            categories = result?.ToList() ?? new();
+            isSynchronizing = true;
+
+            await InvokeAsync(StateHasChanged);
+
+            // Les catégories doivent être enregistrées avant les produits.
+            await ProductCategorySync.FullSyncAsync();
+            await ProductCatalogSync.FullSyncAsync();
+
+            isOfflineMode = false;
+
+            // Relire les données réellement enregistrées dans SQLite.
+            await LoadCategoriesFromLocalAsync();
+            await LoadData();
+
+            State.InvalidatePos();
+
+            if (showFeedback)
+            {
+                ShowSuccess(
+                    "Categories, products and packs synchronized successfully.");
+            }
         }
-        catch
+        catch (HttpRequestException exception)
         {
-            categories = new();
+            isOfflineMode = true;
+
+            System.Diagnostics.Debug.WriteLine(
+                $"Inventory server unavailable: {exception}");
+
+            if (showFeedback)
+            {
+                ShowError(
+                    $"Server unavailable: " +
+                    $"{exception.GetBaseException().Message}");
+            }
+        }
+        catch (TaskCanceledException exception)
+        {
+            isOfflineMode = true;
+
+            System.Diagnostics.Debug.WriteLine(
+                $"Inventory server timeout: {exception}");
+
+            if (showFeedback)
+            {
+                ShowError(
+                    "The synchronization request timed out.");
+            }
+        }
+        catch (Exception exception)
+        {
+            isOfflineMode = true;
+
+            System.Diagnostics.Debug.WriteLine(
+                $"Product synchronization failed: {exception}");
+
+            if (showFeedback)
+            {
+                ShowError(
+                    $"Synchronization failed: " +
+                    $"{exception.GetBaseException().Message}");
+            }
+        }
+        finally
+        {
+            isSynchronizing = false;
+
+            await InvokeAsync(StateHasChanged);
         }
     }
 
-    // CHANGE 5: LoadData() no longer calls LoadAllCatalogsForSelect() separately.
-    // UnitCatalogs is now a computed property reading State.ProductsCatalog,
-    // which Bootstrap keeps up to date. After Create/Update/Delete we call
-    // Bootstrap.EnsureLoadedAsync() to refresh the cache in the background.
+    private Task SynchronizeManuallyAsync()
+    {
+        return TrySynchronizeWithServerAsync(
+            showFeedback: true);
+    }
+
+    private async Task LoadCategoriesFromLocalAsync()
+    {
+        try
+        {
+            categories = await LocalCategoryQuery
+                .GetAllAsync();
+        }
+        catch (Exception exception)
+        {
+            categories = new List<ProductCategoryResult>();
+
+            System.Diagnostics.Debug.WriteLine(
+                $"Local category loading failed: {exception}");
+        }
+    }
+
     private async Task LoadData()
     {
         try
@@ -549,22 +849,41 @@
             {
                 Page = Page,
                 PageSize = PageSize,
-                Search = isSearching ? searchTerm : null,
+
+                Search = isSearching
+                    ? searchTerm.Trim()
+                    : null,
+
                 SortBy = sortBy,
                 Desc = sortDescending
             };
 
-            var response = await Api.Search(query);
-            items = response.Items?.ToList() ?? new();
+            var response = await LocalCatalogQuery
+                .QueryAsync(query);
+
+            items = response.Items?.ToList()
+                ?? new List<ProductCatalogResult>();
+
             TotalCount = response.TotalCount;
-            ItemsCount = ((Page - 1) * PageSize) + items.Count;
+
+            ItemsCount = items.Count == 0
+                ? 0
+                : Math.Min(
+                    ((Page - 1) * PageSize) + items.Count,
+                    TotalCount);
         }
-        catch
+        catch (Exception exception)
         {
-            ShowError("Failed to load products!");
-            items = new();
+            items = new List<ProductCatalogResult>();
+
             TotalCount = 0;
             ItemsCount = 0;
+
+            ShowError(
+                $"Failed to load local products: " +
+                $"{exception.GetBaseException().Message}");
+
+            System.Diagnostics.Debug.WriteLine(exception);
         }
         finally
         {
@@ -572,10 +891,82 @@
         }
     }
 
-    private async Task Sort(string column)
+    private async Task RefreshAfterServerMutationAsync(
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await ProductCatalogSync.FullSyncAsync(
+                cancellationToken);
+
+            isOfflineMode = false;
+
+            await LoadData();
+
+            State.InvalidatePos();
+        }
+        catch
+        {
+            isOfflineMode = true;
+            throw;
+        }
+    }
+
+    private async Task<IEnumerable<ProductCatalogResult>>
+        SearchUnitCatalogLocal(
+            string? value,
+            CancellationToken cancellationToken)
+    {
+        return await LocalCatalogQuery
+            .SearchUnitCatalogsAsync(
+                value,
+                editingId,
+                30,
+                cancellationToken);
+    }
+
+    private static string FormatCatalog(
+        ProductCatalogResult? catalog)
+    {
+        if (catalog == null)
+            return string.Empty;
+
+        if (!string.IsNullOrWhiteSpace(catalog.Barcode))
+        {
+            return $"{catalog.Name} [{catalog.Barcode}]";
+        }
+
+        if (!string.IsNullOrWhiteSpace(catalog.InternalCode))
+        {
+            return $"{catalog.Name} [{catalog.InternalCode}]";
+        }
+
+        return catalog.Name;
+    }
+
+    private Task OnComponentCatalogChanged(
+        ProductCatalogResult? catalog)
+    {
+        selectedComponentCatalog = catalog;
+
+        form.ComponentCatalogId =
+            catalog?.Id ?? Guid.Empty;
+
+        if (catalog == null)
+        {
+            form.PackQuantity = 0;
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private async Task Sort(
+        string column)
     {
         if (sortBy == column)
+        {
             sortDescending = !sortDescending;
+        }
         else
         {
             sortBy = column;
@@ -583,106 +974,202 @@
         }
 
         Page = 1;
+
         await LoadData();
     }
 
-    private string GetSortIcon(string column)
+    private string GetSortIcon(
+        string column)
     {
-        if (sortBy != column) return string.Empty;
-        return sortDescending ? "DESC" : "ASC";
+        if (sortBy != column)
+            return "↕";
+
+        return sortDescending
+            ? "▼"
+            : "▲";
     }
 
     private async Task Search()
     {
-        if (string.IsNullOrWhiteSpace(searchTerm))
-        {
-            isSearching = false;
-            Page = 1;
-            await LoadData();
-            return;
-        }
+        searchTerm = searchTerm.Trim();
 
-        isSearching = true;
+        isSearching =
+            !string.IsNullOrWhiteSpace(searchTerm);
+
         Page = 1;
+
         await LoadData();
     }
-
-    async Task ChangePage(int newPage)
-    {
-        Page = newPage;
-        await LoadData();
-    }
-
-    private async Task OnSearchKeyUp(KeyboardEventArgs e)
-    {
-        if (e.Key == "Enter")
-            await Search();
-    }
-
-    private async Task AddProduct()
-    {
-        await Bootstrap.EnsureLoadedAsync();
-
-        if (State.ProductsCatalog == null || State.ProductsCatalog.Count == 0)
-        {
-            ShowError("Product catalog cache is empty.");
-            return;
-        }
-
-        showProduct = true;
-    }
-
-    private void CloseProductModel() => showProduct = false;
 
     private async Task ClearSearch()
     {
         searchTerm = string.Empty;
         isSearching = false;
         Page = 1;
+
         await LoadData();
     }
 
-    // ── Form submit ──────────────────────────────────────────────────────────
-
-    private async Task HandleSubmit()
+    private async Task ChangePage(
+        int newPage)
     {
-        if (form.SellingMode == SellingMode.Weight && form.UnitOfMeasure == "pcs")
+        Page = Math.Clamp(
+            newPage,
+            1,
+            TotalPages);
+
+        await LoadData();
+    }
+
+    private async Task OnSearchKeyUp(
+        KeyboardEventArgs args)
+    {
+        if (args.Key == "Enter")
         {
-            ShowError("Weight products must use kg, g or l.");
+            await Search();
+        }
+    }
+
+    private void AddProduct()
+    {
+        if (!CanUseServer)
+        {
+            ShowError(
+                "Create is unavailable in offline mode.");
+
             return;
         }
 
-        if (form.SellingMode == SellingMode.Unit && form.UnitOfMeasure != "pcs")
-        {
-            ShowError("Unit products must use pcs.");
+        editingId = null;
+        selectedComponentCatalog = null;
+
+        form = CreateEmptyForm();
+
+        showProduct = true;
+    }
+
+    private void CloseProductModal()
+    {
+        if (isLoading)
             return;
-        }
 
-        if (form.IsPack)
+        ResetForm();
+    }
+
+    private Task HandleSubmit()
+    {
+        PrepareFormValues();
+
+        if (!ValidateBusinessRules())
+            return Task.CompletedTask;
+
+        return editingId == null
+            ? Create()
+            : Update();
+    }
+
+    private void PrepareFormValues()
+    {
+        form.Name = form.Name.Trim();
+        form.Barcode = form.Barcode.Trim();
+        form.InternalCode = form.InternalCode.Trim();
+        form.UnitOfMeasure = form.UnitOfMeasure.Trim();
+
+        form.Brand = string.IsNullOrWhiteSpace(form.Brand)
+            ? null
+            : form.Brand.Trim();
+
+        form.Manufacturer =
+            string.IsNullOrWhiteSpace(form.Manufacturer)
+                ? null
+                : form.Manufacturer.Trim();
+
+        form.Description =
+            string.IsNullOrWhiteSpace(form.Description)
+                ? null
+                : form.Description.Trim();
+    }
+
+    private bool ValidateBusinessRules()
+    {
+        if (form.SellingMode == SellingMode.Weight &&
+            form.UnitOfMeasure == "pcs")
         {
-            if (form.ComponentCatalogId == Guid.Empty)
-            {
-                ShowError("Please select the unit product for this pack.");
-                return;
-            }
-            if (form.PackQuantity <= 0)
-            {
-                ShowError("Pack quantity must be greater than 0.");
-                return;
-            }
+            ShowError(
+                "Weight products must use kg, g or l.");
+
+            return false;
         }
 
-        if (editingId == null)
-            await Create();
-        else
-            await Update();
+        if (form.SellingMode == SellingMode.Unit &&
+            form.UnitOfMeasure != "pcs")
+        {
+            ShowError(
+                "Unit products must use pcs.");
+
+            return false;
+        }
+
+        if (form.SellingMode == SellingMode.Weight)
+        {
+            form.IsPack = false;
+            form.ComponentCatalogId = Guid.Empty;
+            form.PackQuantity = 0;
+
+            selectedComponentCatalog = null;
+        }
+
+        if (!form.IsPack)
+            return true;
+
+        if (form.ComponentCatalogId == Guid.Empty)
+        {
+            ShowError(
+                "Please select the unit product for this pack.");
+
+            return false;
+        }
+
+        if (form.PackQuantity <= 0)
+        {
+            ShowError(
+                "Pack quantity must be greater than zero.");
+
+            return false;
+        }
+
+        if (editingId.HasValue &&
+            form.ComponentCatalogId == editingId.Value)
+        {
+            ShowError(
+                "A product cannot contain itself.");
+
+            return false;
+        }
+
+        return true;
     }
 
     private async Task Create()
     {
+        if (isLoading)
+            return;
+
+        if (!CanUseServer)
+        {
+            ShowError(
+                "Create is unavailable in offline mode.");
+
+            return;
+        }
+
+        var productName = form.Name;
+
         try
         {
             isLoading = true;
+
+            ClearMessages();
 
             var request = new CreateProductCatalogRequest
             {
@@ -697,30 +1184,56 @@
                 CreatedAt = DateTime.UtcNow,
                 IsPack = form.IsPack,
                 SellingMode = form.SellingMode,
-                PackComponents = form.IsPack && form.ComponentCatalogId != Guid.Empty
-                    ? new List<CreatePackComponentRequest>
-                    {
-                        new() { ComponentCatalogId = form.ComponentCatalogId, Quantity = form.PackQuantity }
-                    }
-                    : new List<CreatePackComponentRequest>()
+                PackComponents = BuildPackComponents()
             };
 
             await Api.Create(request);
 
-            // CHANGE 6: Invalidate then eagerly reload so the pack dropdown
-            // and any other page using the cache are immediately up to date.
-            State.InvalidatePos();
-            await Bootstrap.EnsureLoadedAsync();
+            var localSyncSucceeded = true;
 
-            ShowSuccess($"Product '{form.Name}' created successfully!");
+            try
+            {
+                await RefreshAfterServerMutationAsync();
+            }
+            catch (Exception exception)
+            {
+                localSyncSucceeded = false;
+
+                System.Diagnostics.Debug.WriteLine(
+                    $"Local refresh after create failed: {exception}");
+            }
+
             ResetForm();
 
-            if (isSearching) await Search();
-            else await LoadData();
+            Page = 1;
+
+            await LoadData();
+
+            if (localSyncSucceeded)
+            {
+                ShowSuccess(
+                    $"Product '{productName}' created successfully.");
+            }
+            else
+            {
+                ShowError(
+                    $"Product '{productName}' was created on the server, " +
+                    "but SQLite was not refreshed.");
+            }
         }
-        catch
+        catch (HttpRequestException exception)
         {
-            ShowError("Failed to create product.");
+            isOfflineMode = true;
+
+            ShowError(
+                $"Server unavailable: " +
+                $"{exception.GetBaseException().Message}");
+        }
+        catch (Exception exception)
+        {
+            ShowError(
+                $"Failed to create product: " +
+                $"{exception.GetBaseException().Message}");
         }
         finally
         {
@@ -730,11 +1243,25 @@
 
     private async Task Update()
     {
-        if (editingId == null) return;
+        if (editingId == null || isLoading)
+            return;
+
+        if (!CanUseServer)
+        {
+            ShowError(
+                "Update is unavailable in offline mode.");
+
+            return;
+        }
+
+        var productId = editingId.Value;
+        var productName = form.Name;
 
         try
         {
             isLoading = true;
+
+            ClearMessages();
 
             var request = new UpdateProductCatalogRequest
             {
@@ -749,27 +1276,56 @@
                 CategoryId = form.CategoryId,
                 IsPack = form.IsPack,
                 SellingMode = form.SellingMode,
-                PackComponents = form.IsPack && form.ComponentCatalogId != Guid.Empty
-                    ? new List<CreatePackComponentRequest>
-                    {
-                        new() { ComponentCatalogId = form.ComponentCatalogId, Quantity = form.PackQuantity }
-                    }
-                    : new List<CreatePackComponentRequest>()
+                PackComponents = BuildPackComponents()
             };
 
-            await Api.Update(editingId.Value, request);
+            await Api.Update(
+                productId,
+                request);
 
-            State.InvalidatePos();
-            await Bootstrap.EnsureLoadedAsync();
+            var localSyncSucceeded = true;
 
-            ShowSuccess($"Product '{form.Name}' updated successfully.");
+            try
+            {
+                await RefreshAfterServerMutationAsync();
+            }
+            catch (Exception exception)
+            {
+                localSyncSucceeded = false;
+
+                System.Diagnostics.Debug.WriteLine(
+                    $"Local refresh after update failed: {exception}");
+            }
+
             ResetForm();
 
             await LoadData();
+
+            if (localSyncSucceeded)
+            {
+                ShowSuccess(
+                    $"Product '{productName}' updated successfully.");
+            }
+            else
+            {
+                ShowError(
+                    $"Product '{productName}' was updated on the server, " +
+                    "but SQLite was not refreshed.");
+            }
         }
-        catch
+        catch (HttpRequestException exception)
         {
-            ShowError("Failed to update product.");
+            isOfflineMode = true;
+
+            ShowError(
+                $"Server unavailable: " +
+                $"{exception.GetBaseException().Message}");
+        }
+        catch (Exception exception)
+        {
+            ShowError(
+                $"Failed to update product: " +
+                $"{exception.GetBaseException().Message}");
         }
         finally
         {
@@ -777,43 +1333,135 @@
         }
     }
 
-    private void ConfirmDelete(ProductCatalogResult product)
+    private List<CreatePackComponentRequest>
+        BuildPackComponents()
     {
+        if (!form.IsPack ||
+            form.SellingMode != SellingMode.Unit ||
+            form.ComponentCatalogId == Guid.Empty ||
+            form.PackQuantity <= 0)
+        {
+            return new List<CreatePackComponentRequest>();
+        }
+
+        return new List<CreatePackComponentRequest>
+        {
+            new()
+            {
+                ComponentCatalogId =
+                    form.ComponentCatalogId,
+
+                Quantity =
+                    form.PackQuantity
+            }
+        };
+    }
+
+    private void ConfirmDelete(
+        ProductCatalogResult product)
+    {
+        if (isLoading)
+            return;
+
+        if (!CanUseServer)
+        {
+            ShowError(
+                "Delete is unavailable in offline mode.");
+
+            return;
+        }
+
         productToDelete = product;
         showDeleteConfirm = true;
     }
 
     private void CancelDelete()
     {
+        if (isLoading)
+            return;
+
         productToDelete = null;
         showDeleteConfirm = false;
     }
 
     private async Task ConfirmDeleteAction()
     {
-        if (productToDelete == null) return;
+        if (productToDelete == null || isLoading)
+            return;
+
+        if (!CanUseServer)
+        {
+            showDeleteConfirm = false;
+
+            ShowError(
+                "Delete is unavailable in offline mode.");
+
+            return;
+        }
+
+        var productId = productToDelete.Id;
+        var productName = productToDelete.Name;
 
         try
         {
             isLoading = true;
             showDeleteConfirm = false;
 
-            var productName = productToDelete.Name;
-            await Api.Delete(productToDelete.Id);
+            ClearMessages();
 
-            // CHANGE 6 (same pattern): invalidate + background reload
-            State.InvalidatePos();
-            await Bootstrap.EnsureLoadedAsync();
+            await Api.Delete(productId);
 
-            ShowSuccess($"Product '{productName}' deleted successfully.");
+            var localSyncSucceeded = true;
+
+            try
+            {
+                await RefreshAfterServerMutationAsync();
+            }
+            catch (Exception exception)
+            {
+                localSyncSucceeded = false;
+
+                System.Diagnostics.Debug.WriteLine(
+                    $"Local refresh after delete failed: {exception}");
+            }
+
             productToDelete = null;
 
-            if (isSearching) await Search();
-            else await LoadData();
+            if (items.Count == 1 && Page > 1)
+            {
+                Page--;
+            }
+
+            await LoadData();
+
+            if (localSyncSucceeded)
+            {
+                ShowSuccess(
+                    $"Product '{productName}' deleted successfully.");
+            }
+            else
+            {
+                ShowError(
+                    $"Product '{productName}' was deleted on the server, " +
+                    "but SQLite was not refreshed.");
+            }
         }
-        catch
+        catch (HttpRequestException exception)
         {
-            ShowError("Failed to delete product!");
+            isOfflineMode = true;
+            showDeleteConfirm = false;
+
+            ShowError(
+                $"Server unavailable: " +
+                $"{exception.GetBaseException().Message}");
+        }
+        catch (Exception exception)
+        {
+            showDeleteConfirm = true;
+
+            ShowError(
+                $"Failed to delete product: " +
+                $"{exception.GetBaseException().Message}");
         }
         finally
         {
@@ -821,160 +1469,237 @@
         }
     }
 
-    private async Task<ProductCatalogResult?> FindCatalogByIdAsync(Guid id, string? fallbackName = null)
+    private Task<ProductCatalogResult?>
+        FindCatalogByIdAsync(
+            Guid id)
     {
         if (id == Guid.Empty)
-            return null;
-
-        var fromCache = State.ProductsCatalog?
-            .FirstOrDefault(x => x.Id == id);
-
-        if (fromCache != null)
-            return fromCache;
-
-        if (!string.IsNullOrWhiteSpace(fallbackName))
         {
-            var response = await Api.Search(new ProductCatalogQuery
-            {
-                Page = 1,
-                PageSize = 30,
-                Search = fallbackName,
-                SortBy = "Name",
-                Desc = false
-            });
-
-            var fromApi = response.Items?
-                .FirstOrDefault(x => x.Id == id);
-
-            if (fromApi != null)
-                return fromApi;
+            return Task.FromResult<ProductCatalogResult?>(
+                null);
         }
 
-        var fallbackResponse = await Api.Search(new ProductCatalogQuery
-        {
-            Page = 1,
-            PageSize = 200,
-            Search = null,
-            SortBy = "Name",
-            Desc = false
-        });
-
-        return fallbackResponse.Items?
-            .FirstOrDefault(x => x.Id == id);
+        return LocalCatalogQuery.GetByIdAsync(id);
     }
 
-    private async Task StartEditAsync(ProductCatalogResult p)
+    private async Task StartEditAsync(
+        ProductCatalogResult product)
     {
-        await Bootstrap.EnsureLoadedAsync();
+        if (isLoading)
+            return;
 
-        showProduct = true;
-        editingId = p.Id;
-
-        form.Name = p.Name;
-        form.Barcode = p.Barcode;
-        form.InternalCode = p.InternalCode;
-        form.Brand = p.Brand;
-        form.Manufacturer = p.Manufacturer;
-        form.Description = p.Description;
-        form.UnitOfMeasure = p.UnitOfMeasure;
-        form.CategoryId = p.CategoryId;
-        form.IsPack = p.IsPack;
-        form.SellingMode = p.SellingMode;
-
-        selectedComponentCatalog = null;
-
-        if (p.IsPack && p.PackComponents.Any())
+        if (!CanUseServer)
         {
-            var comp = p.PackComponents.First();
+            ShowError(
+                "Edit is unavailable in offline mode.");
 
-            form.ComponentCatalogId = comp.ComponentCatalogId;
-            form.PackQuantity = comp.Quantity;
-
-            selectedComponentCatalog = await FindCatalogByIdAsync(
-                comp.ComponentCatalogId,
-                comp.ComponentName);
-        }
-        else
-        {
-            form.ComponentCatalogId = Guid.Empty;
-            form.PackQuantity = 0;
+            return;
         }
 
-        StateHasChanged();
+        try
+        {
+            isLoading = true;
+            errorMessage = null;
+
+            editingId = product.Id;
+
+            form = new ProductCatalogForm
+            {
+                Name = product.Name,
+                Barcode = product.Barcode ?? string.Empty,
+                InternalCode = product.InternalCode,
+                Brand = product.Brand,
+                Manufacturer = product.Manufacturer,
+                Description = product.Description,
+
+                UnitOfMeasure =
+                    string.IsNullOrWhiteSpace(
+                        product.UnitOfMeasure)
+                        ? "pcs"
+                        : product.UnitOfMeasure,
+
+                CategoryId = product.CategoryId,
+                IsPack = product.IsPack,
+                SellingMode = product.SellingMode,
+                ComponentCatalogId = Guid.Empty,
+                PackQuantity = 0
+            };
+
+            selectedComponentCatalog = null;
+
+            var packComponent =
+                product.PackComponents?
+                    .FirstOrDefault();
+
+            if (product.IsPack &&
+                packComponent != null)
+            {
+                form.ComponentCatalogId =
+                    packComponent.ComponentCatalogId;
+
+                form.PackQuantity =
+                    packComponent.Quantity;
+
+                selectedComponentCatalog =
+                    await FindCatalogByIdAsync(
+                        packComponent.ComponentCatalogId);
+            }
+
+            showProduct = true;
+        }
+        catch (Exception exception)
+        {
+            ResetForm();
+
+            ShowError(
+                $"Failed to load product: " +
+                $"{exception.GetBaseException().Message}");
+        }
+        finally
+        {
+            isLoading = false;
+        }
     }
 
-    private void CancelEdit() => ResetForm();
+    private void CancelEdit()
+    {
+        if (isLoading)
+            return;
+
+        ResetForm();
+    }
 
     private void ResetForm()
     {
         editingId = null;
         showProduct = false;
-        form = new ProductCatalogForm();
         selectedComponentCatalog = null;
+
+        form = CreateEmptyForm();
     }
 
-    // ── Toast helpers ────────────────────────────────────────────────────────
+    private static ProductCatalogForm CreateEmptyForm()
+    {
+        return new ProductCatalogForm
+        {
+            SellingMode = SellingMode.Unit,
+            UnitOfMeasure = "pcs",
+            CategoryId = Guid.Empty,
+            IsPack = false,
+            ComponentCatalogId = Guid.Empty,
+            PackQuantity = 0
+        };
+    }
 
-    void ShowError(string message)
+    private void ClearMessages()
     {
         errorMessage = null;
-        StateHasChanged();
-        errorMessage = message;
-        StateHasChanged();
-        _ = Task.Delay(3000).ContinueWith(_ =>
-        {
-            errorMessage = null;
-            InvokeAsync(StateHasChanged);
-        });
-    }
-
-    void ShowSuccess(string message)
-    {
         successMessage = null;
-        StateHasChanged();
-        successMessage = message;
-        StateHasChanged();
-        _ = Task.Delay(3000).ContinueWith(_ =>
-        {
-            successMessage = null;
-            InvokeAsync(StateHasChanged);
-        });
     }
 
-    // ── Form model ───────────────────────────────────────────────────────────
+    private void ShowSuccess(
+        string message)
+    {
+        var version = ++messageVersion;
+
+        successMessage = message;
+        errorMessage = null;
+
+        _ = ClearMessageLaterAsync(version);
+    }
+
+    private void ShowError(
+        string message)
+    {
+        var version = ++messageVersion;
+
+        errorMessage = message;
+        successMessage = null;
+
+        _ = ClearMessageLaterAsync(version);
+    }
+
+    private async Task ClearMessageLaterAsync(
+        int version)
+    {
+        await Task.Delay(3000);
+
+        if (version != messageVersion)
+            return;
+
+        successMessage = null;
+        errorMessage = null;
+
+        await InvokeAsync(StateHasChanged);
+    }
 
     private sealed class ProductCatalogForm
     {
-        [Required(ErrorMessage = "Name is required")]
-        [StringLength(200, ErrorMessage = "Name cannot exceed 200 characters")]
-        public string Name { get; set; } = string.Empty;
+        [Required(
+            ErrorMessage = "Name is required")]
+        [StringLength(
+            200,
+            ErrorMessage =
+                "Name cannot exceed 200 characters")]
+        public string Name { get; set; } =
+            string.Empty;
 
-        [Required(ErrorMessage = "Barcode is required")]
-        [StringLength(100, ErrorMessage = "Barcode cannot exceed 100 characters")]
-        public string Barcode { get; set; } = string.Empty;
+        [Required(
+            ErrorMessage = "Barcode is required")]
+        [StringLength(
+            100,
+            ErrorMessage =
+                "Barcode cannot exceed 100 characters")]
+        public string Barcode { get; set; } =
+            string.Empty;
 
-        [StringLength(100)]
+        [Required(
+            ErrorMessage = "Internal code is required")]
+        [StringLength(
+            50,
+            ErrorMessage =
+                "Internal code cannot exceed 50 characters")]
+        public string InternalCode { get; set; } =
+            string.Empty;
+
+        [StringLength(
+            100,
+            ErrorMessage =
+                "Brand cannot exceed 100 characters")]
         public string? Brand { get; set; }
 
-        [StringLength(100)]
+        [StringLength(
+            100,
+            ErrorMessage =
+                "Manufacturer cannot exceed 100 characters")]
         public string? Manufacturer { get; set; }
 
-        public SellingMode SellingMode { get; set; }
-
-        public Guid CategoryId { get; set; }
-
-        [StringLength(1000)]
+        [StringLength(
+            1000,
+            ErrorMessage =
+                "Description cannot exceed 1000 characters")]
         public string? Description { get; set; }
 
-        [StringLength(10)]
-        public string UnitOfMeasure { get; set; } = "pcs";
+        [Required(
+            ErrorMessage = "Unit of measure is required")]
+        [StringLength(
+            20,
+            ErrorMessage =
+                "Unit of measure cannot exceed 20 characters")]
+        public string UnitOfMeasure { get; set; } =
+            "pcs";
 
-        [StringLength(50)]
-        [Required(ErrorMessage = "Internal code is required")]
-        public string InternalCode { get; set; } = string.Empty;
+        public Guid CategoryId { get; set; } =
+            Guid.Empty;
 
-        public bool IsPack { get; set; } = false;
-        public Guid ComponentCatalogId { get; set; } = Guid.Empty;
-        public decimal PackQuantity { get; set; } = 0;
+        public SellingMode SellingMode { get; set; } =
+            SellingMode.Unit;
+
+        public bool IsPack { get; set; }
+
+        public Guid ComponentCatalogId { get; set; } =
+            Guid.Empty;
+
+        public decimal PackQuantity { get; set; }
     }
 }

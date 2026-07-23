@@ -2,12 +2,14 @@
 
 @using Inventory.Dto.Analytics.Results
 @using System.Globalization
+@using Inventory.Ui.Services.Analytics
 @using Microsoft.Extensions.Logging
 @using System.Net
 @using ApexCharts
 @inject NavigationManager Nav
 @inject ILogger<Home> Logger
 @inject IAnalyticsApi AnalyticsApi
+@inject ILocalAnalyticsService LocalAnalyticsService
 
 <div class="analytics-page">
 
@@ -458,34 +460,103 @@
         await LoadAnalytics();
     }
 
-    void ComputePeriod()
+    private void ComputePeriod()
     {
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var businessTimeZone =
+            GetBusinessTimeZone();
+
+        var businessNow =
+            TimeZoneInfo.ConvertTimeFromUtc(
+                DateTime.UtcNow,
+                businessTimeZone);
+
+        var today =
+            DateOnly.FromDateTime(
+                businessNow);
+
         switch (SelectedPeriod)
         {
             case Period.Today:
-                From = To = today;
+                From =
+                    today;
+
+                To =
+                    today;
+
                 break;
+
             case Period.Week:
-                var diff = (7 + (today.DayOfWeek - DayOfWeek.Monday)) % 7;
-                From = today.AddDays(-diff);
-                To = From.AddDays(6);
+                var daysSinceMonday =
+                    (
+                        7 +
+                        (
+                            today.DayOfWeek -
+                            DayOfWeek.Monday
+                        )
+                    ) % 7;
+
+                From =
+                    today.AddDays(
+                        -daysSinceMonday);
+
+                To =
+                    today;
+
                 break;
+
             case Period.Month:
-                From = new DateOnly(today.Year, today.Month, 1);
-                To = From.AddMonths(1).AddDays(-1);
+                From =
+                    new DateOnly(
+                        today.Year,
+                        today.Month,
+                        1);
+
+                To =
+                    today;
+
                 break;
+
             case Period.Year:
-                From = new DateOnly(today.Year, 1, 1);
-                To = new DateOnly(today.Year, 12, 31);
+                From =
+                    new DateOnly(
+                        today.Year,
+                        1,
+                        1);
+
+                To =
+                    today;
+
                 break;
+
+            default:
+                From =
+                    today;
+
+                To =
+                    today;
+
+                break;
+        }
+    }
+
+    private static TimeZoneInfo GetBusinessTimeZone()
+    {
+        try
+        {
+            return TimeZoneInfo.FindSystemTimeZoneById(
+                "Europe/Brussels");
+        }
+        catch (TimeZoneNotFoundException)
+        {
+            return TimeZoneInfo.FindSystemTimeZoneById(
+                "Romance Standard Time");
         }
     }
 
     // =========================
     // LOAD
     // =========================
-
+    /*
     async Task LoadAnalytics()
     {
         if (_isFetching) return;
@@ -544,7 +615,132 @@
             StateHasChanged();
         }
     }
+    */
 
+   async Task LoadAnalytics()
+{
+    if (_isFetching) return;
+
+    _isFetching = true;
+    IsLoading = true;
+    StateHasChanged();
+
+    var key = GetKey();
+    var now = DateTime.UtcNow;
+
+        try
+        {
+            Logger.LogInformation(
+                "Loading dashboard summary. Period={Period}, " +
+                "From={From}, To={To}",
+                SelectedPeriod,
+                From,
+                To);
+
+            Dashboard =
+                await AnalyticsApi.GetDashboardSummaryAsync(
+                    From,
+                    To);
+
+            Logger.LogInformation(
+                "Dashboard API result: Revenue={Revenue}, " +
+                "Sales={Sales}, Cost={Cost}, " +
+                "Cash={Cash}, Card={Card}, Credit={Credit}",
+                Dashboard.Revenue,
+                Dashboard.SalesCount,
+                Dashboard.Cost,
+                Dashboard.CashRevenue,
+                Dashboard.CardRevenue,
+                Dashboard.CreditRevenue);
+
+            var loss =
+                await AnalyticsApi.GetLossProductsAsync(
+                    From,
+                    To,
+                    10);
+
+            var referenceDate =
+                From.ToDateTime(
+                    TimeOnly.MinValue);
+
+            var weekly =
+                await AnalyticsApi.GetWeeklyAsync(
+                    referenceDate.Year,
+                    ISOWeek.GetWeekOfYear(
+                        referenceDate));
+
+            var expiry =
+                now.AddMinutes(2);
+
+            LossCache[key] =
+                new CacheEntry<List<LossProductResult>>(
+                    loss.Items.ToList(),
+                    expiry);
+
+            WeeklyCache[key] =
+                new CacheEntry<WeeklyReportResult>(
+                    weekly,
+                    expiry);
+
+            LossProducts =
+                LossCache[key].Data;
+
+            Weekly =
+                weekly;
+
+            BuildChartData();
+        }
+    catch (Refit.ApiException ex) when (ex.StatusCode == HttpStatusCode.Unauthorized)
+    {
+        HandleUnauthorized();
+    }
+    catch (Exception ex) when (IsOfflineException(ex))
+    {
+        Logger.LogWarning(ex, "API unavailable. Loading local analytics.");
+
+        await LoadLocalAnalytics();
+    }
+    finally
+    {
+        _isFetching = false;
+        IsLoading = false;
+        StateHasChanged();
+    }
+}
+
+    private async Task LoadLocalAnalytics()
+{
+    Dashboard = await LocalAnalyticsService.GetDashboardSummaryAsync(From, To);
+
+    LossProducts = await LocalAnalyticsService.GetLossProductsAsync(
+        From,
+        To,
+        10);
+
+    Weekly = await LocalAnalyticsService.GetWeeklyAsync(
+        From,
+        To);
+
+    BuildChartData();
+}
+
+private static bool IsOfflineException(Exception ex)
+{
+    if (ex is HttpRequestException)
+        return true;
+
+    if (ex is TaskCanceledException)
+        return true;
+
+    if (ex is Refit.ApiException apiEx &&
+        apiEx.StatusCode != HttpStatusCode.Unauthorized)
+        return true;
+
+    if (ex.InnerException is System.Net.Sockets.SocketException)
+        return true;
+
+    return false;
+}
     // =========================
     // CHART DATA BUILDER
     // =========================

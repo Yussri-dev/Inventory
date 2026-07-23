@@ -1,355 +1,454 @@
 ﻿@page "/damages"
-@using Inventory.Dto.Damages.Requests
-@using Inventory.Dto.Damages.Results
-@using Inventory.Dto.Enums
-@using Inventory.Dto.Products.Results
-@using Inventory.Dto.Queries
-@using System.Text.Json
-@inject IDamageApi DamageApi
-@inject IProductApi ProductApi
-@inject IStockApi StockApi
-@inject IJSRuntime JS
+
+@using Inventory.LocalDB.Services.Interfaces
+@using Inventory.LocalDB.Services.Results
+
+@inject ILocalDamageService LocalDamageService
 
 <h3>Damages</h3>
 
-<div class="card">
-    <h4>Scan damaged products (Draft)</h4>
+<div class="page-container">
 
-    <div class="form-grid">
+    @if (!string.IsNullOrWhiteSpace(errorMessage))
+    {
+        <div class="alert error">
+            <span>@errorMessage</span>
+            <button @onclick="ClearError">×</button>
+        </div>
+    }
 
-        <!-- BARCODE / SEARCH -->
-        <label>Scan or Search Product</label>
-        <input class="input"
-               placeholder="Scan barcode or type product name…"
-               @bind="productSearch"
-               @bind:event="oninput"
-               @onkeydown="OnProductSearchKeyDown"
-               @ref="barcodeInputRef"
-               autofocus />
+    @if (!string.IsNullOrWhiteSpace(successMessage))
+    {
+        <div class="alert success">
+            <span>@successMessage</span>
+            <button @onclick="ClearSuccess">×</button>
+        </div>
+    }
 
-        @if (searchingProducts)
-        {
-            <div class="muted">Searching…</div>
-        }
+    <div class="card">
+        <h4>Scan damaged products</h4>
 
-        @if (searchResults.Any())
-        {
-            <ul class="product-search-results">
-                @foreach (var p in searchResults)
-                {
-                    <li @onclick="() => SelectProduct(p)">
-                        <strong>@p.CatalogName</strong><br />
-                        <span class="muted">@p.CatalogBarcode</span>
-                    </li>
-                }
-            </ul>
-        }
+        <div class="form-grid">
 
-        @if (selectedProduct != null)
-        {
-            <div class="selected-product">
-                <strong>@selectedProduct.CatalogName</strong><br />
-                <span class="muted">
-                    Stock: @currentStock | Cost: €@selectedProduct.PurchasePrice
-                </span>
-            </div>
+            <label>Scan or Search Product</label>
 
-            <div class="damage-row">
-                <div class="damage-field">
-                    <label>Quantity</label>
-                    <input type="number" step="0.01" min="0.01" @bind="create.Quantity" />
+            <input class="input"
+                   placeholder="Scan barcode or type product name…"
+                   @bind="productSearch"
+                   @bind:event="oninput"
+                   @onkeydown="OnProductSearchKeyDown"
+                   @ref="barcodeInputRef"
+                   disabled="@isBusy" />
+
+            @if (searchingProducts)
+            {
+                <div class="muted">
+                    Searching local products…
+                </div>
+            }
+
+            @if (searchResults.Count > 0)
+            {
+                <ul class="product-search-results">
+                    @foreach (var product in searchResults)
+                    {
+                        <li @onclick="() => SelectProduct(product)">
+                            <strong>@product.Name</strong>
+                            <br />
+
+                            <span class="muted">
+                                @(product.Barcode ?? "No barcode")
+                                · Available:
+                                @product.AvailableQuantity.ToString("0.###")
+                            </span>
+                        </li>
+                    }
+                </ul>
+            }
+
+            @if (selectedProduct != null)
+            {
+                <div class="selected-product">
+                    <strong>@selectedProduct.Name</strong>
+                    <br />
+
+                    <span class="muted">
+                        Available:
+                        @selectedProduct.AvailableQuantity.ToString("0.###")
+
+                        · Cost:
+                        @selectedProduct.PurchasePrice.ToString("C")
+                    </span>
                 </div>
 
-                <div class="damage-field">
-                    <label>Estimated</label>
-                    <input type="number" value="@EstimatedValue" readonly class="readonly-input" />
+                <div class="damage-row">
+                    <div class="damage-field">
+                        <label>Quantity</label>
+
+                        <input type="number"
+                               step="0.001"
+                               min="0.001"
+                               max="@selectedProduct.AvailableQuantity"
+                               @bind="quantity"
+                               disabled="@isBusy" />
+                    </div>
+
+                    <div class="damage-field">
+                        <label>Estimated value</label>
+
+                        <input type="text"
+                               value="@EstimatedValue.ToString("C")"
+                               readonly
+                               class="readonly-input" />
+                    </div>
+
+                    <div class="damage-field reason-wide">
+                        <label>Reason</label>
+
+                        <input type="text"
+                               @bind="reason"
+                               placeholder="Describe the damage…"
+                               disabled="@isBusy" />
+                    </div>
                 </div>
 
-                <div class="damage-field reason-wide">
-                    <label>Reason</label>
-                    <input type="text" @bind="create.Reason" placeholder="Describe the damage…" />
-                </div>
-            </div>
-
-            <button class="btn btn-danger"
-                    @onclick="AddDraft"
-                    disabled="@(!CanSubmit)">
-                Add to draft list
-            </button>
-        }
+                <button class="btn btn-danger"
+                        @onclick="AddDraft"
+                        disabled="@(!CanAddDraft || isBusy)">
+                    Add to draft list
+                </button>
+            }
+        </div>
     </div>
-</div>
 
-<hr />
+    <hr />
 
-<div class="card">
-    <h4>Draft Damages</h4>
+    <div class="card">
+        <h4>Draft Damages</h4>
 
-    @if (loading)
-    {
-        <p>Loading…</p>
-    }
-    else if (!drafts.Any())
-    {
-        <p class="muted">No draft damages yet.</p>
-    }
-    else
-    {
-        <table class="table">
-            <thead>
-                <tr>
-                    <th>#</th>
-                    <th>Product</th>
-                    <th>Qty</th>
-                    <th>Reason</th>
-                    <th>Date</th>
-                    <th>Action</th>
-                </tr>
-            </thead>
-            <tbody>
-                @foreach (var d in drafts)
-                {
+        @if (loading)
+        {
+            <p>Loading local drafts…</p>
+        }
+        else if (drafts.Count == 0)
+        {
+            <p class="muted">
+                No draft damages yet.
+            </p>
+        }
+        else
+        {
+            <table class="table">
+                <thead>
                     <tr>
-                        <td>@d.DamageNumber</td>
-                        <td>@d.ProductName</td>
-                        <td>@d.Quantity</td>
-                        <td>@d.Reason</td>
-                        <td>@d.DamageDate.ToString("dd/MM/yyyy")</td>
-                        <td>
-                            <button class="btn btn-secondary"
-                                    @onclick="() => RemoveLine(d)">
-                                Delete
-                            </button>
-                        </td>
+                        <th>#</th>
+                        <th>Product</th>
+                        <th>Qty</th>
+                        <th>Estimated</th>
+                        <th>Reason</th>
+                        <th>Date</th>
+                        <th></th>
                     </tr>
-                }
+                </thead>
+
+                <tbody>
+                    @foreach (var damage in drafts)
+                    {
+                        <tr>
+                            <td>@damage.DamageNumber</td>
+                            <td>@damage.ProductName</td>
+                            <td>@damage.Quantity.ToString("0.###")</td>
+                            <td>@damage.EstimatedValue.ToString("C")</td>
+                            <td>@(damage.Reason ?? "-")</td>
+                            <td>
+                                @damage.DamageDateUtc
+                                .ToLocalTime()
+                                .ToString("dd/MM/yyyy HH:mm")
+                            </td>
+                            <td>
+                                <button class="btn btn-secondary"
+                                        @onclick="() => RemoveLine(damage)"
+                                        disabled="@isBusy">
+                                    Delete
+                                </button>
+                            </td>
+                        </tr>
+                    }
             </tbody>
         </table>
 
         <div class="actions-end">
-            <button class="btn btn-primary" @onclick="ValidateAll">
-                Validate all damages
+            <button class="btn btn-primary"
+                    @onclick="ValidateAll"
+                    disabled="@isBusy">
+                @(isBusy
+                                ? "Validating…"
+                                : "Validate all damages")
             </button>
         </div>
-    }
+                }
+    </div>
 </div>
 
 @code {
+    private readonly List<LocalDamageProductResult>
+        searchResults = new();
 
-    List<ProductResult> searchResults = new();
-    List<DamageResult> drafts = new();
+    private IReadOnlyList<LocalDamageDraftResult>
+        drafts = Array.Empty<LocalDamageDraftResult>();
 
-    ProductResult? selectedProduct;
-    DamageResult? selectedDamage;
-    decimal currentStock;
+    private LocalDamageProductResult?
+        selectedProduct;
 
-    //clé de stockage :
-    const string DraftStorageKey = "damage_drafts";
+    private bool loading;
+    private bool searchingProducts;
+    private bool isBusy;
 
-    bool loading;
-    bool searchingProducts;
-    string productSearch = string.Empty;
+    private string productSearch =
+        string.Empty;
 
-    ElementReference barcodeInputRef;
-    CreateDamageRequest create = new();
+    private string? reason;
 
-    bool CanSubmit =>
+    private decimal quantity = 1m;
+
+    private string? errorMessage;
+    private string? successMessage;
+
+    private ElementReference barcodeInputRef;
+
+    private bool CanAddDraft =>
         selectedProduct != null &&
-        create.Quantity > 0 &&
-        create.Quantity <= currentStock;
-    // &&
-    // !string.IsNullOrWhiteSpace(create.Reason);
+        quantity > 0 &&
+        quantity <= selectedProduct.AvailableQuantity;
 
-    decimal EstimatedValue =>
+    private decimal EstimatedValue =>
         selectedProduct == null
             ? 0
-            : Math.Round(create.Quantity * selectedProduct.PurchasePrice, 2);
+            : Math.Round(
+                quantity *
+                selectedProduct.PurchasePrice,
+                2);
 
     protected override async Task OnInitializedAsync()
     {
-        await LoadDraftsFromLocalStorage();
-        await FocusBarcode();
+        await LoadDrafts();
     }
 
-    async Task RemoveLine(DamageResult damageResult)
+    protected override async Task OnAfterRenderAsync(
+        bool firstRender)
     {
-        drafts.Remove(damageResult);
-        await SaveDraftsToLocalStorage();
-        await FocusBarcode();
-    }
-
-    async Task FocusBarcode()
-    {
-        await Task.Delay(150);
-        await barcodeInputRef.FocusAsync();
-    }
-
-    async Task OnProductSearchKeyDown(KeyboardEventArgs e)
-    {
-        if (e.Key == "Enter" && !string.IsNullOrWhiteSpace(productSearch))
-            await SearchProduct();
-    }
-
-    async Task SearchProduct()
-    {
-        searchingProducts = true;
-        searchResults.Clear();
-
-        var result = await ProductApi.Search(new ProductQuery
+        if (firstRender)
         {
-            Search = productSearch.Trim(),
-            PageSize = 10
-        });
-
-        if (result.Items.Count == 1)
-        {
-            await SelectProduct(result.Items.First());
+            await FocusBarcode();
         }
-        else
-        {
-            searchResults = result.Items.ToList();
-        }
-
-        searchingProducts = false;
     }
 
-    async Task SelectProduct(ProductResult product)
-    {
-        selectedProduct = product;
-        create = new CreateDamageRequest
-        {
-            ProductId = product.Id,
-            Quantity = 1
-        };
-
-        productSearch = product.CatalogName;
-        searchResults.Clear();
-
-        var stock = await StockApi.Search(new StockQuery
-        {
-            ProductId = product.Id,
-            PageSize = 1
-        });
-
-        currentStock = stock.Items.FirstOrDefault()?.Quantity ?? 0;
-        await FocusBarcode();
-    }
-
-    async Task SaveDraftsToLocalStorage()
-    {
-        var json = JsonSerializer.Serialize(drafts);
-        await JS.InvokeVoidAsync("localStorage.setItem", DraftStorageKey, json);
-    }
-
-    async Task LoadDraftsFromLocalStorage()
+    private async Task LoadDrafts()
     {
         try
         {
             loading = true;
+            errorMessage = null;
 
-            var json = await JS.InvokeAsync<string?>("localStorage.getItem", DraftStorageKey);
-
-            if (!string.IsNullOrWhiteSpace(json))
-            {
-                drafts = JsonSerializer.Deserialize<List<DamageResult>>(json) ?? new List<DamageResult>();
-            }
-            else
-            {
-                drafts = new List<DamageResult>();
-            }
+            drafts =
+                await LocalDamageService
+                    .GetDraftsAsync();
+        }
+        catch (Exception exception)
+        {
+            errorMessage =
+                $"Failed to load local damages: " +
+                $"{exception.Message}";
         }
         finally
         {
             loading = false;
         }
     }
-    async Task AddDraft()
+
+    private async Task OnProductSearchKeyDown(
+        KeyboardEventArgs eventArgs)
     {
-        if (selectedProduct == null || create.Quantity <= 0 || create.Quantity > currentStock)
+        if (eventArgs.Key == "Enter")
+        {
+            await SearchProduct();
+        }
+    }
+
+    private async Task SearchProduct()
+    {
+        if (string.IsNullOrWhiteSpace(productSearch))
             return;
 
-        var localDraft = new DamageResult
+        try
         {
-            Id = Guid.NewGuid(),
-            ProductId = selectedProduct.Id,
-            ProductName = selectedProduct.CatalogName,
-            Quantity = create.Quantity,
-            Reason = create.Reason,
-            EstimatedValue = EstimatedValue,
-            DamageDate = DateTime.UtcNow,
-            Status = DamageStatus.Draft,
-            DamageNumber = $"DRAFT-{DateTime.UtcNow:yyyyMMddHHmmssfff}"
-        };
+            searchingProducts = true;
+            errorMessage = null;
 
-        drafts.Add(localDraft);
+            searchResults.Clear();
 
-        await SaveDraftsToLocalStorage();
+            var results =
+                await LocalDamageService
+                    .SearchProductsAsync(
+                        productSearch,
+                        10);
 
-        create = new CreateDamageRequest();
+            if (results.Count == 1)
+            {
+                SelectProduct(results[0]);
+            }
+            else
+            {
+                searchResults.AddRange(results);
+            }
+        }
+        catch (Exception exception)
+        {
+            errorMessage =
+                $"Product search failed: {exception.Message}";
+        }
+        finally
+        {
+            searchingProducts = false;
+        }
+    }
+
+    private void SelectProduct(
+        LocalDamageProductResult product)
+    {
+        selectedProduct = product;
+        productSearch = product.Name;
+        quantity = 1m;
+        reason = null;
+
+        searchResults.Clear();
+    }
+
+    private async Task AddDraft()
+    {
+        if (selectedProduct == null ||
+            !CanAddDraft)
+        {
+            return;
+        }
+
+        try
+        {
+            isBusy = true;
+            errorMessage = null;
+
+            await LocalDamageService.AddDraftAsync(
+                selectedProduct.ProductLocalId,
+                quantity,
+                reason);
+
+            successMessage =
+                "Damage added to the local draft list.";
+
+            ResetProductSelection();
+
+            await LoadDrafts();
+            await FocusBarcode();
+        }
+        catch (Exception exception)
+        {
+            errorMessage =
+                exception.Message;
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private async Task RemoveLine(
+        LocalDamageDraftResult damage)
+    {
+        try
+        {
+            isBusy = true;
+            errorMessage = null;
+
+            await LocalDamageService
+                .RemoveDraftAsync(damage.Id);
+
+            successMessage =
+                "Damage draft deleted.";
+
+            await LoadDrafts();
+            await FocusBarcode();
+        }
+        catch (Exception exception)
+        {
+            errorMessage =
+                exception.Message;
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private async Task ValidateAll()
+    {
+        try
+        {
+            isBusy = true;
+            errorMessage = null;
+
+            var validatedCount =
+                await LocalDamageService
+                    .ValidateAllDraftsAsync();
+
+            successMessage =
+                $"{validatedCount} damage(s) validated locally. " +
+                "They will be synchronized when the server is available.";
+
+            await LoadDrafts();
+            ResetProductSelection();
+            await FocusBarcode();
+        }
+        catch (Exception exception)
+        {
+            errorMessage =
+                exception.Message;
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private void ResetProductSelection()
+    {
         selectedProduct = null;
         productSearch = string.Empty;
-        currentStock = 0;
+        quantity = 1m;
+        reason = null;
         searchResults.Clear();
-
-        await FocusBarcode();
-        StateHasChanged();
     }
 
-    // async Task AddDraft()
-    // {
-    //     create.EstimatedValue = EstimatedValue;
-    //     await DamageApi.Create(create);
-
-    //     create = new CreateDamageRequest();
-    //     selectedProduct = null;
-    //     productSearch = string.Empty;
-    //     currentStock = 0;
-
-    //     await LoadDrafts();
-    //     await FocusBarcode();
-    // }
-
-    // async Task LoadDrafts()
-    // {
-    //     loading = true;
-    //     drafts = (await DamageApi.GetAll())
-    //         .Where(d => d.Status == DamageStatus.Draft)
-    //         .ToList();
-    //     loading = false;
-    // }
-
-    async Task ValidateAll()
+    private async Task FocusBarcode()
     {
-        if (!drafts.Any())
+        await Task.Delay(100);
+
+        try
         {
-            return;
+            await barcodeInputRef.FocusAsync();
         }
-
-        foreach (var d in drafts)
+        catch
         {
-            var request = new CreateDamageRequest
-            {
-                ProductId = d.ProductId,
-                Quantity = d.Quantity,
-                Reason = d.Reason,
-                EstimatedValue = d.EstimatedValue
-            };
-
-            await DamageApi.Create(request);
+            // Le composant peut être en cours de fermeture.
         }
-
-        drafts.Clear();
-
-        await JS.InvokeVoidAsync("localStorage.removeItem", DraftStorageKey);
-        await JS.InvokeVoidAsync("alert", "All damages validated and stock updated.");
-
-
     }
 
-    // async Task ValidateAll()
-    // {
-    //     await DamageApi.ValidateAll();
-    //     await LoadDrafts();
-    //     await JS.InvokeVoidAsync("alert", "All damages validated and stock updated.");
-    // }
+    private void ClearError()
+    {
+        errorMessage = null;
+    }
+
+    private void ClearSuccess()
+    {
+        successMessage = null;
+    }
 }

@@ -11,7 +11,7 @@ namespace Inventory.Domain.Entities
         public Guid Id { get; set; }
 
         [MaxLength(100)]
-        public string Name { get; set; }
+        public string Name { get; set; } = null!;
 
         public int DisplayOrder { get; set; }
 

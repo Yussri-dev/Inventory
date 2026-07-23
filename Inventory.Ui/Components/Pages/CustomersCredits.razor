@@ -1,7 +1,12 @@
 ﻿@page "/customer-credits"
 @using Inventory.Dto.CustomerTransactions.Requests
-@using Inventory.Dto.CustomerTransactions.Results
-@using Inventory.Ui.Interfaces
+@using Inventory.LocalDB.Services.Interfaces
+@using Inventory.LocalDB.Services.Results
+
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
+
+@inject ILocalCustomerCreditService LocalCustomerCreditService
+@inject ICustomerTransactionsApi CustomerTransactionsApi
 
 <div class="credits-page">
     <div class="page-header">
@@ -86,7 +91,7 @@
                                             <div class="purchase-header">
                                                 <div class="purchase-info">
                                                     <strong class="invoice-number">@sale.InvoiceNumber</strong>
-                                                    <span class="purchase-date">@sale.SaleDate.ToString("dd/MM/yyyy HH:mm")</span>
+                                                    <span class="purchase-date">@sale.SaleDate.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</span>
                                                 </div>
                                                 <div class="purchase-badges">
                                                     <span class="badge @(sale.PaymentStatus == "Paid" ? "badge-success" : "badge-warning")">
@@ -136,7 +141,7 @@
                                             </div>
                                             <div class="transaction-info">
                                                 <strong>@tx.Type</strong>
-                                                <span class="transaction-date">@tx.TransactionDate.ToString("dd/MM/yyyy HH:mm")</span>
+                                                <span class="transaction-date">@tx.TransactionDate.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</span>
                                                 @if (!string.IsNullOrEmpty(tx.Description))
                                                 {
                                                     <p class="transaction-desc">@tx.Description</p>
@@ -477,11 +482,9 @@
     }
 </div>
 @code {
-    [Inject] private ICustomerTransactionsApi CustomerTransactionsApi { get; set; } = default!;
-
-    private List<CustomerCreditResult>? customers;
-    private CustomerCreditResult? selectedCustomer;
-    private CustomerDetailResult? customerDetail;
+    private List<LocalCustomerCreditResult>? customers;
+    private LocalCustomerCreditResult? selectedCustomer;
+    private LocalCustomerDetailResult? customerDetail;
     private bool showPaymentModal = false;
 
     private decimal paymentAmount = 0;
@@ -504,11 +507,11 @@
     private decimal totalDebt => customers?.Where(c => c.Balance > 0).Sum(c => c.Balance) ?? 0;
     private decimal totalCredit => customers?.Where(c => c.Balance < 0).Sum(c => Math.Abs(c.Balance)) ?? 0;
 
-    private IEnumerable<CustomerCreditResult> FilteredCustomers
+    private IEnumerable<LocalCustomerCreditResult> FilteredCustomers
     {
         get
         {
-            if (customers == null) return Enumerable.Empty<CustomerCreditResult>();
+            if (customers == null) return Enumerable.Empty<LocalCustomerCreditResult>();
 
             var filtered = customers.AsEnumerable();
 
@@ -536,33 +539,41 @@
 
     private async Task LoadCustomersAsync()
     {
-        var updated = await CustomerTransactionsApi.GetCustomersWithBalance();
-
-        if (customers == null)
+        try
         {
-            customers = updated;
-            return;
-        }
+            isLoading =
+                true;
 
-        foreach (var c in updated)
+            errorMessage =
+                null;
+
+            customers =
+                await LocalCustomerCreditService
+                    .GetCustomersWithBalanceAsync();
+
+            if (expandedCustomerId.HasValue)
+            {
+                customerDetail =
+                    await LocalCustomerCreditService
+                        .GetCustomerDetailAsync(
+                            expandedCustomerId.Value);
+            }
+        }
+        catch (Exception exception)
         {
-            var existing = customers.FirstOrDefault(x => x.CustomerId == c.CustomerId);
-
-            if (existing != null)
-            {
-                existing.Balance = c.Balance;
-            }
-            else
-            {
-                customers.Add(c);
-            }
+            errorMessage =
+                exception
+                    .GetBaseException()
+                    .Message;
         }
+        finally
+        {
+            isLoading =
+                false;
 
-        // supprimer les clients supprimés côté backend
-        var updatedIds = updated.Select(x => x.CustomerId).ToHashSet();
-
-        customers.RemoveAll(x => !updatedIds.Contains(x.CustomerId));
-        StateHasChanged();
+            await InvokeAsync(
+                StateHasChanged);
+        }
     }
 
     private async Task ToggleCustomerDetail(Guid customerId)
@@ -580,7 +591,7 @@
 
         try
         {
-            customerDetail = await CustomerTransactionsApi.GetCustomerDetail(customerId);
+            customerDetail = await LocalCustomerCreditService.GetCustomerDetailAsync(customerId);
         }
         catch (Exception ex)
         {
@@ -592,7 +603,7 @@
         }
     }
 
-    private void OpenPaymentModal(CustomerCreditResult customer)
+    private void OpenPaymentModal(LocalCustomerCreditResult customer)
     {
         selectedCustomer = customer;
         showPaymentModal = true;
@@ -601,7 +612,7 @@
         isCash = true;
     }
 
-    private void OpenRefundModal(CustomerCreditResult customer)
+    private void OpenRefundModal(LocalCustomerCreditResult customer)
     {
         selectedCustomer = customer;
         showPaymentModal = true;
@@ -646,13 +657,31 @@
             {
                 var request = new RegisterCustomerPaymentRequest
                 {
-                    CustomerId = selectedCustomer.CustomerId,
-                    Amount = paymentAmount,
-                    Description = string.IsNullOrWhiteSpace(paymentDescription) ? null : paymentDescription,
-                    IsCash = isCash
+                    ClientOperationId =
+                        Guid.NewGuid(),
+
+                    CustomerId =
+                        selectedCustomer.CustomerId,
+
+                    Amount =
+                        paymentAmount,
+
+                    Description =
+                        string.IsNullOrWhiteSpace(
+                            paymentDescription)
+                            ? null
+                            : paymentDescription.Trim(),
+
+                    IsCash =
+                        isCash,
+
+                    TransactionDateUtc =
+                        DateTime.UtcNow
                 };
 
-                await CustomerTransactionsApi.RegisterPayment(request);
+                await LocalCustomerCreditService
+                    .RegisterPaymentAsync(
+                        request);
             }
             else
             {
@@ -665,29 +694,36 @@
                 };
 
                 await CustomerTransactionsApi.RegisterRefund(request);
-                
+
             }
 
-            var justProcessedId = selectedCustomer.CustomerId;
+            var justProcessedId =
+                selectedCustomer.CustomerId;
 
-            successMessage = $"Refund of €{paymentAmount:N2} issued to {selectedCustomer.Name}!";
+            var customerName =
+                selectedCustomer.Name;
+
+            var processedAmount =
+                paymentAmount;
+
+            successMessage =
+                isPayment
+                    ? $"Payment of €{processedAmount:N2} registered " +
+                      $"locally for {customerName}."
+                    : $"Refund of €{processedAmount:N2} registered " +
+                      $"locally for {customerName}.";
 
             CloseModal();
 
-            var customer = customers.First(x => x.CustomerId == justProcessedId);
+            await LoadCustomersAsync();
 
-            if (isPayment)
+            if (expandedCustomerId ==
+                justProcessedId)
             {
-                customer.Balance -= paymentAmount;
-            }
-            else
-            {
-                customer.Balance += paymentAmount;
-            }
-
-            if (expandedCustomerId == justProcessedId)
-            {
-                customerDetail = await CustomerTransactionsApi.GetCustomerDetail(justProcessedId);
+                customerDetail =
+                    await LocalCustomerCreditService
+                        .GetCustomerDetailAsync(
+                            justProcessedId);
             }
 
         }

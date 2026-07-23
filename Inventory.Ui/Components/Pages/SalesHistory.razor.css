@@ -431,3 +431,125 @@ input[type="checkbox"] {
         justify-content: center;
     }
 }
+
+.local-source-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 0.75rem;
+}
+
+    .local-source-banner > div {
+        display: flex;
+        flex-direction: column;
+        gap: 0.2rem;
+    }
+
+.table-scroll {
+    width: 100%;
+    overflow-x: auto;
+}
+
+.invoice-local {
+    display: block;
+    margin-top: 0.2rem;
+}
+
+.filter-title {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-weight: 600;
+}
+
+.filter-label {
+    font-size: 12px;
+}
+
+.filter-column {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.quick-filter-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+}
+
+    .quick-filter-row .btn {
+        flex: 1;
+        font-size: 12px;
+    }
+
+.customer-filter-row {
+    margin-bottom: 0.5rem;
+}
+
+.customer-search-box {
+    margin-bottom: 0.5rem;
+}
+
+.full-width {
+    width: 100%;
+    margin-bottom: 0.5rem;
+}
+
+.local-customer-list {
+    max-height: 180px;
+    overflow-y: auto;
+}
+
+    .local-customer-list .product-item {
+        padding: 0.45rem 0.55rem;
+    }
+
+        .local-customer-list .product-item strong,
+        .local-customer-list .product-item span {
+            display: block;
+        }
+
+.selected-local-customer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+    padding: 0.45rem 0.6rem;
+    border-radius: 6px;
+    background: var(--bg-secondary, #f0f4f8);
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.compact-button {
+    padding: 2px 8px;
+    font-size: 11px;
+}
+
+.filter-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: pointer;
+    font-size: 13px;
+}
+
+@media (max-width: 768px) {
+    .local-source-banner {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+        .local-source-banner .btn {
+            width: 100%;
+        }
+}

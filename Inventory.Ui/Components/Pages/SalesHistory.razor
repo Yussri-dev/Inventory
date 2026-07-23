@@ -1,226 +1,303 @@
 ﻿@page "/saleshistory"
-@using Inventory.Dto.Sales.Results
-@using Inventory.Dto.Queries
-@using Inventory.Dto.Enums
+
+@using Inventory.LocalDB.Models
+@using Inventory.LocalDB.Services.Interfaces
+@using Inventory.LocalDB.Services.Results
+@using Microsoft.AspNetCore.Components.Web
 @using Microsoft.Extensions.Logging
-@inject ISaleApi SaleApi
-@inject ICustomerApi CustomerApi
+
+@inject ILocalSalesHistoryService LocalHistory
 @inject ILogger<SalesHistory> Logger
 
 <div class="sale-container">
 
-    @* Alert messages *@
     @if (!string.IsNullOrWhiteSpace(errorMessage))
     {
-        <div class="alert error" style="margin: 0.5rem 0;">
+        <div class="alert error" style="margin:0.5rem 0;">
             <span>@errorMessage</span>
             <button @onclick="() => errorMessage = null">×</button>
         </div>
     }
 
-    @* ── LEFT COLUMN: Results ── *@
+    @if (!string.IsNullOrWhiteSpace(infoMessage))
+    {
+        <div class="alert success" style="margin:0.5rem 0;">
+            <span>@infoMessage</span>
+            <button @onclick="() => infoMessage = null">×</button>
+        </div>
+    }
+
+    <div class="card local-source-banner">
+        <div>
+            <strong>Local-first sales history</strong>
+            <span class="muted">
+                The page always reads from SQLite and remains available offline.
+            </span>
+        </div>
+
+        <button class="btn btn-secondary"
+                disabled="@isLoadingData"
+                @onclick="ReloadAsync">
+            @(isLoadingData ? "Loading..." : "Refresh local data")
+        </button>
+    </div>
+
     <div class="sale-left">
 
-        @* Header *@
         <div class="card header-section">
             <div class="pager">
                 <button class="btn ghost"
                         disabled="@(currentPage <= 1 || isLoadingData)"
-                        @onclick="PreviousPage">
+                        @onclick="PreviousPageAsync">
                     Prev
                 </button>
 
                 <span class="muted">
-                    Page @currentPage of @(TotalPages == 0 ? 1 : TotalPages)
+                    Page @currentPage of @DisplayedTotalPages
                 </span>
 
                 <button class="btn ghost"
                         disabled="@(currentPage >= TotalPages || isLoadingData)"
-                        @onclick="NextPage">
+                        @onclick="NextPageAsync">
                     Next
                 </button>
             </div>
         </div>
 
-        @* Sales Table *@
         <div class="card cart-table">
             @if (isLoadingData)
             {
-                <div class="loading-state">Loading sales...</div>
+                <div class="loading-state">
+                    Loading sales from SQLite...
+                </div>
             }
-            else if (sales == null || !sales.Any())
+            else if (sales.Count == 0)
             {
                 <div class="empty-state">
-                    <p>No sales found</p>
-                    <p class="muted">Adjust your filters and click Search</p>
+                    <p>No local sales found</p>
+                    <p class="muted">
+                        Adjust the filters or synchronize sales on this device.
+                    </p>
                 </div>
             }
             else
             {
-                <table class="table">
-                    <thead>
-                        <tr>
-                            <th>Invoice #</th>
-                            <th>Date</th>
-                            <th>Customer</th>
-                            <th style="width:110px;">Total</th>
-                            <th style="width:110px;">Paid</th>
-                            <th style="width:110px;">Change</th>
-                            <th style="width:110px;">Status</th>
-                            <th style="width:100px;">Payment</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach (var sale in sales)
-                        {
+                <div class="table-scroll">
+                    <table class="table">
+                        <thead>
                             <tr>
-                                <td><strong>@sale.InvoiceNumber</strong></td>
-                                <td>@sale.SaleDate.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</td>
-                                <td>
-                                    @if (sale.CustomerId == null || sale.CustomerId == Guid.Empty)
-                                    {
-                                        <span class="muted">Walk-in</span>
-                                    }
-                                    else
-                                    {
-                                        <span>@(sale.CustomerName ?? "—")</span>
-                                    }
-                                </td>
-                                <td class="text-right">€@sale.TotalAmount.ToString("F2")</td>
-                                <td class="text-right">€@sale.PaidAmount.ToString("F2")</td>
-                                <td class="text-right">€@sale.ChangeAmount.ToString("F2")</td>
-                                <td>
-                                    <span class="status-badge @GetSaleStatusClass(sale.Status.ToString())">
-                                        @sale.Status
-                                    </span>
-                                </td>
-                                <td>
-                                    <span class="status-badge @GetPaymentStatusClass(sale.PaymentStatus.ToString())">
-                                        @sale.PaymentStatus
-                                    </span>
-                                </td>
+                                <th>Invoice #</th>
+                                <th>Date</th>
+                                <th>Customer</th>
+                                <th style="width:110px;">Total</th>
+                                <th style="width:110px;">Paid</th>
+                                <th style="width:110px;">Change</th>
+                                <th style="width:110px;">Status</th>
+                                <th style="width:110px;">Payment</th>
+                                <th style="width:110px;">Sync</th>
                             </tr>
-                        }
-                    </tbody>
-                </table>
+                        </thead>
+                        <tbody>
+                            @foreach (var sale in sales)
+                            {
+                                <tr>
+                                    <td>
+                                        <strong>@sale.InvoiceNumber</strong>
+
+                                        @if (!string.IsNullOrWhiteSpace(
+                                            sale.ServerInvoiceNumber) &&
+                                            !string.Equals(
+                                                sale.ServerInvoiceNumber,
+                                                sale.LocalInvoiceNumber,
+                                                StringComparison.OrdinalIgnoreCase))
+                                        {
+                                            <small class="muted invoice-local">
+                                                Local: @sale.LocalInvoiceNumber
+                                            </small>
+                                        }
+                                    </td>
+
+                                    <td>
+                                        @(sale.SaleDateUtc
+                                            .ToLocalTime()
+                                            .ToString("dd/MM/yyyy HH:mm"))
+                                    </td>
+
+                                    <td>
+                                        @if (!sale.CustomerLocalId.HasValue)
+                                        {
+                                            <span class="muted">Walk-in</span>
+                                        }
+                                        else
+                                        {
+                                            <span>
+                                                @(sale.CustomerName ?? "Local customer")
+                                            </span>
+                                        }
+                                    </td>
+
+                                    <td class="text-right">
+                                        €@sale.TotalAmount.ToString("F2")
+                                    </td>
+
+                                    <td class="text-right">
+                                        €@sale.PaidAmount.ToString("F2")
+                                    </td>
+
+                                    <td class="text-right">
+                                        €@sale.ChangeAmount.ToString("F2")
+                                    </td>
+
+                                    <td>
+                                        <span class="status-badge @GetSaleStatusClass(sale.Status)">
+                                            @sale.Status
+                                        </span>
+                                    </td>
+
+                                    <td>
+                                        <span class="status-badge @GetPaymentStatusClass(sale.PaymentStatus)">
+                                            @sale.PaymentStatus
+                                        </span>
+                                    </td>
+
+                                    <td>
+                                        <span class="status-badge @GetSyncStatusClass(sale.SyncStatus)">
+                                            @GetSyncStatusLabel(sale.SyncStatus)
+                                        </span>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
             }
         </div>
 
-        @* Summary Row *@
         <div class="totals-row">
             <div class="total-item">
-                <span class="total-label">Total Sales</span>
+                <span class="total-label">Total sales</span>
                 <strong class="total-value primary">@totalCount</strong>
             </div>
+
             <div class="total-item">
-                <span class="total-label">Revenue (page)</span>
-                <strong class="total-value primary">€@(sales?.Sum(s => s.TotalAmount).ToString("F2") ?? "0.00")</strong>
+                <span class="total-label">Revenue on page</span>
+                <strong class="total-value primary">
+                    €@PageRevenue.ToString("F2")
+                </strong>
             </div>
+
+            <div class="total-item">
+                <span class="total-label">Pending sync on page</span>
+                <strong class="total-value primary">
+                    @PendingSyncOnPage
+                </strong>
+            </div>
+
             <div class="total-item">
                 <span class="total-label">Page</span>
-                <strong class="total-value primary">@currentPage / @(TotalPages == 0 ? 1 : TotalPages)</strong>
+                <strong class="total-value primary">
+                    @currentPage / @DisplayedTotalPages
+                </strong>
             </div>
         </div>
-
-        @* Pagination *@
-        @*  <div class="actions-footer">
-            <button class="btn btn-secondary"
-                    disabled="@(currentPage <= 1 || isLoadingData)"
-                    @onclick="PreviousPage">
-                ‹ Prev
-            </button>
-            <span style="line-height:36px; color:var(--muted);">
-                Page @currentPage of @(TotalPages == 0 ? 1 : TotalPages)
-            </span>
-            <button class="btn btn-secondary"
-                    disabled="@(currentPage >= TotalPages || isLoadingData)"
-                    @onclick="NextPage">
-                Next ›
-            </button>
-        </div> *@
-
-
     </div>
 
-    @* ── RIGHT COLUMN: Filters ── *@
     <div class="sale-right">
-        @* Date Range Filter *@
+
         <div class="card search-section">
-            <label style="font-weight:600; display:block; margin-bottom:0.5rem;">📅 Date Range</label>
-            <div style="display:flex; flex-direction:column; gap:0.5rem;">
+            <label class="filter-title">📅 Date range</label>
+
+            <div class="filter-column">
                 <div>
-                    <label class="muted" style="font-size:12px;">From</label>
+                    <label class="muted filter-label">From</label>
                     <input type="date"
                            class="search-input"
                            @bind="dateFrom"
                            style="width:100%;" />
                 </div>
+
                 <div>
-                    <label class="muted" style="font-size:12px;">To</label>
+                    <label class="muted filter-label">To</label>
                     <input type="date"
                            class="search-input"
                            @bind="dateTo"
                            style="width:100%;" />
                 </div>
-                <div style="display:flex; gap:0.4rem; flex-wrap:wrap;">
-                    <button class="btn btn-secondary" style="flex:1; font-size:12px;" @onclick="SetToday">Today</button>
-                    <button class="btn btn-secondary" style="flex:1; font-size:12px;" @onclick="SetThisWeek">This week</button>
-                    <button class="btn btn-secondary" style="flex:1; font-size:12px;" @onclick="SetThisMonth">This month</button>
+
+                <div class="quick-filter-row">
+                    <button class="btn btn-secondary"
+                            @onclick="SetToday">
+                        Today
+                    </button>
+
+                    <button class="btn btn-secondary"
+                            @onclick="SetThisWeek">
+                        This week
+                    </button>
+
+                    <button class="btn btn-secondary"
+                            @onclick="SetThisMonth">
+                        This month
+                    </button>
                 </div>
             </div>
         </div>
 
-        @* Customer Filter *@
         <div class="card search-section">
-            <label style="font-weight:600; display:block; margin-bottom:0.5rem;">👤 Customer</label>
+            <label class="filter-title">👤 Customer</label>
 
-            @* Quick filters *@
-            <div style="display:flex; gap:0.4rem; margin-bottom:0.5rem;">
+            <div class="quick-filter-row customer-filter-row">
                 <button class="btn @(customerFilter == CustomerFilter.All ? "btn-primary" : "btn-secondary")"
-                        style="flex:1; font-size:12px;"
                         @onclick="() => SetCustomerFilter(CustomerFilter.All)">
                     All
                 </button>
+
                 <button class="btn @(customerFilter == CustomerFilter.WalkIn ? "btn-primary" : "btn-secondary")"
-                        style="flex:1; font-size:12px;"
                         @onclick="() => SetCustomerFilter(CustomerFilter.WalkIn)">
                     Walk-in
                 </button>
+
                 <button class="btn @(customerFilter == CustomerFilter.WithCustomer ? "btn-primary" : "btn-secondary")"
-                        style="flex:1; font-size:12px;"
                         @onclick="() => SetCustomerFilter(CustomerFilter.WithCustomer)">
                     Customers
                 </button>
             </div>
 
-            @* Specific customer search *@
             @if (customerFilter == CustomerFilter.WithCustomer)
             {
-                <div class="search-box" style="margin-bottom:0.5rem;">
+                <div class="search-box customer-search-box">
                     <input type="text"
                            class="search-input"
-                           placeholder="Search customer..."
+                           placeholder="Search a local customer..."
                            @bind="customerSearchTerm"
                            @bind:event="oninput"
                            @onkeyup="OnCustomerKeyUp" />
+
                     <span class="search-icon">🔍</span>
                 </div>
-                <button class="btn btn-secondary" style="width:100%; margin-bottom:0.5rem;" @onclick="SearchCustomers" disabled="@isSearchingCustomer">
-                    @(isSearchingCustomer ? "Searching..." : "Find Customer")
+
+                <button class="btn btn-secondary full-width"
+                        @onclick="SearchCustomersAsync"
+                        disabled="@isSearchingCustomer">
+                    @(isSearchingCustomer
+                        ? "Searching SQLite..."
+                        : "Find local customer")
                 </button>
 
                 @if (customerResults != null)
                 {
-                    <ul class="product-list" style="max-height:160px; overflow-y:auto;">
-                        @foreach (var c in customerResults)
+                    <ul class="product-list local-customer-list">
+                        @foreach (var customer in customerResults)
                         {
-                            <li class="product-item @(selectedCustomer?.Id == c.Id ? "selected-customer" : "")"
-                                @onclick="() => SelectCustomer(c)"
-                                style="padding:0.4rem 0.5rem;">
-                                <strong style="font-size:13px;">@c.Name</strong>
-                                @if (!string.IsNullOrEmpty(c.Phone))
+                            <li class="product-item @(selectedCustomer?.LocalId == customer.LocalId ? "selected-customer" : "")"
+                                @onclick="() => SelectCustomer(customer)">
+                                <strong>@customer.Name</strong>
+
+                                @if (!string.IsNullOrWhiteSpace(customer.Phone))
                                 {
-                                    <span class="muted" style="font-size:11px;">@c.Phone</span>
+                                    <span class="muted">
+                                        @customer.Phone
+                                    </span>
                                 }
                             </li>
                         }
@@ -229,315 +306,678 @@
 
                 @if (selectedCustomer != null)
                 {
-                    <div style="margin-top:0.5rem; padding:0.4rem 0.6rem; background:var(--bg-secondary, #f0f4f8); border-radius:6px; display:flex; justify-content:space-between; align-items:center;">
-                        <span style="font-size:13px; font-weight:600;">@selectedCustomer.Name</span>
-                        <button class="btn btn-secondary" style="padding:2px 8px; font-size:11px;" @onclick="ClearSelectedCustomer">×</button>
+                    <div class="selected-local-customer">
+                        <span>@selectedCustomer.Name</span>
+
+                        <button class="btn btn-secondary compact-button"
+                                @onclick="ClearSelectedCustomer">
+                            ×
+                        </button>
                     </div>
                 }
             }
         </div>
 
-        @* Search and Reset *@
         <div class="card search-section">
             <div>
-                <strong class="title">Sales History</strong>
+                <strong class="title">Sales history</strong>
                 <span class="muted">@totalCount result(s)</span>
             </div>
-            <div style="display:flex; gap:0.5rem; align-items:center;">
-                @if (isFiltered)
+
+            <div class="filter-actions">
+                @if (IsFiltered)
                 {
-                    <span class="stock-indicator low">Filtered</span>
+                    <span class="stock-indicator low">
+                        Filtered
+                    </span>
                 }
-                <button class="btn btn-secondary" @onclick="ResetFilters" disabled="@isLoadingData">
+
+                <button class="btn btn-secondary"
+                        @onclick="ResetFiltersAsync"
+                        disabled="@isLoadingData">
                     Reset
                 </button>
-                <button class="btn btn-primary" @onclick="ApplyFilters" disabled="@isLoadingData">
-                    @(isLoadingData ? "Loading..." : "Search")
+
+                <button class="btn btn-primary"
+                        @onclick="ApplyFiltersAsync"
+                        disabled="@isLoadingData">
+                    @(isLoadingData ? "Loading..." : "Search SQLite")
                 </button>
             </div>
         </div>
-        @* Payment Status Filter *@
+
         <div class="card search-section">
-            <label style="font-weight:600; display:block; margin-bottom:0.5rem;">💳 Payment Status</label>
-            <div style="display:flex; flex-direction:column; gap:0.4rem;">
+            <label class="filter-title">💳 Payment status</label>
+
+            <div class="filter-column">
                 @foreach (var option in paymentStatusOptions)
                 {
-                    <label style="display:flex; align-items:center; gap:0.5rem; cursor:pointer; font-size:13px;">
+                    <label class="checkbox-label">
                         <input type="checkbox"
                                checked="@selectedPaymentStatuses.Contains(option)"
-                               @onchange="e => TogglePaymentStatus(option, (bool)e.Value!)" />
-                        <span class="status-badge @GetPaymentStatusClass(option)">@option</span>
+                               @onchange="eventArgs => TogglePaymentStatus(option, eventArgs)" />
+
+                        <span class="status-badge @GetPaymentStatusClass(option)">
+                            @option
+                        </span>
                     </label>
                 }
             </div>
         </div>
 
-        @* Sale Status Filter *@
         <div class="card search-section">
-            <label style="font-weight:600; display:block; margin-bottom:0.5rem;">📋 Sale Status</label>
-            <div style="display:flex; flex-direction:column; gap:0.4rem;">
+            <label class="filter-title">📋 Sale status</label>
+
+            <div class="filter-column">
                 @foreach (var option in saleStatusOptions)
                 {
-                    <label style="display:flex; align-items:center; gap:0.5rem; cursor:pointer; font-size:13px;">
+                    <label class="checkbox-label">
                         <input type="checkbox"
                                checked="@selectedSaleStatuses.Contains(option)"
-                               @onchange="e => ToggleSaleStatus(option, (bool)e.Value!)" />
-                        <span class="status-badge @GetSaleStatusClass(option)">@option</span>
+                               @onchange="eventArgs => ToggleSaleStatus(option, eventArgs)" />
+
+                        <span class="status-badge @GetSaleStatusClass(option)">
+                            @option
+                        </span>
                     </label>
                 }
             </div>
         </div>
 
-        @* Invoice Search *@
         <div class="card search-section">
-            <label style="font-weight:600; display:block; margin-bottom:0.5rem;">🔎 Invoice Number</label>
+            <label class="filter-title">🔎 Invoice number</label>
+
             <div class="search-box">
                 <input type="text"
                        class="search-input"
-                       placeholder="Search invoice..."
+                       placeholder="Local or server invoice..."
                        @bind="invoiceSearch"
                        @bind:event="oninput"
                        @onkeyup="OnInvoiceKeyUp" />
+
                 <span class="search-icon">🔍</span>
             </div>
         </div>
-
     </div>
 </div>
 
 @code {
-    // ── State ──────────────────────────────────────────────────────────────────
     private string? errorMessage;
+    private string? infoMessage;
+
     private bool isLoadingData;
     private bool isSearchingCustomer;
 
-    // ── Results ────────────────────────────────────────────────────────────────
-    private List<SaleResult>? sales;
-    private int currentPage = 1;
-    private int pageSize = 25;
-    private int totalCount;
-    private int TotalPages => (int)Math.Ceiling((double)totalCount / pageSize);
-    private bool isFiltered => dateFrom.HasValue || dateTo.HasValue
-        || customerFilter != CustomerFilter.All
-        || selectedPaymentStatuses.Any()
-        || selectedSaleStatuses.Any()
-        || !string.IsNullOrWhiteSpace(invoiceSearch);
+    private List<LocalSalesHistoryItemResult> sales = new();
 
-    // ── Date filters ───────────────────────────────────────────────────────────
+    private int currentPage = 1;
+    private const int PageSize = 25;
+    private int totalCount;
+
     private DateTime? dateFrom;
     private DateTime? dateTo;
 
-    // ── Customer filter ────────────────────────────────────────────────────────
-    private CustomerFilter customerFilter = CustomerFilter.All;
-    private string customerSearchTerm = string.Empty;
-    private List<CustomerResult>? customerResults;
-    private CustomerResult? selectedCustomer;
+    private CustomerFilter customerFilter =
+        CustomerFilter.All;
 
-    // ── Status filters ─────────────────────────────────────────────────────────
-    private readonly List<string> paymentStatusOptions = new() { "Paid", "Pending", "PartiallyPaid", "Refunded", "Cancelled" };
-    private readonly List<string> saleStatusOptions = new() { "Completed", "Pending", "Cancelled" };
-    private HashSet<string> selectedPaymentStatuses = new();
-    private HashSet<string> selectedSaleStatuses = new();
+    private string customerSearchTerm =
+        string.Empty;
 
-    // ── Invoice search ─────────────────────────────────────────────────────────
-    private string invoiceSearch = string.Empty;
+    private List<LocalSalesHistoryCustomerResult>? customerResults;
 
-    // ── Lifecycle ──────────────────────────────────────────────────────────────
+    private LocalSalesHistoryCustomerResult? selectedCustomer;
+
+    private readonly List<string> paymentStatusOptions =
+        new()
+        {
+            "Paid",
+            "Partial",
+            "Unpaid",
+            "Refunded",
+            "Cancelled"
+        };
+
+    private readonly List<string> saleStatusOptions =
+        new()
+        {
+            "Completed",
+            "Pending",
+            "Cancelled"
+        };
+
+    private readonly HashSet<string> selectedPaymentStatuses =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    private readonly HashSet<string> selectedSaleStatuses =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    private string invoiceSearch =
+        string.Empty;
+
+    private int TotalPages =>
+        totalCount == 0
+            ? 0
+            : (int)Math.Ceiling(
+                (double)totalCount /
+                PageSize);
+
+    private int DisplayedTotalPages =>
+        Math.Max(
+            1,
+            TotalPages);
+
+    private decimal PageRevenue =>
+        sales.Sum(sale =>
+            sale.TotalAmount);
+
+    private int PendingSyncOnPage =>
+        sales.Count(sale =>
+            !string.Equals(
+                sale.SyncStatus,
+                SyncQueueStatus.Done,
+                StringComparison.OrdinalIgnoreCase));
+
+    private bool IsFiltered =>
+        dateFrom.HasValue ||
+        dateTo.HasValue ||
+        customerFilter != CustomerFilter.All ||
+        selectedPaymentStatuses.Count > 0 ||
+        selectedSaleStatuses.Count > 0 ||
+        !string.IsNullOrWhiteSpace(invoiceSearch);
+
     protected override async Task OnInitializedAsync()
     {
         SetThisMonth();
-        await LoadSales();
+
+        await LoadSalesAsync();
     }
 
-    // ── Date shortcuts ─────────────────────────────────────────────────────────
     private void SetToday()
     {
-        dateFrom = DateTime.Today;
-        dateTo = DateTime.Today;
+        dateFrom =
+            DateTime.Today;
+
+        dateTo =
+            DateTime.Today;
     }
 
     private void SetThisWeek()
     {
-        var today = DateTime.Today;
-        dateFrom = today.AddDays(-(int)today.DayOfWeek);
-        dateTo = today;
+        var today =
+            DateTime.Today;
+
+        var daysSinceMonday =
+            ((int)today.DayOfWeek + 6) % 7;
+
+        dateFrom =
+            today.AddDays(
+                -daysSinceMonday);
+
+        dateTo =
+            today;
     }
 
     private void SetThisMonth()
     {
-        var today = DateTime.Today;
-        dateFrom = new DateTime(today.Year, today.Month, 1);
-        dateTo = today;
+        var today =
+            DateTime.Today;
+
+        dateFrom =
+            new DateTime(
+                today.Year,
+                today.Month,
+                1);
+
+        dateTo =
+            today;
     }
 
-    // ── Customer filter ────────────────────────────────────────────────────────
-    private void SetCustomerFilter(CustomerFilter filter)
+    private void SetCustomerFilter(
+        CustomerFilter filter)
     {
-        customerFilter = filter;
-        selectedCustomer = null;
-        customerResults = null;
-        customerSearchTerm = string.Empty;
+        customerFilter =
+            filter;
+
+        selectedCustomer =
+            null;
+
+        customerResults =
+            null;
+
+        customerSearchTerm =
+            string.Empty;
     }
 
-    private async Task OnCustomerKeyUp(KeyboardEventArgs e)
+    private async Task OnCustomerKeyUp(
+        KeyboardEventArgs eventArgs)
     {
-        if (e.Key == "Enter") await SearchCustomers();
+        if (string.Equals(
+                eventArgs.Key,
+                "Enter",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            await SearchCustomersAsync();
+        }
     }
 
-    private async Task SearchCustomers()
+    private async Task SearchCustomersAsync()
     {
-        if (string.IsNullOrWhiteSpace(customerSearchTerm)) return;
+        isSearchingCustomer =
+            true;
 
-        isSearchingCustomer = true;
+        errorMessage =
+            null;
+
         try
         {
-            var response = await CustomerApi.Search(new CustomerQuery
-            {
-                Search = customerSearchTerm.Trim(),
-                Page = 1,
-                PageSize = 20
-            });
-            customerResults = response.Items?.ToList();
+            customerResults =
+                (await LocalHistory
+                    .SearchCustomersAsync(
+                        customerSearchTerm,
+                        maximumResults: 20))
+                    .ToList();
         }
-        catch (Exception ex)
+        catch (Exception exception)
         {
-            errorMessage = $"Error searching customers: {ex.Message}";
+            errorMessage =
+                $"Error searching local customers: " +
+                $"{exception.GetBaseException().Message}";
+
+            Logger.LogError(
+                exception,
+                "Error searching customers in local SQLite.");
         }
         finally
         {
-            isSearchingCustomer = false;
+            isSearchingCustomer =
+                false;
         }
     }
 
-    private void SelectCustomer(CustomerResult customer)
+    private void SelectCustomer(
+        LocalSalesHistoryCustomerResult customer)
     {
-        selectedCustomer = customer;
-        customerResults = null;
+        selectedCustomer =
+            customer;
+
+        customerResults =
+            null;
     }
 
     private void ClearSelectedCustomer()
     {
-        selectedCustomer = null;
-        customerSearchTerm = string.Empty;
+        selectedCustomer =
+            null;
+
+        customerSearchTerm =
+            string.Empty;
     }
 
-    // ── Status toggles ─────────────────────────────────────────────────────────
-    private void TogglePaymentStatus(string status, bool isChecked)
+    private void TogglePaymentStatus(
+        string status,
+        ChangeEventArgs eventArgs)
     {
-        if (isChecked) selectedPaymentStatuses.Add(status);
-        else selectedPaymentStatuses.Remove(status);
+        ToggleStatus(
+            selectedPaymentStatuses,
+            status,
+            ReadCheckedValue(eventArgs));
     }
 
-    private void ToggleSaleStatus(string status, bool isChecked)
+    private void ToggleSaleStatus(
+        string status,
+        ChangeEventArgs eventArgs)
     {
-        if (isChecked) selectedSaleStatuses.Add(status);
-        else selectedSaleStatuses.Remove(status);
+        ToggleStatus(
+            selectedSaleStatuses,
+            status,
+            ReadCheckedValue(eventArgs));
     }
 
-    // ── Invoice search ─────────────────────────────────────────────────────────
-    private async Task OnInvoiceKeyUp(KeyboardEventArgs e)
+    private static void ToggleStatus(
+        HashSet<string> values,
+        string value,
+        bool isChecked)
     {
-        if (e.Key == "Enter") await ApplyFilters();
+        if (isChecked)
+        {
+            values.Add(value);
+        }
+        else
+        {
+            values.Remove(value);
+        }
     }
 
-    // ── Apply / Reset ──────────────────────────────────────────────────────────
-    private async Task ApplyFilters()
+    private static bool ReadCheckedValue(
+        ChangeEventArgs eventArgs)
     {
-        currentPage = 1;
-        await LoadSales();
+        return eventArgs.Value switch
+        {
+            bool booleanValue =>
+                booleanValue,
+
+            string stringValue =>
+                bool.TryParse(
+                    stringValue,
+                    out var parsed) &&
+                parsed,
+
+            _ =>
+                false
+        };
     }
 
-    private async Task ResetFilters()
+    private async Task OnInvoiceKeyUp(
+        KeyboardEventArgs eventArgs)
     {
-        dateFrom = null;
-        dateTo = null;
-        customerFilter = CustomerFilter.All;
-        selectedCustomer = null;
-        customerResults = null;
-        customerSearchTerm = string.Empty;
+        if (string.Equals(
+                eventArgs.Key,
+                "Enter",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            await ApplyFiltersAsync();
+        }
+    }
+
+    private async Task ApplyFiltersAsync()
+    {
+        currentPage =
+            1;
+
+        await LoadSalesAsync();
+    }
+
+    private async Task ResetFiltersAsync()
+    {
+        dateFrom =
+            null;
+
+        dateTo =
+            null;
+
+        customerFilter =
+            CustomerFilter.All;
+
+        selectedCustomer =
+            null;
+
+        customerResults =
+            null;
+
+        customerSearchTerm =
+            string.Empty;
+
         selectedPaymentStatuses.Clear();
         selectedSaleStatuses.Clear();
-        invoiceSearch = string.Empty;
-        currentPage = 1;
-        await LoadSales();
+
+        invoiceSearch =
+            string.Empty;
+
+        currentPage =
+            1;
+
+        await LoadSalesAsync();
     }
 
-    // ── Load Sales ─────────────────────────────────────────────────────────────
-    private async Task LoadSales()
+    private async Task ReloadAsync()
     {
-        isLoadingData = true;
-        errorMessage = null;
+        infoMessage =
+            "Local SQLite data refreshed.";
+
+        await LoadSalesAsync();
+    }
+
+    private async Task LoadSalesAsync()
+    {
+        isLoadingData =
+            true;
+
+        errorMessage =
+            null;
 
         try
         {
-            var query = new SaleHistoryQuery
+            var result =
+                await LocalHistory.SearchAsync(
+                    new LocalSalesHistoryQuery
+                    {
+                        Page =
+                            currentPage,
+
+                        PageSize =
+                            PageSize,
+
+                        DateFromUtc =
+                            ToUtcStart(
+                                dateFrom),
+
+                        DateToExclusiveUtc =
+                            ToUtcExclusiveEnd(
+                                dateTo),
+
+                        InvoiceSearch =
+                            string.IsNullOrWhiteSpace(
+                                invoiceSearch)
+                                ? null
+                                : invoiceSearch.Trim(),
+
+                        CustomerLocalId =
+                            customerFilter ==
+                            CustomerFilter.WithCustomer
+                                ? selectedCustomer?.LocalId
+                                : null,
+
+                        WalkInOnly =
+                            customerFilter ==
+                            CustomerFilter.WalkIn,
+
+                        PaymentStatuses =
+                            selectedPaymentStatuses.Count == 0
+                                ? null
+                                : selectedPaymentStatuses.ToList(),
+
+                        SaleStatuses =
+                            selectedSaleStatuses.Count == 0
+                                ? null
+                                : selectedSaleStatuses.ToList()
+                    });
+
+            sales =
+                result.Items.ToList();
+
+            totalCount =
+                result.TotalCount;
+
+            if (TotalPages > 0 &&
+                currentPage > TotalPages)
             {
-                Page = currentPage,
-                PageSize = pageSize,
-                DateFrom = dateFrom,
-                DateTo = dateTo.HasValue ? dateTo.Value.AddDays(1).AddSeconds(-1) : null,
-                Search = string.IsNullOrWhiteSpace(invoiceSearch) ? null : invoiceSearch.Trim(),
+                currentPage =
+                    TotalPages;
 
-                // Customer filter
-                CustomerId = customerFilter == CustomerFilter.WithCustomer
-                    ? selectedCustomer?.Id
-                    : null,
-                WalkInOnly = customerFilter == CustomerFilter.WalkIn,
+                await LoadSalesAsync();
 
-                // Status filters
-                PaymentStatuses = selectedPaymentStatuses.Any()
-                    ? selectedPaymentStatuses.ToList()
-                    : null,
-                SaleStatuses = selectedSaleStatuses.Any()
-                    ? selectedSaleStatuses.ToList()
-                    : null,
-            };
-
-            var response = await SaleApi.GetHistory(query);
-            sales = response.Items?.ToList();
-            totalCount = response.TotalCount;
+                return;
+            }
         }
-        catch (Exception ex)
+        catch (Exception exception)
         {
-            errorMessage = $"Error loading sales: {ex.Message}";
-            Logger.LogError(ex, "Error loading sales history");
+            sales.Clear();
+
+            totalCount =
+                0;
+
+            errorMessage =
+                $"Error loading local sales: " +
+                $"{exception.GetBaseException().Message}";
+
+            Logger.LogError(
+                exception,
+                "Error loading sales history from SQLite.");
         }
         finally
         {
-            isLoadingData = false;
+            isLoadingData =
+                false;
         }
     }
 
-    // ── Pagination ─────────────────────────────────────────────────────────────
-    private async Task PreviousPage()
+    private async Task PreviousPageAsync()
     {
-        if (currentPage > 1) { currentPage--; await LoadSales(); }
+        if (currentPage <= 1 ||
+            isLoadingData)
+        {
+            return;
+        }
+
+        currentPage--;
+
+        await LoadSalesAsync();
     }
 
-    private async Task NextPage()
+    private async Task NextPageAsync()
     {
-        if (currentPage < TotalPages) { currentPage++; await LoadSales(); }
+        if (currentPage >= TotalPages ||
+            isLoadingData)
+        {
+            return;
+        }
+
+        currentPage++;
+
+        await LoadSalesAsync();
     }
 
-    // ── Helpers ────────────────────────────────────────────────────────────────
-    private string GetPaymentStatusClass(string? status) => status?.ToLower() switch
+    private static DateTime? ToUtcStart(
+        DateTime? localDate)
     {
-        "paid" => "status-paid",
-        "pending" => "status-pending",
-        "partiallyp aid" or "partiallypaid" => "status-partial",
-        "refunded" => "status-refunded",
-        "cancelled" => "status-cancelled",
-        _ => ""
-    };
+        if (!localDate.HasValue)
+        {
+            return null;
+        }
 
-    private string GetSaleStatusClass(string? status) => status?.ToLower() switch
+        var localStart =
+            DateTime.SpecifyKind(
+                localDate.Value.Date,
+                DateTimeKind.Local);
+
+        return localStart.ToUniversalTime();
+    }
+
+    private static DateTime? ToUtcExclusiveEnd(
+        DateTime? localDate)
     {
-        "completed" => "status-paid",
-        "pending" => "status-pending",
-        "cancelled" => "status-cancelled",
-        _ => ""
-    };
+        if (!localDate.HasValue)
+        {
+            return null;
+        }
 
-    // ── Enums ──────────────────────────────────────────────────────────────────
-    private enum CustomerFilter { All, WalkIn, WithCustomer }
+        var localExclusiveEnd =
+            DateTime.SpecifyKind(
+                localDate.Value.Date.AddDays(1),
+                DateTimeKind.Local);
+
+        return localExclusiveEnd.ToUniversalTime();
+    }
+
+    private static string GetPaymentStatusClass(
+        string? status)
+    {
+        return status?.Trim().ToLowerInvariant() switch
+        {
+            "paid" =>
+                "status-paid",
+
+            "partial" or
+            "partiallypaid" or
+            "partially paid" =>
+                "status-partial",
+
+            "unpaid" or
+            "pending" =>
+                "status-pending",
+
+            "refunded" =>
+                "status-refunded",
+
+            "cancelled" or
+            "canceled" =>
+                "status-cancelled",
+
+            _ =>
+                string.Empty
+        };
+    }
+
+    private static string GetSaleStatusClass(
+        string? status)
+    {
+        return status?.Trim().ToLowerInvariant() switch
+        {
+            "completed" =>
+                "status-paid",
+
+            "pending" =>
+                "status-pending",
+
+            "cancelled" or
+            "canceled" =>
+                "status-cancelled",
+
+            _ =>
+                string.Empty
+        };
+    }
+
+    private static string GetSyncStatusClass(
+        string? status)
+    {
+        return status?.Trim().ToLowerInvariant() switch
+        {
+            "done" =>
+                "status-paid",
+
+            "pending" or
+            "processing" =>
+                "status-pending",
+
+            "conflict" or
+            "failed" =>
+                "status-cancelled",
+
+            _ =>
+                "status-partial"
+        };
+    }
+
+    private static string GetSyncStatusLabel(
+        string? status)
+    {
+        return status?.Trim().ToLowerInvariant() switch
+        {
+            "done" =>
+                "Synced",
+
+            "processing" =>
+                "Syncing",
+
+            "pending" =>
+                "Pending",
+
+            "conflict" =>
+                "Conflict",
+
+            "failed" =>
+                "Failed",
+
+            _ =>
+                status ?? "Unknown"
+        };
+    }
+
+    private enum CustomerFilter
+    {
+        All,
+        WalkIn,
+        WithCustomer
+    }
 }

@@ -21,10 +21,12 @@ namespace Inventory.LocalDB.Extensions
 
             services.AddScoped<ILocalDatabaseInitializer, LocalDatabaseInitializer>();
 
+            services.AddScoped<ILocalUserSessionService, LocalUserSessionService>();
             services.AddScoped<ILocalProductService, LocalProductService>();
             services.AddScoped<ILocalCashSessionService, LocalCashSessionService>();
             services.AddScoped<ILocalSaleService, LocalSaleService>();
-
+            services.AddScoped<ILocalCustomerService, LocalCustomerService>();
+            services.AddScoped<ILocalSupplierService, LocalSupplierService>();
             services.AddScoped<ISyncQueueService, SyncQueueService>();
 
             return services;

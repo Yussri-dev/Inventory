@@ -1,64 +1,56 @@
 ﻿using Inventory.Dto.Enums;
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json.Serialization;
 
-namespace Inventory.Dto.Products.Requests
+namespace Inventory.Dto.Products.Requests;
+
+public sealed class UpdateProductRequest
 {
-    public class UpdateProductRequest
-    {
-        [Required]
-        public Guid Id { get; set; }
+    [Range(
+        0,
+        double.MaxValue,
+        ErrorMessage = "Sale price cannot be negative.")]
+    public decimal SalePrice { get; set; }
 
-        public Guid? CatalogProductId { get; set; }
+    [Range(
+        0,
+        double.MaxValue,
+        ErrorMessage = "Sale price 2 cannot be negative.")]
+    public decimal SalePrice2 { get; set; }
 
-        //[Required]
-        //[MaxLength(200)]
-        //public string Name { get; set; } = null!;
+    [Range(
+        0,
+        double.MaxValue,
+        ErrorMessage = "Sale price 3 cannot be negative.")]
+    public decimal SalePrice3 { get; set; }
 
-        //[MaxLength(100)]
-        //public string? Sku { get; set; }
+    [Range(
+        0,
+        double.MaxValue,
+        ErrorMessage = "Purchase price cannot be negative.")]
+    public decimal PurchasePrice { get; set; }
 
-        //[MaxLength(100)]
-        //public string? Barcode { get; set; }
+    [Range(
+        0,
+        100,
+        ErrorMessage = "VAT rate must be between 0 and 100.")]
+    public decimal VatRate { get; set; }
 
-        [MaxLength(1000)]
-        public string? Description { get; set; }
+    [Range(
+        0,
+        double.MaxValue,
+        ErrorMessage = "Minimum stock cannot be negative.")]
+    public decimal MinStockLevel { get; set; }
 
-        [MaxLength(100)]
-        public string? Category { get; set; }
+    [Range(
+        0,
+        double.MaxValue,
+        ErrorMessage = "Maximum stock cannot be negative.")]
+    public decimal MaxStockLevel { get; set; }
 
-        //[MaxLength(100)]
-        //public string? Brand { get; set; }
+    public bool IsTracked { get; set; }
 
-        [Range(0, double.MaxValue)]
-        public decimal SalePrice { get; set; }
-
-        [Range(0, double.MaxValue)]
-        public decimal SalePrice2 { get; set; }
-
-        [Range(0, double.MaxValue)]
-        public decimal SalePrice3 { get; set; }
-
-        [Range(0, double.MaxValue)]
-        public decimal PurchasePrice { get; set; }
-
-        [Range(0, 100)]
-        public decimal VatRate { get; set; }
-
-        [Range(0, double.MaxValue)]
-        public decimal MinStockLevel { get; set; }
-
-        [Range(0, double.MaxValue)]
-        public decimal MaxStockLevel { get; set; }
-
-        //[MaxLength(50)]
-        //public string? Unit { get; set; }
-
-        public ProductStatus IsActive { get; set; }
-
-        public bool IsTracked { get; set; }
-
-        //[MaxLength(500)]
-        ////[Url]
-        //public string? ImageUrl { get; set; }
-    }
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public ProductStatus IsActive { get; set; } =
+        ProductStatus.Active;
 }

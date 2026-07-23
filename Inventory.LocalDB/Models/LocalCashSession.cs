@@ -3,20 +3,25 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Inventory.LocalDB.Models
 {
-    public class LocalCashSession
+    public class LocalCashSession : ILocalTenantEntity
     {
         [Key]
         public Guid Id { get; set; } = Guid.NewGuid();
 
+        public Guid TenantId { get; set; }
+
         public Guid? ServerId { get; set; }
 
-        public Guid ClientOperationId { get; set; } = Guid.NewGuid();
+        public Guid ClientOperationId { get; set; } =
+            Guid.NewGuid();
 
         [Required]
         [MaxLength(100)]
-        public string SessionNumber { get; set; } = string.Empty;
+        public string SessionNumber { get; set; } =
+            string.Empty;
 
-        public DateTime OpenedAtUtc { get; set; } = DateTime.UtcNow;
+        public DateTime OpenedAtUtc { get; set; } =
+            DateTime.UtcNow;
 
         public DateTime? ClosedAtUtc { get; set; }
 
@@ -34,7 +39,8 @@ namespace Inventory.LocalDB.Models
 
         [Required]
         [MaxLength(50)]
-        public string Status { get; set; } = LocalCashSessionStatus.Open;
+        public string Status { get; set; } =
+            LocalCashSessionStatus.Open;
 
         public Guid? OpenedByUserId { get; set; }
 
@@ -47,14 +53,18 @@ namespace Inventory.LocalDB.Models
         public string? ClosingNotes { get; set; }
 
         [MaxLength(50)]
-        public string SyncStatus { get; set; } = SyncQueueStatus.Pending;
+        public string SyncStatus { get; set; } =
+            SyncQueueStatus.Pending;
 
-        public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
+        public DateTime CreatedAtUtc { get; set; } =
+            DateTime.UtcNow;
 
         public DateTime? LastSyncedAtUtc { get; set; }
 
-        public ICollection<LocalSale> Sales { get; set; } = new List<LocalSale>();
+        public ICollection<LocalSale> Sales { get; set; } =
+            new List<LocalSale>();
 
-        public ICollection<LocalCashMovement> CashMovements { get; set; } = new List<LocalCashMovement>();
+        public ICollection<LocalCashMovement> CashMovements { get; set; } =
+            new List<LocalCashMovement>();
     }
 }

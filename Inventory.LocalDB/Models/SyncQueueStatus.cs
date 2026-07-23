@@ -7,5 +7,6 @@
         public const string Done = "Done";
         public const string Failed = "Failed";
         public const string Conflict = "Conflict";
+        public const string Draft = "Draft";
     }
 }

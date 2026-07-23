@@ -3,11 +3,12 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Inventory.LocalDB.Models
 {
-    public class LocalSaleLine
+    public class LocalSaleLine : ILocalTenantEntity
     {
         [Key]
         public Guid Id { get; set; } = Guid.NewGuid();
 
+        public Guid TenantId { get; set; }
         public Guid LocalSaleId { get; set; }
 
         public LocalSale LocalSale { get; set; } = null!;

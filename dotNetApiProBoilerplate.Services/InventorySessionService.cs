@@ -121,25 +121,74 @@ namespace Inventory.Services
         }
 
         // CLOSE
-        public async Task<bool> CloseAsync(Guid id)
+        public async Task<bool> CloseAsync(
+     Guid id,
+     CancellationToken cancellationToken = default)
         {
-            var tenantId = _tenantContext.TenantId;
-            var userId = _tenantContext.UserId;
+            var tenantId =
+                _tenantContext.TenantId;
 
-            var entity = await _repository.GetByIdAsync(id);
+            var userId =
+                _tenantContext.UserId;
 
-            if (entity == null || entity.IsDeleted || entity.TenantId != tenantId)
-                throw new NotFoundException("InventorySession", id);
+            var entity =
+                await _repository.GetByIdAsync(id);
 
-            if (entity.Status != InventoryStatus.InProgress)
-                throw new ConflictException("Inventory session is not open.");
+            if (entity == null ||
+                entity.IsDeleted ||
+                entity.TenantId != tenantId)
+            {
+                throw new NotFoundException(
+                    "InventorySession",
+                    id);
+            }
 
-            entity.Status = InventoryStatus.Completed;
-            entity.ClosedAt = DateTime.UtcNow;
-            entity.ModifiedAt = DateTime.UtcNow;
-            entity.ModifiedByUserId = userId;
+            /*
+             * Idempotence:
+             * la session a déjà été clôturée et le client répète
+             * la requête après une perte de réponse HTTP.
+             */
+            if (entity.Status ==
+                InventoryStatus.Completed)
+            {
+                return true;
+            }
 
-            _repository.Update(entity);
+            /*
+             * Une session validée a forcément déjà passé l'étape
+             * de clôture. Il ne faut pas modifier ses données.
+             */
+            if (entity.Status ==
+                InventoryStatus.Validated)
+            {
+                return true;
+            }
+
+            if (entity.Status !=
+                InventoryStatus.InProgress)
+            {
+                throw new ConflictException(
+                    "Only an inventory session in progress can be closed.");
+            }
+
+            var now =
+                DateTime.UtcNow;
+
+            entity.Status =
+                InventoryStatus.Completed;
+
+            entity.ClosedAt =
+                now;
+
+            entity.ModifiedAt =
+                now;
+
+            entity.ModifiedByUserId =
+                userId;
+
+            _repository.Update(
+                entity);
+
             await _unitOfWork.SaveChangesAsync();
 
             return true;
@@ -147,57 +196,170 @@ namespace Inventory.Services
 
         // VALIDATE 
 
-        public async Task<bool> ValidateAsync(Guid id)
+        public async Task<bool> ValidateAsync(
+    Guid id,
+    CancellationToken cancellationToken = default)
         {
-            var tenantId = _tenantContext.TenantId;
-            var userId = _tenantContext.UserId;
+            var tenantId =
+                _tenantContext.TenantId;
 
-            var session = await _repository.GetByIdAsync(id);
+            var userId =
+                _tenantContext.UserId;
 
-            if (session == null || session.IsDeleted || session.TenantId != tenantId)
+            var session =
+                await _repository.GetByIdAsync(id);
+
+            if (session == null ||
+                session.IsDeleted ||
+                session.TenantId != tenantId)
             {
-                throw new NotFoundException("InventorySession must be closed before validation", id);
+                throw new NotFoundException(
+                    "InventorySession",
+                    id);
             }
 
-            if (session.Status != InventoryStatus.Completed)
+            /*
+             * Idempotence:
+             * the server may have completed the validation while the client
+             * failed to receive the HTTP response.
+             */
+            if (session.Status ==
+                InventoryStatus.Validated)
             {
-                throw new ConflictException("Inventory session must be closed before validation.");
+                return true;
             }
 
-            var lines = await _line.Query()
-                .Where(
-                    l => l.InventorySessionId == id
-                    && !l.IsDeleted
-                    && l.TenantId == tenantId
-                )
-                .ToListAsync();
+            if (session.Status !=
+                InventoryStatus.Completed)
+            {
+                throw new ConflictException(
+                    "Inventory session must be closed before validation.");
+            }
+
+            var lines =
+                await _line.Query()
+                    .Where(line =>
+                        line.InventorySessionId == id &&
+                        line.TenantId == tenantId &&
+                        !line.IsDeleted)
+                    .ToListAsync(
+                        cancellationToken);
+
+            /*
+             * Only retrieve stocks required by lines that still need an
+             * adjustment. This also prevents one database query per line.
+             */
+            var productIds =
+                lines
+                    .Where(line =>
+                        !line.IsAdjusted)
+                    .Select(line =>
+                        line.ProductId)
+                    .Distinct()
+                    .ToList();
+
+            var stocks =
+                productIds.Count == 0
+                    ? new List<Stock>()
+                    : await _stock.Query()
+                        .Where(stock =>
+                            stock.TenantId == tenantId &&
+                            !stock.IsDeleted &&
+                            productIds.Contains(
+                                stock.ProductId))
+                        .ToListAsync(
+                            cancellationToken);
+
+            /*
+             * More than one stock row for the same product and tenant is a
+             * database inconsistency and must not be silently ignored.
+             */
+            var duplicateStock =
+                stocks
+                    .GroupBy(stock =>
+                        stock.ProductId)
+                    .FirstOrDefault(group =>
+                        group.Count() > 1);
+
+            if (duplicateStock != null)
+            {
+                throw new ConflictException(
+                    $"Multiple stock records were found for product " +
+                    $"{duplicateStock.Key}.");
+            }
+
+            var stocksByProduct =
+                stocks.ToDictionary(
+                    stock =>
+                        stock.ProductId);
+
+            /*
+             * Validate all required stock records before changing any entity.
+             */
+            foreach (var line in lines.Where(line => !line.IsAdjusted))
+            {
+                if (!stocksByProduct.ContainsKey(
+                        line.ProductId))
+                {
+                    throw new NotFoundException(
+                        $"Stock record not found for product " +
+                        $"{line.ProductId}.");
+                }
+            }
+
+            var now =
+                DateTime.UtcNow;
 
             foreach (var line in lines)
             {
                 if (line.IsAdjusted)
+                {
                     continue;
+                }
 
-                var stock = await _stock.Query()
-                    .FirstOrDefaultAsync(s =>
-                        s.ProductId == line.ProductId &&
-                        s.TenantId == tenantId);
+                var stock =
+                    stocksByProduct[line.ProductId];
 
-                if (stock == null)
-                    throw new NotFoundException($"Stock record not found for product {line.ProductId}");
+                /*
+                 * Inventory validation defines the new authoritative physical
+                 * quantity. It does not add the variance to the old quantity.
+                 */
+                stock.Quantity =
+                    line.CountedQuantity;
 
-                stock.Quantity = line.CountedQuantity;
-                stock.LastUpdated = DateTime.UtcNow;
-                _stock.Update(stock);
+                stock.LastUpdated =
+                    now;
 
-                line.IsAdjusted = true;
-                line.AdjustedAt = DateTime.UtcNow;
-                _line.Update(line);
+                _stock.Update(
+                    stock);
+
+                line.IsAdjusted =
+                    true;
+
+                line.AdjustedAt =
+                    now;
+
+                _line.Update(
+                    line);
             }
 
-            session.Status = InventoryStatus.Validated;
-            session.ValidatedAt = DateTime.UtcNow;
-            session.ValidatedByUserId = userId;
-            session.ModifiedAt = DateTime.UtcNow;
+            session.Status =
+                InventoryStatus.Validated;
+
+            session.ValidatedAt =
+                now;
+
+            session.ValidatedByUserId =
+                userId;
+
+            session.ModifiedAt =
+                now;
+
+            session.ModifiedByUserId =
+                userId;
+
+            _repository.Update(
+                session);
 
             await _unitOfWork.SaveChangesAsync();
 

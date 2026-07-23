@@ -245,6 +245,9 @@ namespace Inventory.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<Guid>("ClientOperationId")
+                        .HasColumnType("uuid");
+
                     b.Property<DateTime?>("ClosedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -408,6 +411,12 @@ namespace Inventory.Infrastructure.Migrations
                     b.Property<decimal>("BalanceBefore")
                         .HasColumnType("decimal(18,2)");
 
+                    b.Property<Guid?>("CashSessionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ClientOperationId")
+                        .HasColumnType("uuid");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -426,6 +435,9 @@ namespace Inventory.Infrastructure.Migrations
                     b.Property<string>("Description")
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
+
+                    b.Property<bool>("IsCash")
+                        .HasColumnType("boolean");
 
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("boolean");
@@ -452,7 +464,11 @@ namespace Inventory.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("CashSessionId");
+
                     b.HasIndex("CustomerId");
+
+                    b.HasIndex("SaleId");
 
                     b.HasIndex("TenantId");
 
@@ -774,6 +790,9 @@ namespace Inventory.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<Guid>("ClientOperationId")
+                        .HasColumnType("uuid");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -847,7 +866,8 @@ namespace Inventory.Infrastructure.Migrations
 
                     b.HasIndex("SupplierId");
 
-                    b.HasIndex("TenantId");
+                    b.HasIndex("TenantId", "ClientOperationId")
+                        .IsUnique();
 
                     b.ToTable("Purchases");
                 });
@@ -976,6 +996,12 @@ namespace Inventory.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("CashSessionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ClientOperationId")
+                        .HasColumnType("uuid");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -1007,8 +1033,10 @@ namespace Inventory.Infrastructure.Migrations
                         .HasMaxLength(1000)
                         .HasColumnType("character varying(1000)");
 
-                    b.Property<int>("RefundMethod")
-                        .HasColumnType("integer");
+                    b.Property<string>("RefundMethod")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
 
                     b.Property<DateTime>("ReturnDate")
                         .HasColumnType("timestamp with time zone");
@@ -1025,13 +1053,19 @@ namespace Inventory.Infrastructure.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<decimal>("TotalAmount")
+                        .HasPrecision(18, 2)
                         .HasColumnType("decimal(18,2)");
 
                     b.HasKey("Id");
 
+                    b.HasIndex("CashSessionId");
+
                     b.HasIndex("SaleId");
 
-                    b.HasIndex("TenantId");
+                    b.HasIndex("TenantId", "CashSessionId");
+
+                    b.HasIndex("TenantId", "ClientOperationId")
+                        .IsUnique();
 
                     b.ToTable("Returns");
                 });
@@ -1079,6 +1113,9 @@ namespace Inventory.Infrastructure.Migrations
                     b.Property<Guid>("ReturnId")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("SaleLineId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uuid");
 
@@ -1093,6 +1130,8 @@ namespace Inventory.Infrastructure.Migrations
                     b.HasIndex("ProductId");
 
                     b.HasIndex("ReturnId");
+
+                    b.HasIndex("SaleLineId");
 
                     b.HasIndex("TenantId");
 
@@ -1722,9 +1761,6 @@ namespace Inventory.Infrastructure.Migrations
                     b.Property<Guid?>("TenantId")
                         .HasColumnType("uuid");
 
-                    b.Property<Guid?>("TenantId1")
-                        .HasColumnType("uuid");
-
                     b.Property<bool>("TwoFactorEnabled")
                         .HasColumnType("boolean");
 
@@ -1742,8 +1778,6 @@ namespace Inventory.Infrastructure.Migrations
                         .HasDatabaseName("UserNameIndex");
 
                     b.HasIndex("TenantId");
-
-                    b.HasIndex("TenantId1");
 
                     b.ToTable("AspNetUsers", (string)null);
                 });
@@ -3264,11 +3298,19 @@ namespace Inventory.Infrastructure.Migrations
 
             modelBuilder.Entity("Inventory.Domain.Entities.CustomerTransaction", b =>
                 {
+                    b.HasOne("Inventory.Domain.Entities.CashSession", "CashSession")
+                        .WithMany()
+                        .HasForeignKey("CashSessionId");
+
                     b.HasOne("Inventory.Domain.Entities.Customer", "Customer")
                         .WithMany("Transactions")
                         .HasForeignKey("CustomerId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.HasOne("Inventory.Domain.Entities.Sale", "Sale")
+                        .WithMany()
+                        .HasForeignKey("SaleId");
 
                     b.HasOne("Inventory.Domain.Models.Tenant", "Tenant")
                         .WithMany()
@@ -3276,7 +3318,11 @@ namespace Inventory.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.Navigation("CashSession");
+
                     b.Navigation("Customer");
+
+                    b.Navigation("Sale");
 
                     b.Navigation("Tenant");
                 });
@@ -3397,6 +3443,11 @@ namespace Inventory.Infrastructure.Migrations
 
             modelBuilder.Entity("Inventory.Domain.Entities.Return", b =>
                 {
+                    b.HasOne("Inventory.Domain.Entities.CashSession", "CashSession")
+                        .WithMany()
+                        .HasForeignKey("CashSessionId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("Inventory.Domain.Entities.Sale", "Sale")
                         .WithMany("Returns")
                         .HasForeignKey("SaleId")
@@ -3408,6 +3459,8 @@ namespace Inventory.Infrastructure.Migrations
                         .HasForeignKey("TenantId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.Navigation("CashSession");
 
                     b.Navigation("Sale");
 
@@ -3428,6 +3481,10 @@ namespace Inventory.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.HasOne("Inventory.Domain.Entities.SaleLine", "SaleLine")
+                        .WithMany()
+                        .HasForeignKey("SaleLineId");
+
                     b.HasOne("Inventory.Domain.Models.Tenant", "Tenant")
                         .WithMany()
                         .HasForeignKey("TenantId")
@@ -3437,6 +3494,8 @@ namespace Inventory.Infrastructure.Migrations
                     b.Navigation("Product");
 
                     b.Navigation("Return");
+
+                    b.Navigation("SaleLine");
 
                     b.Navigation("Tenant");
                 });
@@ -3594,13 +3653,9 @@ namespace Inventory.Infrastructure.Migrations
             modelBuilder.Entity("Inventory.Domain.Models.ApplicationUser", b =>
                 {
                     b.HasOne("Inventory.Domain.Models.Tenant", "Tenant")
-                        .WithMany()
+                        .WithMany("Users")
                         .HasForeignKey("TenantId")
                         .OnDelete(DeleteBehavior.Restrict);
-
-                    b.HasOne("Inventory.Domain.Models.Tenant", null)
-                        .WithMany("Users")
-                        .HasForeignKey("TenantId1");
 
                     b.Navigation("Tenant");
                 });

@@ -1,30 +1,30 @@
 ﻿@page "/purchases"
+
+@using System.Globalization
+@using Inventory.Dto.Enums
+@using Inventory.Dto.Products.Results
+@using Inventory.Dto.Suppliers.Results
+@using Inventory.LocalDB.Services.Interfaces
+@using Inventory.LocalDB.Services.Requests
 @using Inventory.Ui.Services
 
-@inject IJSRuntime JS
-@inject IPosApi PosApi
-@inject AppState State
-@inject IPurchaseApi PurchaseApi
-@inject ILogger<Purchases> Logger
-@inject NavigationManager Nav
-@inject ICashSessionApi CashSessionApi
-@inject PosBootstrapService Bootstrap
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
 @implements IDisposable
 
-@if (!string.IsNullOrEmpty(UiAlertMessage))
-{
-    <div class="alert @UiAlertType">
-        <span>@UiAlertType</span>
-        <button @onclick="ClearAlert">x</button>
-    </div>
-}
+@inject ILocalPurchaseService LocalPurchaseService
+@inject ILocalProductService LocalProductService
+@inject ILocalSupplierService LocalSupplierService
+@inject AppState State
+@inject ILogger<Purchases> Logger
+@inject NavigationManager Nav
 
 <div class="purchase-container">
 
-    <!-- LEFT COLUMN: Cart & Totals -->
-    <div class="purchase-left" @onclick="() => FocusBarcodeInput()">
+    <!-- LEFT COLUMN: CART AND TOTALS -->
+    <div class="purchase-left"
+         @onclick="FocusBarcodeInput">
 
-        <!-- Header: Purchase Info & Supplier -->
+        <!-- PURCHASE HEADER -->
         <div class="card header-section">
             <div class="purchase-info">
                 <div>
@@ -35,19 +35,26 @@
 
             <div class="supplier-section">
                 <label>Supplier</label>
-                <button class="supplier-select-btn" @onclick="OpenSupplierModal">
+
+                <button type="button"
+                        class="supplier-select-btn"
+                        @onclick="OpenSupplierModal"
+                        @onclick:stopPropagation="true"
+                        disabled="@IsSaving">
                     @(SelectedSupplier?.Name ?? "-- Select supplier --")
                 </button>
             </div>
         </div>
 
-        <!-- Cart Table -->
-        <div class="card cart-table" @onclick="() => FocusBarcodeInput()">
+        <!-- CART TABLE -->
+        <div class="card cart-table">
             @if (Lines.Count == 0)
             {
                 <div class="empty-state">
                     <p>No products added yet</p>
-                    <p class="muted">Scan barcode or search products to add them</p>
+                    <p class="muted">
+                        Scan a barcode or select a local product.
+                    </p>
                 </div>
             }
             else
@@ -57,29 +64,38 @@
                         <tr>
                             <th style="width: 200px;">Quantity</th>
                             <th>Name</th>
-                            <th style="width: 100px;">Price</th>
-                            <th style="width: 100px;">Amount</th>
-                            <th style="width: 100px;">Tax</th>
+                            <th style="width: 110px;">Unit price</th>
+                            <th style="width: 110px;">Excl. VAT</th>
+                            <th style="width: 100px;">VAT</th>
                             <th style="width: 80px;">Rate</th>
                         </tr>
                     </thead>
+
                     <tbody>
                         @foreach (var line in Lines)
                         {
-                            <tr class="@(line == SelectedLine ? "selected" : "")"
+                            <tr class="@(line == SelectedLine ? "selected" : string.Empty)"
                                 @onclick="() => OnLineClicked(line)">
 
                                 <td>
                                     <div class="qty-controls">
-                                        <button class="qty-btn"
+                                        <button type="button"
+                                                class="qty-btn"
                                                 @onclick="() => Decrement(line)"
-                                                @onclick:stopPropagation="true">
+                                                @onclick:stopPropagation="true"
+                                                disabled="@IsSaving">
                                             −
                                         </button>
-                                        <span class="qty-value">@line.Quantity</span>
-                                        <button class="qty-btn"
+
+                                        <span class="qty-value">
+                                            @FormatQuantity(line.Quantity)
+                                        </span>
+
+                                        <button type="button"
+                                                class="qty-btn"
                                                 @onclick="() => Increment(line)"
-                                                @onclick:stopPropagation="true">
+                                                @onclick:stopPropagation="true"
+                                                disabled="@IsSaving">
                                             +
                                         </button>
                                     </div>
@@ -92,7 +108,7 @@
                                 </td>
 
                                 <td class="text-right">
-                                    €@line.Amount.ToString("F2")
+                                    €@line.AmountExclVat.ToString("F2")
                                 </td>
 
                                 <td class="text-right">
@@ -100,18 +116,20 @@
                                 </td>
 
                                 <td class="text-right">
-                                    @(line.TaxRate)%
+                                    @line.TaxRate.ToString("0.##")%
                                 </td>
                             </tr>
 
                             @if (line.IsExpanded)
                             {
-                                @foreach (var adj in line.Adjustments)
+                                @foreach (var adjustment in line.Adjustments)
                                 {
                                     <tr class="sub-line">
                                         <td></td>
                                         <td colspan="5">
-                                            <span class="adjustment">@adj.Display</span>
+                                            <span class="adjustment">
+                                                @adjustment.Display
+                                            </span>
                                         </td>
                                     </tr>
                                 }
@@ -119,17 +137,36 @@
                                 <tr class="sub-actions">
                                     <td></td>
                                     <td colspan="5">
-                                        <button class="btn small"
-                                                @onclick="() => AddPriceOverride(line)">
+                                        <button type="button"
+                                                class="btn small"
+                                                @onclick="() => AddPriceOverride(line)"
+                                                @onclick:stopPropagation="true"
+                                                disabled="@IsSaving">
                                             Change price
                                         </button>
-                                        <button class="btn small"
-                                                @onclick="() => AddDiscountPercent(line)">
+
+                                        <button type="button"
+                                                class="btn small"
+                                                @onclick="() => AddDiscountPercent(line)"
+                                                @onclick:stopPropagation="true"
+                                                disabled="@IsSaving">
                                             Discount %
                                         </button>
-                                        <button class="btn small"
-                                                @onclick="() => AddDiscountAmount(line)">
+
+                                        <button type="button"
+                                                class="btn small"
+                                                @onclick="() => AddDiscountAmount(line)"
+                                                @onclick:stopPropagation="true"
+                                                disabled="@IsSaving">
                                             Discount €
+                                        </button>
+
+                                        <button type="button"
+                                                class="btn small"
+                                                @onclick="() => ClearAdjustments(line)"
+                                                @onclick:stopPropagation="true"
+                                                disabled="@(IsSaving || line.Adjustments.Count == 0)">
+                                            Clear adjustments
                                         </button>
                                     </td>
                                 </tr>
@@ -140,42 +177,78 @@
             }
         </div>
 
-        <!-- Totals Row -->
+        <!-- TOTALS -->
         <div class="totals-row">
             <div class="total-item">
-                <span class="total-label">Total Qty</span>
-                <strong class="total-value primary">@TotalQuantity</strong>
+                <span class="total-label">Total quantity</span>
+                <strong class="total-value primary">
+                    @FormatQuantity(TotalQuantity)
+                </strong>
             </div>
+
             <div class="total-item">
-                <span class="total-label">Number of Lines</span>
-                <strong class="total-value primary">@Lines.Count</strong>
+                <span class="total-label">Number of lines</span>
+                <strong class="total-value primary">
+                    @Lines.Count
+                </strong>
             </div>
+
             <div class="total-item">
-                <span class="total-label">Total</span>
-                <strong class="total-value primary">€@TotalAmount.ToString("F2")</strong>
+                <span class="total-label">Total incl. VAT</span>
+                <strong class="total-value primary">
+                    €@TotalAmountInclVat.ToString("F2")
+                </strong>
             </div>
         </div>
 
-        <!-- Action Buttons -->
+        <!-- ACTIONS -->
         <div class="actions-footer">
             <div class="tax-info">
-                <strong>Taxes: €@TotalTax.ToString("F2")</strong>
+                <strong>
+                    Excl. VAT: €@TotalAmountExclVat.ToString("F2")
+                    &nbsp;|&nbsp;
+                    VAT: €@TotalTax.ToString("F2")
+                </strong>
             </div>
-            <button class="btn btn-secondary" @onclick="Reset">Reset</button>
-            <button class="btn btn-secondary" @onclick="RemoveSelected" disabled="@(SelectedLine == null)">
+
+            <button type="button"
+                    class="btn btn-secondary"
+                    @onclick="Reset"
+                    @onclick:stopPropagation="true"
+                    disabled="@(IsSaving || Lines.Count == 0)">
+                Reset
+            </button>
+
+            <button type="button"
+                    class="btn btn-secondary"
+                    @onclick="RemoveSelected"
+                    @onclick:stopPropagation="true"
+                    disabled="@(IsSaving || SelectedLine == null)">
                 Delete
             </button>
-            <button class="btn btn-primary" @onclick="SavePurchase" disabled="@IsSaving">
-                @(IsSaving ? "Saving..." : "Add")
+
+            <button type="button"
+                    class="btn btn-primary"
+                    @onclick="SavePurchase"
+                    @onclick:stopPropagation="true"
+                    disabled="@(!CanSave)">
+                @(IsSaving ? "Saving locally..." : "Add")
             </button>
-            <button class="btn btn-secondary" @onclick="NavigateToDashboard">Close</button>
+
+            <button type="button"
+                    class="btn btn-secondary"
+                    @onclick="NavigateToDashboard"
+                    @onclick:stopPropagation="true"
+                    disabled="@IsSaving">
+                Close
+            </button>
         </div>
     </div>
 
-    <!-- RIGHT COLUMN: Product Search & Numpad -->
+    <!-- RIGHT COLUMN: LOCAL PRODUCT SEARCH -->
     <div class="purchase-right">
 
-        <!-- Barcode Scanner Section -->
+        <!-- BARCODE -->
         <div class="card search-section">
             <div class="search-box">
                 <input type="text"
@@ -185,81 +258,127 @@
                        @bind:event="oninput"
                        @onkeydown="OnBarcodeKeyDown"
                        @ref="barcodeInputRef"
+                       disabled="@IsSaving"
                        autofocus />
+
                 <span class="search-icon">🔍</span>
             </div>
         </div>
 
-        <!-- Manual Search Section -->
+        <!-- MANUAL SEARCH -->
         <div class="card search-section">
             <div class="search-box">
                 <input type="text"
                        class="search-input"
-                       placeholder="Search products by name..."
+                       placeholder="Search local products..."
                        @bind="SearchText"
-                       @bind:event="onchange"
-                       @bind:after="UpdateFilter" />
+                       @bind:event="oninput"
+                       @bind:after="UpdateFilter"
+                       disabled="@IsSaving" />
+
                 <span class="search-icon">🔍</span>
             </div>
         </div>
 
-
-        <!-- Products List -->
+        <!-- LOCAL PRODUCTS -->
         <div class="card product-list-container">
-            @if (IsLoadingProducts)
+            @if (IsLoadingData)
             {
-                <div class="loading-state">Loading products...</div>
+                <div class="loading-state">
+                    Loading local products and suppliers...
+                </div>
             }
-            else if (filteredProductsCache.Count == 0)
+            else if (FilteredProducts.Count == 0)
             {
                 <div class="empty-state">
-                    <p>No products found</p>
+                    <p>No local products found</p>
                 </div>
             }
             else
             {
                 <ul class="product-list">
-                    @foreach (var product in filteredProductsCache)
+                   @foreach (var product in FilteredProducts)
                     {
-                        var catalog = GetCatalogProduct(product.Id);
                         <li class="product-item"
                             @onclick="() => SelectAndAddProduct(product)">
-                            <strong>@(product.CatalogName ?? catalog?.Name ?? "Unknown")</strong>
-                            @if (!string.IsNullOrEmpty(product.CatalogBarcode ?? catalog?.Barcode))
+
+                            <strong>
+                                @(string.IsNullOrWhiteSpace(product.CatalogName)
+                                    ? "Unknown product"
+                                    : product.CatalogName)
+                            </strong>
+
+                            @if (!string.IsNullOrWhiteSpace(product.CatalogBarcode))
                             {
-                                <span class="muted">@(product.CatalogBarcode ?? catalog?.Barcode)</span>
+                                <span class="muted">
+                                    @product.CatalogBarcode
+                                </span>
                             }
-                            <span class="muted price">€@product.PurchasePrice.ToString("F2")</span>
+
+                            @if (product.IsPack)
+                            {
+                                <span class="muted">
+                                    Pack de @FormatQuantity(product.PackSize) unités
+                                </span>
+                            }
+
+                            <span class="muted price">
+                                €@product.PurchasePrice.ToString("F2")
+                            </span>
                         </li>
                     }
                 </ul>
             }
         </div>
 
-        <!-- Numeric Pad -->
-        <div class="card numpad-container">
-            <div class="numpad" onclick="@FocusBarcodeInput()">
-                <div class="display">@NumpadValue</div>
+        <!-- NUMPAD -->
+        <div class="card numpad-container"
+             @onclick:stopPropagation="true">
+            <div class="numpad">
+                <div class="display">
+                    @NumpadValue
+                </div>
+
                 <div class="keys">
                     @foreach (var key in NumpadKeys)
                     {
-                        <button class="key-btn" @onclick="() => PressKey(key)">@key</button>
+                        <button type="button"
+                                class="key-btn"
+                                @onclick="() => PressKey(key)"
+                                disabled="@IsSaving">
+                            @key
+                        </button>
                     }
-                    <button class="key-btn clear" @onclick="ClearNumpad">C</button>
+
+                    <button type="button"
+                            class="key-btn clear"
+                            @onclick="ClearNumpad"
+                            disabled="@IsSaving">
+                        C
+                    </button>
                 </div>
             </div>
         </div>
     </div>
 </div>
 
-
+<!-- SUPPLIER MODAL -->
 @if (ShowSupplierModal)
 {
-    <div class="modal-overlay" @onclick="CloseSupplierModal">
-        <div class="modal-content" @onclick:stopPropagation="true">
+    <div class="modal-overlay"
+         @onclick="CloseSupplierModal">
+
+        <div class="modal-content"
+             @onclick:stopPropagation="true">
+
             <div class="modal-header">
-                <h3>Select Supplier</h3>
-                <button class="modal-close" @onclick="CloseSupplierModal">×</button>
+                <h3>Select local supplier</h3>
+
+                <button type="button"
+                        class="modal-close"
+                        @onclick="CloseSupplierModal">
+                    ×
+                </button>
             </div>
 
             <div class="modal-body">
@@ -270,28 +389,38 @@
                            @bind="SupplierSearchText"
                            @bind:event="oninput"
                            autofocus />
+
                     <span class="search-icon">🔍</span>
                 </div>
 
                 <ul class="supplier-list">
                     @if (FilteredSuppliers.Count == 0)
                     {
-                        <li class="empty-state">No suppliers found</li>
+                        <li class="empty-state">
+                            No local suppliers found
+                        </li>
                     }
                     else
                     {
                         @foreach (var supplier in FilteredSuppliers)
                         {
-                            <li class="supplier-item @(TempSelectedSupplier?.Id == supplier.Id ? "selected" : "")"
+                            <li class="supplier-item @(TempSelectedSupplier?.Id == supplier.Id ? "selected" : string.Empty)"
                                 @onclick="() => TempSelectedSupplier = supplier">
+
                                 <strong>@supplier.Name</strong>
-                                @if (!string.IsNullOrEmpty(supplier.Phone))
+
+                                @if (!string.IsNullOrWhiteSpace(supplier.Phone))
                                 {
-                                    <span class="muted">📞 @supplier.Phone</span>
+                                    <span class="muted">
+                                        📞 @supplier.Phone
+                                    </span>
                                 }
-                                @if (!string.IsNullOrEmpty(supplier.Email))
+
+                                @if (!string.IsNullOrWhiteSpace(supplier.Email))
                                 {
-                                    <span class="muted">✉ @supplier.Email</span>
+                                    <span class="muted">
+                                        ✉ @supplier.Email
+                                    </span>
                                 }
                             </li>
                         }
@@ -300,8 +429,16 @@
             </div>
 
             <div class="modal-footer">
-                <button class="btn btn-secondary" @onclick="CloseSupplierModal">Cancel</button>
-                <button class="btn btn-primary" @onclick="ConfirmSupplierSelection">
+                <button type="button"
+                        class="btn btn-secondary"
+                        @onclick="CloseSupplierModal">
+                    Cancel
+                </button>
+
+                <button type="button"
+                        class="btn btn-primary"
+                        @onclick="ConfirmSupplierSelection"
+                        disabled="@(TempSelectedSupplier == null)">
                     OK
                 </button>
             </div>
@@ -309,8 +446,7 @@
     </div>
 }
 
-
-@if (!string.IsNullOrEmpty(successMessage))
+@if (!string.IsNullOrWhiteSpace(successMessage))
 {
     <div class="toast-success">
         <span class="toast-icon"></span>
@@ -318,7 +454,7 @@
     </div>
 }
 
-@if (!string.IsNullOrEmpty(errorMessage))
+@if (!string.IsNullOrWhiteSpace(errorMessage))
 {
     <div class="toast-error">
         <span class="toast-icon"></span>
@@ -327,548 +463,1059 @@
 }
 
 @code {
-    // STATE
-    List<CartLine> Lines = new();
-    List<ProductResult> Products = new();
-    List<SupplierResult> Suppliers = new();
+    private readonly List<CartLine> Lines = new();
 
-    List<ProductResult> filteredProductsCache = new();
+    private List<ProductResult> Products = new();
+    private List<ProductResult> FilteredProducts = new();
+    private List<SupplierResult> Suppliers = new();
 
-    Dictionary<Guid, StockResult> StockMap = new();
-    Dictionary<Guid, ProductResult> ProductMap = new();
-    Dictionary<string, ProductResult> BarcodeMap = new();
-    Dictionary<Guid, SupplierResult> SupplierMap = new();
+    private Dictionary<string, ProductResult> BarcodeMap =
+        new(StringComparer.OrdinalIgnoreCase);
 
-    SupplierResult? SelectedSupplier;
-    SupplierResult? TempSelectedSupplier;
-    CartLine? SelectedLine;
+    private SupplierResult? SelectedSupplier;
+    private SupplierResult? TempSelectedSupplier;
+    private CartLine? SelectedLine;
 
-    string BarcodeInput = string.Empty;
-    string SearchText = string.Empty;
-    string SupplierSearchText = string.Empty;
+    private string BarcodeInput = string.Empty;
+    private string SearchText = string.Empty;
+    private string SupplierSearchText = string.Empty;
+    private string NumpadValue = string.Empty;
 
-    bool IsSaving;
-    bool IsLoadingProducts;
-    bool ShowSupplierModal;
+    private bool IsSaving;
+    private bool IsLoadingData;
+    private bool ShowSupplierModal;
 
     private string? successMessage;
     private string? errorMessage;
 
-    string? UiAlertMessage;
-    string UiAlertType = "info";
-    string lastSearch = "";
+    private ElementReference barcodeInputRef;
 
-    void ShowError(string message)
+    private CancellationTokenSource? toastCancellation;
+
+    private static readonly string[] NumpadKeys =
     {
-        errorMessage = null;
-        StateHasChanged();
+        "1", "2", "3",
+        "4", "5", "6",
+        "7", "8", "9",
+        "0", "."
+    };
 
-        errorMessage = message;
+    private string PurchaseCount =>
+        $"Lines: {Lines.Count}";
 
-        StateHasChanged();
+    private decimal TotalQuantity =>
+        Lines.Sum(line => line.Quantity);
 
-        _ = Task.Delay(3000).ContinueWith(_ =>
-        {
-            errorMessage = null;
-            InvokeAsync(StateHasChanged);
-        });
+    private decimal TotalAmountExclVat =>
+        RoundMoney(
+            Lines.Sum(line =>
+                line.AmountExclVat));
+
+    private decimal TotalTax =>
+        RoundMoney(
+            Lines.Sum(line =>
+                line.TaxAmount));
+
+    private decimal TotalAmountInclVat =>
+        RoundMoney(
+            TotalAmountExclVat +
+            TotalTax);
+
+    private bool CanSave =>
+        !IsSaving &&
+        SelectedSupplier != null &&
+        Lines.Count > 0;
+
+    private List<SupplierResult> FilteredSuppliers =>
+        string.IsNullOrWhiteSpace(
+            SupplierSearchText)
+            ? Suppliers
+            : Suppliers
+                .Where(supplier =>
+                    Contains(
+                        supplier.Name,
+                        SupplierSearchText) ||
+                    Contains(
+                        supplier.Phone,
+                        SupplierSearchText) ||
+                    Contains(
+                        supplier.Email,
+                        SupplierSearchText) ||
+                    Contains(
+                        supplier.City,
+                        SupplierSearchText))
+                .ToList();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadInitialDataAsync();
     }
 
-    void ShowSuccess(string message)
+    protected override async Task OnAfterRenderAsync(
+        bool firstRender)
     {
-        successMessage = null;
-        StateHasChanged();
-
-        successMessage = message;
-
-        StateHasChanged();
-
-        _ = Task.Delay(3000).ContinueWith(_ =>
-        {
-            successMessage = null;
-            InvokeAsync(StateHasChanged);
-        });
-    }
-
-
-    void UpdateFilter()
-    {
-        if (SearchText == lastSearch)
+        if (!firstRender)
         {
             return;
         }
 
-        lastSearch = SearchText;
-
-        filteredProductsCache = string.IsNullOrWhiteSpace(SearchText)
-            ? Products
-            : Products.Where(p =>
-                  p.CatalogName.Contains(SearchText, StringComparison.OrdinalIgnoreCase) ||
-            (p.CatalogBarcode?.Contains(SearchText, StringComparison.OrdinalIgnoreCase) ?? false)
-        ).ToList();
-    }
-
-    void ShowAlert(string message, string type = "info")
-    {
-        UiAlertMessage = message;
-        UiAlertType = type;
-    }
-
-    void ClearAlert()
-    {
-        UiAlertMessage = null;
-    }
-
-    ElementReference barcodeInputRef;
-
-    string NumpadValue = "";
-    readonly string[] NumpadKeys = { "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "." };
-
-    // COMPUTED PROPERTIES
-    string PurchaseCount => $"Lines: {Lines.Count}";
-    decimal TotalQuantity => Lines.Sum(l => l.Quantity);
-    decimal TotalAmount => Lines.Sum(l => l.Amount);
-    decimal TotalTax => Lines.Sum(l => l.TaxAmount);
-
-    List<SupplierResult> FilteredSuppliers =>
-        string.IsNullOrWhiteSpace(SupplierSearchText)
-            ? Suppliers
-            : Suppliers.Where(s =>
-                s.Name.Contains(SupplierSearchText, StringComparison.OrdinalIgnoreCase) ||
-                (s.Phone?.Contains(SupplierSearchText, StringComparison.OrdinalIgnoreCase) ?? false) ||
-                (s.Email?.Contains(SupplierSearchText, StringComparison.OrdinalIgnoreCase) ?? false)
-            ).ToList();
-
-    // INIT
-    protected override async Task OnInitializedAsync()
-    {
-        await LoadInitialData();
-    }
-
-    protected override void OnInitialized()
-    {
-        State.OnChange += HandleStateChange;
+        await FocusBarcodeInput();
     }
 
     public void Dispose()
     {
-        State.OnChange -= HandleStateChange;
+        toastCancellation?.Cancel();
+        toastCancellation?.Dispose();
     }
 
-    private void HandleStateChange()
+    private async Task LoadInitialDataAsync()
     {
-        InvokeAsync(StateHasChanged);
-    }
-
-    async Task LoadInitialData()
-    {
-        if (!State.IsCashSessionLoaded)
+        try
         {
-            try
-            {
-                var active = await CashSessionApi.GetActive();
-                await State.SetCashSessionAsync(active);
-            }
-            catch
-            {
-                ShowError("No active cash session.");
-                Nav.NavigateTo("/cashsessions");
-                return;
-            }
+            IsLoadingData = true;
+            errorMessage = null;
+
+            /*
+             * These services read SQLite.
+             * ProductResult.Id and SupplierResult.Id are local IDs.
+             */
+            var productsTask =
+                LocalProductService.GetAllAsync();
+
+            var suppliersTask =
+                LocalSupplierService.GetAllAsync();
+
+            await Task.WhenAll(
+                productsTask,
+                suppliersTask);
+
+            Products =
+                productsTask.Result
+                    .Where(product =>
+                        product.Status ==
+                            ProductStatus.Active)
+                    .OrderBy(product =>
+                        product.CatalogName)
+                    .ToList();
+
+            Suppliers =
+                suppliersTask.Result
+                    .Where(supplier =>
+                        supplier.IsActive)
+                    .OrderBy(supplier =>
+                        supplier.Name)
+                    .ToList();
+
+            BuildBarcodeMap();
+
+            UpdateFilter();
         }
-
-        if (!State.IsCacheStale && State.IsFullyLoaded)
+        catch (Exception exception)
         {
-            Products = State.Products!;
-            Suppliers = State.Suppliers!;
-            ProductMap = State.ProductMap!;
-            SupplierMap = State.SupplierMap!;
-            StockMap = State.StockMap!;
-            BarcodeMap = State.BarcodeMap!;
-            filteredProductsCache = Products;
+            Logger.LogError(
+                exception,
+                "Failed to load local purchase data.");
+
+            Products = new();
+            FilteredProducts = new();
+            Suppliers = new();
+            BarcodeMap =
+                new Dictionary<string, ProductResult>(
+                    StringComparer.OrdinalIgnoreCase);
+
+            await ShowErrorAsync(
+                $"Failed to load local purchase data: " +
+                $"{exception.GetBaseException().Message}");
+        }
+        finally
+        {
+            IsLoadingData = false;
+        }
+    }
+
+    private void BuildBarcodeMap()
+    {
+        BarcodeMap =
+            Products
+                .Where(product =>
+                    !string.IsNullOrWhiteSpace(
+                        product.CatalogBarcode))
+                .GroupBy(
+                    product =>
+                        product.CatalogBarcode!.Trim(),
+                    StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(
+                    group => group.Key,
+                    group => group.First(),
+                    StringComparer.OrdinalIgnoreCase);
+    }
+
+    private void UpdateFilter()
+    {
+        var search =
+            SearchText.Trim();
+
+        FilteredProducts =
+            string.IsNullOrWhiteSpace(search)
+                ? Products.ToList()
+                : Products
+                    .Where(product =>
+                        Contains(
+                            product.CatalogName,
+                            search) ||
+                        Contains(
+                            product.CatalogBarcode,
+                            search) ||
+                        Contains(
+                            product.CatalogBrand,
+                            search))
+                    .ToList();
+    }
+
+    private void OpenSupplierModal()
+    {
+        TempSelectedSupplier =
+            SelectedSupplier;
+
+        SupplierSearchText =
+            string.Empty;
+
+        ShowSupplierModal =
+            true;
+    }
+
+    private void CloseSupplierModal()
+    {
+        ShowSupplierModal =
+            false;
+
+        TempSelectedSupplier =
+            null;
+
+        SupplierSearchText =
+            string.Empty;
+    }
+
+    private void ConfirmSupplierSelection()
+    {
+        if (TempSelectedSupplier == null)
+        {
             return;
         }
 
-        IsLoadingProducts = true;
+        SelectedSupplier =
+            TempSelectedSupplier;
 
-        await Bootstrap.EnsureLoadedAsync();
-
-        Products = State.Products ?? new();
-        Suppliers = State.Suppliers ?? new();
-        ProductMap = State.ProductMap ?? new();
-        SupplierMap = State.SupplierMap ?? new();
-        StockMap = State.StockMap ?? new();
-        BarcodeMap = State.BarcodeMap ?? new();
-        filteredProductsCache = Products;
-        IsLoadingProducts = false;
-
-    }
-
-    ProductCatalogResult? GetCatalogProduct(Guid id) => State.GetCatalog(id);
-
-
-    // SUPPLIER MODAL
-    void OpenSupplierModal()
-    {
-        ShowSupplierModal = true;
-        TempSelectedSupplier = SelectedSupplier;
-        SupplierSearchText = string.Empty;
-    }
-
-    void CloseSupplierModal()
-    {
-        ShowSupplierModal = false;
-        TempSelectedSupplier = null;
-        SupplierSearchText = string.Empty;
-    }
-
-    void ConfirmSupplierSelection()
-    {
-        if (TempSelectedSupplier != null)
-        {
-            SelectedSupplier = TempSelectedSupplier;
-        }
         CloseSupplierModal();
+
+        _ = FocusBarcodeInput();
     }
 
-    // BARCODE SCANNING
-
-    async Task OnBarcodeScanned(string code)
+    private async Task OnBarcodeScanned(
+        string code)
     {
-        var product = BarcodeMap.GetValueOrDefault(code);
+        var normalizedCode =
+            code.Trim();
 
-        if (product == null)
+        if (!BarcodeMap.TryGetValue(
+                normalizedCode,
+                out var product))
         {
-            await JS.InvokeVoidAsync(
-                "alert",
-                $"Unknown barcode: {code}"
-            );
+            await ShowErrorAsync(
+                $"Unknown local barcode: {normalizedCode}");
+
             return;
         }
 
-        AddProduct(product, GetQuantityFromNumpad());
-        NumpadValue = "";
+        AddProduct(
+            product,
+            GetQuantityFromNumpad());
+
+        NumpadValue =
+            string.Empty;
+
         await FocusBarcodeInput();
     }
 
-    async Task OnBarcodeKeyDown(KeyboardEventArgs e)
+    private async Task OnBarcodeKeyDown(
+        KeyboardEventArgs args)
     {
-        if (e.Key == "Enter" && !string.IsNullOrWhiteSpace(BarcodeInput))
+        if (!string.Equals(
+                args.Key,
+                "Enter",
+                StringComparison.OrdinalIgnoreCase) ||
+            string.IsNullOrWhiteSpace(
+                BarcodeInput))
         {
-            var code = BarcodeInput.Trim();
-            BarcodeInput = "";
-
-            await OnBarcodeScanned(code);
-
-            await FocusBarcodeInput(); 
-        }
-    }
-
-    protected override async Task OnAfterRenderAsync(bool firstRender)
-    {
-        if (firstRender)
-        {
-            await JS.InvokeVoidAsync("forceFocus", barcodeInputRef);
-        }
-    }
-
-    void PressKey(string key) => NumpadValue += key;
-
-    void ClearNumpad()
-    {
-        NumpadValue = "";
-        _ = FocusBarcodeInput();
-    }
-
-    void SelectAndAddProduct(ProductResult product)
-    {
-        AddProduct(product, GetQuantityFromNumpad());
-        NumpadValue = "";
-        _ = FocusBarcodeInput();
-    }
-
-    int GetQuantityFromNumpad()
-    {
-        if (int.TryParse(NumpadValue, out var q) && q > 0)
-            return q;
-        return 1;
-    }
-
-    // CART OPERATIONS
-    void AddProduct(ProductResult product, int quantity = 1)
-    {
-        var existingLine = Lines.FirstOrDefault(l => l.ProductId == product.Id);
-        var catalog = GetCatalogProduct(product.Id);
-
-        if (product.PurchasePrice == 0)
-        {
-            ShowError("product purchase is 0");
             return;
         }
+
+        var code =
+            BarcodeInput.Trim();
+
+        BarcodeInput =
+            string.Empty;
+
+        await OnBarcodeScanned(code);
+    }
+
+    private void PressKey(
+        string key)
+    {
+        if (key == "." &&
+            NumpadValue.Contains(
+                '.',
+                StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        NumpadValue +=
+            key;
+    }
+
+    private void ClearNumpad()
+    {
+        NumpadValue =
+            string.Empty;
+
+        _ = FocusBarcodeInput();
+    }
+
+    private void SelectAndAddProduct(
+        ProductResult product)
+    {
+        AddProduct(
+            product,
+            GetQuantityFromNumpad());
+
+        NumpadValue =
+            string.Empty;
+
+        _ = FocusBarcodeInput();
+    }
+
+    private decimal GetQuantityFromNumpad()
+    {
+        return TryReadNumpadDecimal(
+            out var quantity) &&
+            quantity > 0m
+                ? RoundQuantity(quantity)
+                : 1m;
+    }
+
+    private void AddProduct(
+        ProductResult product,
+        decimal quantity = 1m)
+    {
+        if (quantity <= 0m)
+        {
+            _ = ShowErrorAsync(
+                "Quantity must be greater than zero.");
+
+            return;
+        }
+
+        if (product.PurchasePrice <= 0m)
+        {
+            _ = ShowErrorAsync(
+                $"Product '{product.CatalogName}' has no valid " +
+                "purchase price.");
+
+            return;
+        }
+
+        var existingLine =
+            Lines.FirstOrDefault(line =>
+                line.ProductId == product.Id);
 
         if (existingLine != null)
         {
-            existingLine.Quantity += quantity;
+            existingLine.Quantity =
+                RoundQuantity(
+                    existingLine.Quantity +
+                    quantity);
+
+            SelectedLine =
+                existingLine;
         }
         else
         {
-            Lines.Add(new CartLine
-            {
-                ProductId = product.Id,
-                ProductName = product.CatalogName ?? catalog?.Name ?? "Unknown Product",
-                BasePurchasePrice = product.PurchasePrice,
-                Quantity = quantity,
-                TaxRate = product.VatRate
-            });
+            var newLine =
+                new CartLine
+                {
+                    ProductId =
+                        product.Id,
+
+                    ProductName =
+                        string.IsNullOrWhiteSpace(
+                            product.CatalogName)
+                            ? "Unknown product"
+                            : product.CatalogName,
+
+                    ProductBarcode =
+                        product.CatalogBarcode,
+
+                    BasePurchasePrice =
+                        product.PurchasePrice,
+
+                    Quantity =
+                        RoundQuantity(quantity),
+
+                    TaxRate =
+                        product.VatRate,
+
+                    IsPack =
+                        product.IsPack,
+
+                    PackSize =
+                        product.PackSize
+                };
+
+            Lines.Add(newLine);
+
+            SelectedLine =
+                newLine;
         }
 
-        SelectedLine = Lines.Last();
         _ = FocusBarcodeInput();
     }
 
-    void Increment(CartLine line)
+    private void Increment(
+        CartLine line)
     {
-        line.Quantity++;
+        line.Quantity =
+            RoundQuantity(
+                line.Quantity + 1m);
+
+        SelectedLine =
+            line;
+
         _ = FocusBarcodeInput();
     }
 
-    void Decrement(CartLine line)
+    private void Decrement(
+        CartLine line)
     {
-        if (Lines.Count == 1 && line.Quantity == 1)
-            return;
-
-        if (line.Quantity > 1)
+        if (line.Quantity > 1m)
         {
-            line.Quantity--;
+            line.Quantity =
+                RoundQuantity(
+                    line.Quantity - 1m);
+
+            SelectedLine =
+                line;
+
+            _ = FocusBarcodeInput();
+
             return;
         }
 
         Lines.Remove(line);
-        if (SelectedLine == line)
-            SelectedLine = null;
-        _ = FocusBarcodeInput();
-    }
 
-    void RemoveSelected()
-    {
-        if (SelectedLine != null)
+        if (ReferenceEquals(
+                SelectedLine,
+                line))
         {
-            Lines.Remove(SelectedLine);
-            SelectedLine = null;
+            SelectedLine =
+                null;
         }
+
         _ = FocusBarcodeInput();
     }
 
-    void Reset()
+    private void RemoveSelected()
+    {
+        if (SelectedLine == null)
+        {
+            return;
+        }
+
+        Lines.Remove(
+            SelectedLine);
+
+        SelectedLine =
+            null;
+
+        _ = FocusBarcodeInput();
+    }
+
+    private void Reset()
     {
         Lines.Clear();
-        SelectedLine = null;
-        SelectedSupplier = null;
+
+        SelectedLine =
+            null;
+
+        SelectedSupplier =
+            null;
+
+        SearchText =
+            string.Empty;
+
+        BarcodeInput =
+            string.Empty;
+
+        NumpadValue =
+            string.Empty;
+
+        UpdateFilter();
+
         _ = FocusBarcodeInput();
     }
 
-    // ADJUSTMENTS
-    void OnLineClicked(CartLine line)
+    private void OnLineClicked(
+        CartLine line)
     {
-        if (SelectedLine == line)
+        if (ReferenceEquals(
+                SelectedLine,
+                line))
         {
-            line.IsExpanded = !line.IsExpanded;
-        }
-        else
-        {
-            if (SelectedLine != null)
-                SelectedLine.IsExpanded = false;
-            SelectedLine = line;
-            line.IsExpanded = true;
-        }
-    }
+            line.IsExpanded =
+                !line.IsExpanded;
 
-    void AddPriceOverride(CartLine line)
-    {
-        if (decimal.TryParse(NumpadValue, out var price) && price > 0)
-        {
-            line.Adjustments.Add(new CartAdjustment
-            {
-                Type = AdjustmentType.PriceOverride,
-                Value = price
-            });
-            NumpadValue = "";
-        }
-    }
-
-    void AddDiscountPercent(CartLine line)
-    {
-        if (decimal.TryParse(NumpadValue, out var value) && value > 0)
-        {
-            line.Adjustments.Add(new CartAdjustment
-            {
-                Type = AdjustmentType.DiscountPercent,
-                Value = value
-            });
-            NumpadValue = "";
-        }
-    }
-
-    void AddDiscountAmount(CartLine line)
-    {
-        if (decimal.TryParse(NumpadValue, out var value) && value > 0)
-        {
-            line.Adjustments.Add(new CartAdjustment
-            {
-                Type = AdjustmentType.DiscountAmount,
-                Value = value
-            });
-            NumpadValue = "";
-        }
-    }
-
-    // SAVE PURCHASE
-    async Task SavePurchase()
-    {
-        if (SelectedSupplier == null || Lines.Count == 0)
             return;
+        }
 
-        IsSaving = true;
+        if (SelectedLine != null)
+        {
+            SelectedLine.IsExpanded =
+                false;
+        }
+
+        SelectedLine =
+            line;
+
+        line.IsExpanded =
+            true;
+    }
+
+    private void AddPriceOverride(
+        CartLine line)
+    {
+        if (!TryReadNumpadDecimal(
+                out var price) ||
+            price <= 0m)
+        {
+            _ = ShowErrorAsync(
+                "Enter a valid unit purchase price.");
+
+            return;
+        }
+
+        line.Adjustments.RemoveAll(
+            adjustment =>
+                adjustment.Type ==
+                    AdjustmentType.PriceOverride);
+
+        line.Adjustments.Add(
+            new CartAdjustment
+            {
+                Type =
+                    AdjustmentType.PriceOverride,
+
+                Value =
+                    RoundMoney(price)
+            });
+
+        NumpadValue =
+            string.Empty;
+    }
+
+    private void AddDiscountPercent(
+        CartLine line)
+    {
+        if (!TryReadNumpadDecimal(
+                out var value) ||
+            value <= 0m ||
+            value > 100m)
+        {
+            _ = ShowErrorAsync(
+                "Discount percentage must be greater than zero " +
+                "and not exceed 100.");
+
+            return;
+        }
+
+        RemoveDiscountAdjustments(
+            line);
+
+        line.Adjustments.Add(
+            new CartAdjustment
+            {
+                Type =
+                    AdjustmentType.DiscountPercent,
+
+                Value =
+                    Math.Round(
+                        value,
+                        2,
+                        MidpointRounding.AwayFromZero)
+            });
+
+        NumpadValue =
+            string.Empty;
+    }
+
+    private void AddDiscountAmount(
+        CartLine line)
+    {
+        if (!TryReadNumpadDecimal(
+                out var value) ||
+            value <= 0m)
+        {
+            _ = ShowErrorAsync(
+                "Enter a valid discount amount.");
+
+            return;
+        }
+
+        var priceBeforeDiscount =
+            line.PriceBeforeDiscount;
+
+        if (value >= priceBeforeDiscount)
+        {
+            _ = ShowErrorAsync(
+                "Discount amount must be lower than the unit price.");
+
+            return;
+        }
+
+        RemoveDiscountAdjustments(
+            line);
+
+        line.Adjustments.Add(
+            new CartAdjustment
+            {
+                Type =
+                    AdjustmentType.DiscountAmount,
+
+                Value =
+                    RoundMoney(value)
+            });
+
+        NumpadValue =
+            string.Empty;
+    }
+
+    private static void RemoveDiscountAdjustments(
+        CartLine line)
+    {
+        line.Adjustments.RemoveAll(
+            adjustment =>
+                adjustment.Type ==
+                    AdjustmentType.DiscountPercent ||
+                adjustment.Type ==
+                    AdjustmentType.DiscountAmount);
+    }
+
+    private void ClearAdjustments(
+        CartLine line)
+    {
+        line.Adjustments.Clear();
+
+        NumpadValue =
+            string.Empty;
+    }
+
+    private async Task SavePurchase()
+    {
+        if (IsSaving)
+        {
+            return;
+        }
+
+        if (SelectedSupplier == null)
+        {
+            await ShowErrorAsync(
+                "Select a supplier.");
+
+            return;
+        }
+
+        if (Lines.Count == 0)
+        {
+            await ShowErrorAsync(
+                "Add at least one product.");
+
+            return;
+        }
+
+        var invalidLine =
+            Lines.FirstOrDefault(line =>
+                line.ProductId == Guid.Empty ||
+                line.Quantity <= 0m ||
+                line.EffectiveUnitPrice < 0m ||
+                line.TaxRate < 0m ||
+                line.TaxRate > 100m);
+
+        if (invalidLine != null)
+        {
+            await ShowErrorAsync(
+                $"Purchase line '{invalidLine.ProductName}' is invalid.");
+
+            return;
+        }
 
         try
         {
-            var request = new CreateCompletePurchaseRequest
-            {
-                SupplierId = SelectedSupplier.Id,
-                Lines = Lines.Select(l => new PurchaseLineItem
+            IsSaving =
+                true;
+
+            var request =
+                new CreateLocalPurchaseRequest
                 {
-                    ProductId = l.ProductId,
-                    Quantity = l.Quantity,
-                    UnitPrice = l.EffectiveUnitPrice,
-                    VatRate = l.TaxRate,
-                    DiscountPercent = l.CalculateDiscountPercent()
-                }).ToList()
-            };
+                    SupplierLocalId =
+                        SelectedSupplier.Id,
 
-            var purchasedLines = Lines.ToList();
-            await PurchaseApi.CreateComplete(request);
+                    PurchaseDateUtc =
+                        DateTime.UtcNow,
 
-            AddStockLocally(purchasedLines);
+                    Lines =
+                        Lines
+                            .Select(line =>
+                                new CreateLocalPurchaseLineRequest
+                                {
+                                    ProductLocalId =
+                                        line.ProductId,
 
-            ShowSuccess("Purchase added Successfully !");
+                                    Quantity =
+                                        RoundQuantity(
+                                            line.Quantity),
+
+                                    /*
+                                     * The local model stores the effective
+                                     * unit price. The discount must not be
+                                     * applied a second time by the uploader.
+                                     */
+                                    UnitPurchasePrice =
+                                        RoundMoney(
+                                            line.EffectiveUnitPrice),
+
+                                    VatRate =
+                                        Math.Round(
+                                            line.TaxRate,
+                                            2,
+                                            MidpointRounding.AwayFromZero)
+                                })
+                            .ToList()
+                };
+
+            var purchase =
+                await LocalPurchaseService
+                    .CreateCompleteAsync(
+                        request);
+
+            /*
+             * The service already:
+             * - creates LocalPurchase and lines;
+             * - increases LocalStock;
+             * - creates local StockMovements;
+             * - adds Purchase/Create to SyncQueue.
+             */
+            State.InvalidatePos();
+
+            Logger.LogInformation(
+                "Local purchase {PurchaseNumber} created with " +
+                "{LineCount} lines.",
+                purchase.LocalPurchaseNumber,
+                purchase.Lines.Count);
 
             Reset();
+
+            await ShowSuccessAsync(
+                $"Purchase {purchase.LocalPurchaseNumber} saved " +
+                "locally and queued for synchronization.");
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(
+                exception,
+                "Failed to create the local purchase.");
+
+            await ShowErrorAsync(
+                exception
+                    .GetBaseException()
+                    .Message);
         }
         finally
         {
-            IsSaving = false;
+            IsSaving =
+                false;
+
             await FocusBarcodeInput();
         }
     }
 
-    // NAVIGATION
-    void NavigateToDashboard()
+    private void NavigateToDashboard()
     {
         Nav.NavigateTo("/");
     }
 
-    async Task FocusBarcodeInput()
+    private async Task FocusBarcodeInput()
     {
         try
         {
-            await Task.Delay(100);
-            await barcodeInputRef.FocusAsync();
+            await Task.Delay(50);
+
+            await barcodeInputRef
+                .FocusAsync();
         }
-        catch (Exception ex)
+        catch
         {
-            Console.WriteLine($"Focus error: {ex.Message}");
+            /*
+             * The element may not be rendered yet or the page may
+             * already be navigating away.
+             */
         }
     }
 
-    class CartAdjustment
+    private bool TryReadNumpadDecimal(
+        out decimal value)
+    {
+        var normalized =
+            NumpadValue
+                .Trim()
+                .Replace(',', '.');
+
+        return decimal.TryParse(
+            normalized,
+            NumberStyles.Number,
+            CultureInfo.InvariantCulture,
+            out value);
+    }
+
+    private async Task ShowSuccessAsync(
+        string message)
+    {
+        errorMessage =
+            null;
+
+        successMessage =
+            message;
+
+        await StartToastTimerAsync(
+            clearSuccess: true);
+    }
+
+    private async Task ShowErrorAsync(
+        string message)
+    {
+        successMessage =
+            null;
+
+        errorMessage =
+            message;
+
+        await StartToastTimerAsync(
+            clearSuccess: false);
+    }
+
+    private async Task StartToastTimerAsync(
+        bool clearSuccess)
+    {
+        toastCancellation?.Cancel();
+        toastCancellation?.Dispose();
+
+        toastCancellation =
+            new CancellationTokenSource();
+
+        var currentSource =
+            toastCancellation;
+
+        await InvokeAsync(
+            StateHasChanged);
+
+        try
+        {
+            await Task.Delay(
+                3000,
+                currentSource.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        if (!ReferenceEquals(
+                toastCancellation,
+                currentSource))
+        {
+            return;
+        }
+
+        if (clearSuccess)
+        {
+            successMessage =
+                null;
+        }
+        else
+        {
+            errorMessage =
+                null;
+        }
+
+        await InvokeAsync(
+            StateHasChanged);
+    }
+
+    private static bool Contains(
+        string? source,
+        string value)
+    {
+        return !string.IsNullOrWhiteSpace(source) &&
+               source.Contains(
+                   value,
+                   StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static decimal RoundMoney(
+        decimal value)
+    {
+        return Math.Round(
+            value,
+            2,
+            MidpointRounding.AwayFromZero);
+    }
+
+    private static decimal RoundQuantity(
+        decimal value)
+    {
+        return Math.Round(
+            value,
+            3,
+            MidpointRounding.AwayFromZero);
+    }
+
+    private static string FormatQuantity(
+        decimal quantity)
+    {
+        return quantity.ToString(
+            "0.###",
+            CultureInfo.InvariantCulture);
+    }
+
+    private sealed class CartAdjustment
     {
         public AdjustmentType Type { get; set; }
-        public decimal Value { get; set; }
-        public string? Note { get; set; }
 
-        public decimal Apply(decimal basePrice)
+        public decimal Value { get; set; }
+
+        public decimal Apply(
+            decimal basePrice)
         {
             return Type switch
             {
-                AdjustmentType.PriceOverride => Value,
-                AdjustmentType.DiscountPercent => basePrice * (1 - Value / 100),
-                AdjustmentType.DiscountAmount => basePrice - Value,
-                AdjustmentType.Fee => basePrice + Value,
-                _ => basePrice
+                AdjustmentType.PriceOverride =>
+                    Value,
+
+                AdjustmentType.DiscountPercent =>
+                    basePrice *
+                    (1m - Value / 100m),
+
+                AdjustmentType.DiscountAmount =>
+                    basePrice - Value,
+
+                AdjustmentType.Fee =>
+                    basePrice + Value,
+
+                _ =>
+                    basePrice
             };
         }
 
         public string Display =>
             Type switch
             {
-                AdjustmentType.PriceOverride => $"Prix modifié → {Value:0.00} €",
-                AdjustmentType.DiscountPercent => $"Remise → -{Value} %",
-                AdjustmentType.DiscountAmount => $"Remise → -{Value:0.00} €",
-                AdjustmentType.Fee => $"Frais → +{Value:0.00} €",
-                _ => ""
+                AdjustmentType.PriceOverride =>
+                    $"Price changed → €{Value:0.00}",
+
+                AdjustmentType.DiscountPercent =>
+                    $"Discount → -{Value:0.##}%",
+
+                AdjustmentType.DiscountAmount =>
+                    $"Discount → -€{Value:0.00}",
+
+                AdjustmentType.Fee =>
+                    $"Fee → +€{Value:0.00}",
+
+                _ =>
+                    string.Empty
             };
     }
 
-    private void AddStockLocally(List<CartLine> purchasedLines)
-    {
-        foreach (var line in purchasedLines)
-        {
-            if (State.StockMap == null) continue;
-
-            if (State.StockMap.TryGetValue(line.ProductId, out var stock))
-            {
-                // Le produit a déjà un stock — on incrémente
-                stock.Quantity += line.Quantity;
-            }
-            else
-            {
-                // Pas encore de stock enregistré localement — on ne peut pas créer
-                // un StockResult sans Id serveur, donc on invalide le cache
-                State.InvalidatePos();
-                _ = Bootstrap.EnsureLoadedAsync();
-                return;
-            }
-        }
-
-        // Sync local refs
-        StockMap = State.StockMap!;
-    }
-
-    class CartLine
+    private sealed class CartLine
     {
         public Guid ProductId { get; set; }
-        public string ProductName { get; set; } = "";
+
+        public string ProductName { get; set; } =
+            string.Empty;
+
+        public string? ProductBarcode { get; set; }
+
         public decimal Quantity { get; set; }
+
         public decimal BasePurchasePrice { get; set; }
+
         public decimal TaxRate { get; set; }
+
+        public bool IsPack { get; set; }
+
+        public decimal PackSize { get; set; }
+
         public bool IsExpanded { get; set; }
-        public List<CartAdjustment> Adjustments { get; set; } = new();
+
+        public List<CartAdjustment> Adjustments { get; set; } =
+            new();
+
+        public decimal PriceBeforeDiscount
+        {
+            get
+            {
+                var overrideAdjustment =
+                    Adjustments.LastOrDefault(
+                        adjustment =>
+                            adjustment.Type ==
+                                AdjustmentType.PriceOverride);
+
+                return overrideAdjustment?.Value ??
+                       BasePurchasePrice;
+            }
+        }
 
         public decimal EffectiveUnitPrice
         {
             get
             {
-                decimal price = BasePurchasePrice;
-                foreach (var adj in Adjustments)
-                    price = adj.Apply(price);
-                return price;
+                var price =
+                    BasePurchasePrice;
+
+                foreach (var adjustment in Adjustments)
+                {
+                    price =
+                        adjustment.Apply(price);
+                }
+
+                return RoundMoney(
+                    Math.Max(
+                        0m,
+                        price));
             }
         }
 
-        public decimal Amount => Quantity * EffectiveUnitPrice;
-        public decimal TaxAmount => Amount * (TaxRate / 100);
+        public decimal AmountExclVat =>
+            RoundMoney(
+                Quantity *
+                EffectiveUnitPrice);
 
-        public decimal CalculateDiscountPercent()
-        {
-            var discountAdj = Adjustments.FirstOrDefault(a => a.Type == AdjustmentType.DiscountPercent);
-            if (discountAdj != null)
-                return discountAdj.Value;
+        public decimal TaxAmount =>
+            RoundMoney(
+                AmountExclVat *
+                TaxRate /
+                100m);
 
-            var discountAmount = Adjustments.FirstOrDefault(a => a.Type == AdjustmentType.DiscountAmount);
-            if (discountAmount != null && BasePurchasePrice > 0)
-                return (discountAmount.Value / BasePurchasePrice) * 100;
-
-            return 0;
-        }
+        public decimal AmountInclVat =>
+            AmountExclVat +
+            TaxAmount;
     }
 }

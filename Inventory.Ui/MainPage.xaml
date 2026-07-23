@@ -5,7 +5,7 @@
              xmlns:components="clr-namespace:Inventory.Ui.Components"
              x:Class="Inventory.Ui.MainPage">
 
-    <BlazorWebView x:Name="blazorWebView" HostPage="wwwroot/index.html">
+    <BlazorWebView x:Name="blazorWebView" HostPage="wwwroot/index.html" StartPath="/login">
         <BlazorWebView.RootComponents>
             <RootComponent Selector="#app" ComponentType="{x:Type components:Routes}" />
         </BlazorWebView.RootComponents>

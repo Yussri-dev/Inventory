@@ -4,7 +4,6 @@ using Microsoft.AspNetCore.Identity;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
-using System.ComponentModel.DataAnnotations.Schema;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -42,7 +41,6 @@ namespace Inventory.Domain.Models
 
         public Guid? TenantId { get; set; }
 
-        [ForeignKey(nameof(TenantId))]
         public Tenant? Tenant { get; set; }
 
         public bool IsActive { get; set; } = true;

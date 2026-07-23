@@ -1,15 +1,23 @@
 ﻿@page "/suppliers"
-@inject ISupplierApi Api
+
+@using System.ComponentModel.DataAnnotations
+@using Inventory.Dto.Queries
+@using Inventory.Dto.Suppliers.Requests
+@using Inventory.Dto.Suppliers.Results
+@using Inventory.LocalDB.Services.Interfaces
+
+@inject ILocalSupplierService LocalSupplierService
+@inject AppState State
+@implements IDisposable
 
 <h3>Suppliers</h3>
 
 <div class="page-container">
 
-    @if (showCustomer)
+    @if (ShowSupplier)
     {
-        <div class="customer-modal-overlay" @onclick="CloseCustomerModal">
+        <div class="customer-modal-overlay" @onclick="CloseSupplierModal">
             <div class="customer-modal" @onclick:stopPropagation="true">
-                <!-- CREATE / EDIT -->
                 <div class="card">
                     <h4>@(editingId == null ? "Create supplier" : "Edit supplier")</h4>
 
@@ -28,6 +36,16 @@
                                 </div>
 
                                 <div class="form-field">
+                                    <label>Contact Person</label>
+                                    <InputText placeholder="Contact person"
+                                               class="inputText"
+                                               @bind-Value="form.ContactPerson"
+                                               disabled="@isLoading" />
+                                </div>
+                            </div>
+
+                            <div class="form-row">
+                                <div class="form-field">
                                     <label>Email</label>
                                     <InputText placeholder="email@example.com"
                                                class="inputText"
@@ -36,16 +54,24 @@
                                                disabled="@isLoading" />
                                     <ValidationMessage For="@(() => form.Email)" />
                                 </div>
-                            </div>
 
-                            <div class="form-row">
                                 <div class="form-field">
                                     <label>Phone</label>
-                                    <InputText placeholder="+1 234 567 8900"
+                                    <InputText placeholder="+32 ..."
                                                class="inputText"
                                                @bind-Value="form.Phone"
                                                disabled="@isLoading" />
                                     <ValidationMessage For="@(() => form.Phone)" />
+                                </div>
+                            </div>
+
+                            <div class="form-row">
+                                <div class="form-field">
+                                    <label>Address</label>
+                                    <InputText placeholder="Address"
+                                               class="inputText"
+                                               @bind-Value="form.Address"
+                                               disabled="@isLoading" />
                                 </div>
 
                                 <div class="form-field">
@@ -80,12 +106,29 @@
 
                             <div class="form-row">
                                 <div class="form-field">
+                                    <label>Postal Code</label>
+                                    <InputText placeholder="Postal code"
+                                               class="inputText"
+                                               @bind-Value="form.PostalCode"
+                                               disabled="@isLoading" />
+                                </div>
+
+                                <div class="form-field">
                                     <label>Bank Account</label>
                                     <InputText placeholder="Bank account number"
                                                class="inputText"
                                                @bind-Value="form.BankAccount"
                                                disabled="@isLoading" />
                                     <ValidationMessage For="@(() => form.BankAccount)" />
+                                </div>
+                            </div>
+
+                            <div class="form-row">
+                                <div class="form-field">
+                                    <label>Payment Terms Days</label>
+                                    <InputNumber class="inputText"
+                                                 @bind-Value="form.PaymentTermsDays"
+                                                 disabled="@isLoading" />
                                 </div>
 
                                 <div class="form-field">
@@ -96,19 +139,33 @@
                                 </div>
                             </div>
 
+                            <div class="form-row">
+                                <div class="form-field">
+                                    <label>Notes</label>
+                                    <InputTextArea class="inputText"
+                                                   @bind-Value="form.Notes"
+                                                   disabled="@isLoading" />
+                                </div>
+                            </div>
+
                             <div class="actions-end">
-                                @if (editingId == null)
-                                {
-                                    <button type="submit" class="btn primary" disabled="@isLoading">
+                                <button type="submit" class="btn primary" disabled="@isLoading">
+                                    @if (editingId == null)
+                                    {
                                         @(isLoading ? "Creating..." : "Create")
-                                    </button>
-                                }
-                                else
-                                {
-                                    <button type="submit" class="btn primary" disabled="@isLoading">
+                                    }
+                                    else
+                                    {
                                         @(isLoading ? "Updating..." : "Update")
-                                    </button>
-                                    <button type="button" class="btn ghost" @onclick="CancelEdit" disabled="@isLoading">
+                                    }
+                                </button>
+
+                                @if (editingId != null)
+                                {
+                                    <button type="button"
+                                            class="btn ghost"
+                                            @onclick="CancelEdit"
+                                            disabled="@isLoading">
                                         Cancel
                                     </button>
                                 }
@@ -119,15 +176,13 @@
             </div>
         </div>
     }
-   
 
-    <!-- SEARCH -->
     <div class="card">
         <h4>Search Suppliers</h4>
 
         <div class="search-grid">
             <input type="text"
-                   placeholder="Search name, email, phone, tax number…"
+                   placeholder="Search name, email, phone, city…"
                    @bind="searchTerm"
                    @bind:event="oninput"
                    @onkeyup="OnSearchKeyUp"
@@ -140,7 +195,7 @@
                 <button class="btn ghost" @onclick="ClearSearch" disabled="@isLoading">
                     Clear
                 </button>
-                <button class="btn primary" @onclick="AddCustomer">
+                <button class="btn primary" @onclick="AddSupplier">
                     Add
                 </button>
             </div>
@@ -150,7 +205,7 @@
     @if (isLoadingData)
     {
         <div class="loading-container">
-            <p>Loading suppliers...</p>
+            <p>Loading local suppliers...</p>
         </div>
     }
     else if (items is null || items.Count == 0)
@@ -160,13 +215,14 @@
     else
     {
         <div class="pager">
-            <button class="btn ghost" disabled="@(Page == 1)"
+            <button class="btn ghost"
+                    disabled="@(Page == 1)"
                     @onclick="() => ChangePage(Page - 1)">
                 Prev
             </button>
 
             <span class="muted">
-                Page @Page / @(Math.Ceiling((double)TotalCount / PageSize))
+                Page @Page / @(Math.Max(1, Math.Ceiling((double)TotalCount / PageSize)))
             </span>
 
             <button class="btn ghost"
@@ -175,8 +231,10 @@
                 Next
             </button>
         </div>
+
         <div class="results-header">
-            <span>@items.Count supplier(s) found</span>
+            <span>@items.Count supplier(s) found locally</span>
+
             @if (isSearching)
             {
                 <button class="btn small ghost" @onclick="ClearSearch">Show All</button>
@@ -202,27 +260,37 @@
                     <tr>
                         <td>
                             <div class="product-name">@s.Name</div>
-                            @if (!string.IsNullOrEmpty(s.BankAccount))
+
+                            @if (!string.IsNullOrWhiteSpace(s.BankAccount))
                             {
                                 <div class="product-desc">Account: @s.BankAccount</div>
                             }
+
+                            @if (!string.IsNullOrWhiteSpace(s.ContactPerson))
+                            {
+                                <div class="product-desc">Contact: @s.ContactPerson</div>
+                            }
                         </td>
+
                         <td>@(s.Email ?? "-")</td>
                         <td>@(s.Phone ?? "-")</td>
                         <td>@(s.TaxNumber ?? "-")</td>
                         <td>@(s.Country ?? "-")</td>
                         <td>@(s.City ?? "-")</td>
+
                         <td>
                             <span class="badge @(s.IsActive ? "badge-success" : "badge-inactive")">
                                 @(s.IsActive ? "Active" : "Inactive")
                             </span>
                         </td>
+
                         <td class="actions-end">
                             <button class="btn small ghost"
                                     @onclick="() => StartEdit(s)"
                                     disabled="@isLoading">
                                 Edit
                             </button>
+
                             <button class="btn small danger"
                                     @onclick="() => AskDelete(s)"
                                     disabled="@isLoading">
@@ -235,13 +303,14 @@
         </table>
     }
 
-    @if (showDelete && supplierToDelete != null)
+    @if (ShowDelete && supplierToDelete != null)
     {
         <div class="modal-overlay" @onclick="CancelDelete">
             <div class="modal-content" @onclick:stopPropagation="true">
                 <h4>Confirm Delete</h4>
                 <p>Are you sure you want to delete <strong>@supplierToDelete.Name</strong>?</p>
-                <p class="text-muted">This action cannot be undone.</p>
+                <p class="text-muted">This action will be saved locally and synced later.</p>
+
                 <div class="modal-actions">
                     <button class="btn ghost" @onclick="CancelDelete">Cancel</button>
                     <button class="btn danger" @onclick="ConfirmDelete">Delete</button>
@@ -250,8 +319,6 @@
         </div>
     }
 
-
-    <!-- Success Toast -->
     @if (!string.IsNullOrEmpty(successMessage))
     {
         <div class="toast-success">
@@ -260,7 +327,6 @@
         </div>
     }
 
-    <!-- Error Toast -->
     @if (!string.IsNullOrEmpty(errorMessage))
     {
         <div class="toast-error">
@@ -278,30 +344,19 @@
     private bool isLoading;
     private bool isLoadingData;
     private bool isSearching;
-    private bool showCustomer;
+    private bool ShowDelete;
 
     private string? errorMessage;
     private string? successMessage;
 
     private string searchTerm = string.Empty;
 
-    private bool showDelete;
+    private bool ShowSupplier;
     private SupplierResult? supplierToDelete;
 
-
-    int Page = 1;
-    int PageSize = 10;
-    int TotalCount;
-
-    private void AddCustomer()
-    {
-        showCustomer = true;
-    }
-
-    private void CloseCustomerModal()
-    {
-        showCustomer = false;
-    }
+    private int Page = 1;
+    private int PageSize = 10;
+    private int TotalCount;
 
     protected override async Task OnInitializedAsync()
     {
@@ -322,153 +377,103 @@
                 Search = isSearching ? searchTerm : null
             };
 
-            var response = await Api.Search(query);
+            var response = await LocalSupplierService.QueryAsync(query);
 
             items = response.Items?.ToList() ?? new List<SupplierResult>();
             TotalCount = response.TotalCount;
         }
-        catch (Exception)
+        catch (Exception ex)
         {
-            await ShowError($"Failed to load suppliers.");
+            await ShowError($"Failed to load local suppliers: {ex.Message}");
             items = new List<SupplierResult>();
         }
         finally
         {
             isLoadingData = false;
         }
-    }
-
-    async Task ShowSuccess(string message)
-    {
-        successMessage = null;
-
-        StateHasChanged();
-
-        successMessage = message;
-
-        StateHasChanged();
-
-        await Task.Delay(3000).ContinueWith(_ =>
-        {
-            successMessage = null;
-            InvokeAsync(StateHasChanged);
-        });
-    }
-
-    async Task ShowError(string message)
-    {
-        errorMessage = null;
-
-        StateHasChanged();
-
-        errorMessage = message;
-
-        StateHasChanged();
-
-        await Task.Delay(3000).ContinueWith(_ =>
-        {
-            errorMessage = null;
-            InvokeAsync(StateHasChanged);
-        });
-    }
-
-    async Task ChangePage(int newPage)
-    {
-        Page = newPage;
-        await LoadData();
     }
 
     private async Task Search()
     {
         if (string.IsNullOrWhiteSpace(searchTerm))
         {
+            isSearching = false;
+            Page = 1;
             await LoadData();
             return;
         }
 
-        try
-        {
-            isLoadingData = true;
-            errorMessage = null;
-
-            var result = await Api.Search(new SupplierQuery
-            {
-                Search = searchTerm
-            });
-
-            items = result.Items.ToList();
-            isSearching = true;
-        }
-        catch (Exception ex)
-        {
-            await ShowError($"Search failed.");
-            items = new List<SupplierResult>();
-        }
-        finally
-        {
-            isLoadingData = false;
-        }
-    }
-
-    private async Task OnSearchKeyUp(KeyboardEventArgs e)
-    {
-        if (e.Key == "Enter")
-        {
-            await Search();
-        }
+        isSearching = true;
+        Page = 1;
+        await LoadData();
     }
 
     private async Task ClearSearch()
     {
         searchTerm = string.Empty;
+        isSearching = false;
+        Page = 1;
         await LoadData();
     }
 
+    private async Task ChangePage(int newPage)
+    {
+        Page = newPage;
+        await LoadData();
+    }
+
+    private void AddSupplier()
+    {
+        editingId = null;
+        form = new SupplierForm();
+        ShowSupplier = true;
+    }
+
+    private void CloseSupplierModal()
+    {
+        ShowSupplier = false;
+    }
+
+    // private async Task HandleSubmit()
+    // {
+    //     if (editingId == null)
+    //     {
+    //         await Create();
+    //     }
+    //     else
+    //     {
+    //         await Update();
+    //     }
+    // }
+
     private async Task HandleSubmit()
     {
-        if (editingId == null)
-        {
-            await Create();
-        }
-        else
-        {
-            await Update();
-        }
-    }
-
-    private async Task Create()
-    {
         try
         {
             isLoading = true;
+            errorMessage = null;
 
-            await Api.Create(new CreateSupplierRequest
+            if (editingId == null)
             {
-                Name = form.Name,
-                Email = form.Email,
-                Phone = form.Phone,
-                TaxNumber = form.TaxNumber,
-                Country = form.Country,
-                City = form.City,
-                BankAccount = form.BankAccount
-            });
-
-            await ShowSuccess($"Supplier '{form.Name}' created successfully.");
-            Reset();
-
-            // Refresh current view
-            if (isSearching)
-            {
-                await Search();
+                await LocalSupplierService.CreateAsync(form.ToCreate());
+                await ShowSuccess("Supplier created locally.");
             }
             else
             {
-                await LoadData();
+                await LocalSupplierService.UpdateAsync(editingId.Value, form.ToUpdate(editingId.Value));
+                await ShowSuccess("Supplier updated locally.");
             }
+
+            State.InvalidateSuppliers();
+
+            Reset();
+            ShowSupplier = false;
+            await LoadData();
+
         }
         catch (Exception ex)
         {
-            await ShowError($"Failed to create supplier: {ex.Message}");
+            await ShowError(ex.Message);
         }
         finally
         {
@@ -476,70 +481,87 @@
         }
     }
 
-    private async Task Update()
+    private void HandleStateChange() => InvokeAsync(StateHasChanged);
+
+    protected override void OnInitialized()
     {
-        if (editingId == null)
-            return;
-
-        try
-        {
-            isLoading = true;
-
-            await Api.Update(editingId.Value, new UpdateSupplierRequest
-            {
-                Name = form.Name,
-                Email = form.Email,
-                Phone = form.Phone,
-                TaxNumber = form.TaxNumber,
-                Country = form.Country,
-                City = form.City,
-                BankAccount = form.BankAccount,
-                IsActive = form.IsActive
-            });
-
-            await ShowSuccess($"Supplier '{form.Name}' updated successfully.");
-            Reset();
-
-            // Refresh current view
-            if (isSearching)
-            {
-                await Search();
-            }
-            else
-            {
-                await LoadData();
-            }
-        }
-        catch (Exception ex)
-        {
-            errorMessage = $"Failed to update supplier: {ex.Message}";
-        }
-        finally
-        {
-            isLoading = false;
-        }
+        State.OnChange += HandleStateChange;
     }
+
+    public void Dispose()
+    {
+        State.OnChange -= HandleStateChange;
+    }
+
+
+    // private async Task Create()
+    // {
+    //     try
+    //     {
+    //         isLoading = true;
+    //         errorMessage = null;
+
+    //         await LocalSupplierService.CreateAsync(form.ToCreate());
+
+    //         await ShowSuccess($"Supplier '{form.Name}' created locally.");
+
+    //         Reset();
+    //         showSupplierModal = false;
+
+    //         await LoadData();
+    //     }
+    //     catch (Exception ex)
+    //     {
+    //         await ShowError($"Failed to create supplier locally: {ex.Message}");
+    //     }
+    //     finally
+    //     {
+    //         isLoading = false;
+    //     }
+    // }
+
+    // private async Task Update()
+    // {
+    //     if (editingId == null)
+    //         return;
+
+    //     try
+    //     {
+    //         isLoading = true;
+    //         errorMessage = null;
+
+    //         await LocalSupplierService.UpdateAsync(editingId.Value, form.ToUpdate(editingId.Value));
+
+    //         await ShowSuccess($"Supplier '{form.Name}' updated locally.");
+
+    //         Reset();
+    //         showSupplierModal = false;
+
+    //         await LoadData();
+    //     }
+    //     catch (Exception ex)
+    //     {
+    //         await ShowError($"Failed to update supplier locally: {ex.Message}");
+    //     }
+    //     finally
+    //     {
+    //         isLoading = false;
+    //     }
+    // }
 
     private void StartEdit(SupplierResult s)
     {
         editingId = s.Id;
-        form = new SupplierForm
-        {
-            Name = s.Name,
-            Email = s.Email,
-            Phone = s.Phone,
-            TaxNumber = s.TaxNumber,
-            Country = s.Country,
-            City = s.City,
-            BankAccount = s.BankAccount,
-            IsActive = s.IsActive
-        };
+
+        form = SupplierForm.From(s);
+
+        ShowSupplier = true;
     }
 
     private void AskDelete(SupplierResult s)
     {
         supplierToDelete = s;
-        showDelete = true;
+        ShowDelete = true;
     }
 
     private async Task ConfirmDelete()
@@ -550,27 +572,21 @@
         try
         {
             isLoading = true;
-            showDelete = false;
+            ShowDelete = false;
 
             var supplierName = supplierToDelete.Name;
-            await Api.Delete(supplierToDelete.Id);
 
-            await ShowSuccess($"Supplier '{supplierName}' deleted successfully.");
+            await LocalSupplierService.DeleteAsync(supplierToDelete.Id);
+
+            await ShowSuccess($"Supplier '{supplierName}' deleted locally.");
+
             supplierToDelete = null;
 
-            // Refresh current view
-            if (isSearching)
-            {
-                await Search();
-            }
-            else
-            {
-                await LoadData();
-            }
+            await LoadData();
         }
         catch (Exception ex)
         {
-            await ShowError($"Failed to delete supplier");
+            await ShowError($"Failed to delete supplier locally: {ex.Message}");
         }
         finally
         {
@@ -580,13 +596,14 @@
 
     private void CancelDelete()
     {
-        showDelete = false;
+        ShowDelete = false;
         supplierToDelete = null;
     }
 
     private void CancelEdit()
     {
         Reset();
+        ShowSupplier = false;
     }
 
     private void Reset()
@@ -595,6 +612,43 @@
         form = new SupplierForm();
     }
 
+    private async Task OnSearchKeyUp(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await Search();
+        }
+    }
+
+    private async Task ShowSuccess(string message)
+    {
+        successMessage = null;
+        StateHasChanged();
+
+        successMessage = message;
+        StateHasChanged();
+
+        await Task.Delay(3000).ContinueWith(_ =>
+        {
+            successMessage = null;
+            InvokeAsync(StateHasChanged);
+        });
+    }
+
+    private async Task ShowError(string message)
+    {
+        errorMessage = null;
+        StateHasChanged();
+
+        errorMessage = message;
+        StateHasChanged();
+
+        await Task.Delay(3000).ContinueWith(_ =>
+        {
+            errorMessage = null;
+            InvokeAsync(StateHasChanged);
+        });
+    }
 
     private sealed class SupplierForm
     {
@@ -602,12 +656,18 @@
         [StringLength(200, ErrorMessage = "Name cannot exceed 200 characters")]
         public string Name { get; set; } = string.Empty;
 
+        [StringLength(100, ErrorMessage = "Contact person cannot exceed 100 characters")]
+        public string? ContactPerson { get; set; }
+
         [EmailAddress(ErrorMessage = "Invalid email address")]
         [StringLength(100, ErrorMessage = "Email cannot exceed 100 characters")]
         public string? Email { get; set; }
 
         [StringLength(50, ErrorMessage = "Phone cannot exceed 50 characters")]
         public string? Phone { get; set; }
+
+        [StringLength(500, ErrorMessage = "Address cannot exceed 500 characters")]
+        public string? Address { get; set; }
 
         [StringLength(50, ErrorMessage = "Tax number cannot exceed 50 characters")]
         public string? TaxNumber { get; set; }
@@ -618,9 +678,78 @@
         [StringLength(100, ErrorMessage = "City cannot exceed 100 characters")]
         public string? City { get; set; }
 
+        [StringLength(20, ErrorMessage = "Postal code cannot exceed 20 characters")]
+        public string? PostalCode { get; set; }
+
         [StringLength(100, ErrorMessage = "Bank account cannot exceed 100 characters")]
         public string? BankAccount { get; set; }
 
+        public int PaymentTermsDays { get; set; }
+
         public bool IsActive { get; set; } = true;
+
+        [StringLength(1000, ErrorMessage = "Notes cannot exceed 1000 characters")]
+        public string? Notes { get; set; }
+
+        public CreateSupplierRequest ToCreate()
+        {
+            return new CreateSupplierRequest
+            {
+                Name = Name,
+                ContactPerson = ContactPerson,
+                Email = Email,
+                Phone = Phone,
+                Address = Address,
+                TaxNumber = TaxNumber,
+                Country = Country,
+                City = City,
+                PostalCode = PostalCode,
+                BankAccount = BankAccount,
+                PaymentTermsDays = PaymentTermsDays,
+                IsActive = IsActive,
+                Notes = Notes
+            };
+        }
+
+        public UpdateSupplierRequest ToUpdate(Guid id)
+        {
+            return new UpdateSupplierRequest
+            {
+                Id = id,
+                Name = Name,
+                ContactPerson = ContactPerson,
+                Email = Email,
+                Phone = Phone,
+                Address = Address,
+                TaxNumber = TaxNumber,
+                Country = Country,
+                City = City,
+                PostalCode = PostalCode,
+                BankAccount = BankAccount,
+                PaymentTermsDays = PaymentTermsDays,
+                IsActive = IsActive,
+                Notes = Notes
+            };
+        }
+
+        public static SupplierForm From(SupplierResult supplier)
+        {
+            return new SupplierForm
+            {
+                Name = supplier.Name,
+                ContactPerson = supplier.ContactPerson,
+                Email = supplier.Email,
+                Phone = supplier.Phone,
+                Address = supplier.Address,
+                TaxNumber = supplier.TaxNumber,
+                Country = supplier.Country,
+                City = supplier.City,
+                PostalCode = supplier.PostalCode,
+                BankAccount = supplier.BankAccount,
+                PaymentTermsDays = supplier.PaymentTermsDays,
+                IsActive = supplier.IsActive,
+                Notes = supplier.Notes
+            };
+        }
     }
 }

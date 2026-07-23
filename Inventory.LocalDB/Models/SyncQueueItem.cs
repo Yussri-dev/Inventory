@@ -1,9 +1,9 @@
 ﻿namespace Inventory.LocalDB.Models
 {
-    public class SyncQueueItem
+    public class SyncQueueItem : ILocalTenantEntity
     {
         public Guid Id { get; set; } = Guid.NewGuid();
-
+        public Guid TenantId { get; set; }
         public string EntityName { get; set; } = string.Empty;
         // Sale, Return, Customer, Product, CashMovement, StockMovement
 

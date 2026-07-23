@@ -11,7 +11,12 @@ namespace Inventory.Domain.Entities
         [Key]
         public Guid Id { get; set; }
 
-        [Required, MaxLength(100)]
+        // Stable identifier generated once by the client/outbox.
+        [Required]
+        public Guid ClientOperationId { get; set; }
+
+        [Required]
+        [MaxLength(100)]
         public string ReturnNumber { get; set; } = null!;
 
         [Required]
@@ -19,6 +24,15 @@ namespace Inventory.Domain.Entities
 
         [ForeignKey(nameof(SaleId))]
         public Sale Sale { get; set; } = null!;
+
+        /*
+         * Exact server cash session used when the refund was processed.
+         * It may reference a closed session during offline synchronization.
+         */
+        public Guid? CashSessionId { get; set; }
+
+        [ForeignKey(nameof(CashSessionId))]
+        public CashSession? CashSession { get; set; }
 
         [Column(TypeName = "decimal(18,2)")]
         public decimal TotalAmount { get; set; }
@@ -32,9 +46,10 @@ namespace Inventory.Domain.Entities
         public DateTime ReturnDate { get; set; }
 
         public bool IsProcessed { get; set; }
+
         public DateTime? ProcessedAt { get; set; }
 
-        // Navigation properties
-        public ICollection<ReturnLine> Lines { get; set; } = new List<ReturnLine>();
+        public ICollection<ReturnLine> Lines { get; set; } =
+            new List<ReturnLine>();
     }
 }

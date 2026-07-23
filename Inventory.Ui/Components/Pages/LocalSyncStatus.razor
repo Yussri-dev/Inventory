@@ -1,0 +1,298 @@
+﻿@page "/local-sync-status"
+
+@using Inventory.LocalDB.Context
+@using Inventory.LocalDB.Models
+@using Inventory.Ui.Services.Sync
+@using Microsoft.EntityFrameworkCore
+
+@inject ILocalSyncUploader LocalSyncUploader
+@inject PosLocalDbContext Db
+@inject NavigationManager Nav
+
+<div style="padding:24px;max-width:1200px;margin:auto;">
+
+    <h2>Local Sync Status</h2>
+
+    <div style="display:flex;gap:12px;margin-bottom:20px;">
+        <button @onclick="LoadData" style="padding:10px 16px;">
+            Refresh
+        </button>
+
+        <button @onclick="GoCashSessions" style="padding:10px 16px;">
+            Cash Sessions
+        </button>
+
+        <button @onclick="GoLocalPosTest" style="padding:10px 16px;">
+            Local POS Test
+        </button>
+        <button @onclick="SyncNow" style="padding:10px 16px;" disabled="@IsSyncing">
+            @(IsSyncing ? "Syncing..." : "Sync Now")
+        </button>
+    </div>
+
+
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px;">
+        <div style="padding:16px;border-radius:10px;background:#eef2ff;">
+            <strong>Pending Queue</strong>
+            <div style="font-size:26px;">@PendingQueueCount</div>
+        </div>
+
+        <div style="padding:16px;border-radius:10px;background:#ecfdf5;">
+            <strong>Local Sales</strong>
+            <div style="font-size:26px;">@Sales.Count</div>
+        </div>
+
+        <div style="padding:16px;border-radius:10px;background:#fff7ed;">
+            <strong>Stock Movements</strong>
+            <div style="font-size:26px;">@StockMovements.Count</div>
+        </div>
+
+        <div style="padding:16px;border-radius:10px;background:#fef2f2;">
+            <strong>Cash Movements</strong>
+            <div style="font-size:26px;">@CashMovements.Count</div>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(SyncMessage))
+    {
+        <div style="padding:12px;margin-bottom:16px;background:#d1fae5;color:#065f46;border-radius:8px;">
+            @SyncMessage
+        </div>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(SyncError))
+    {
+        <div style="padding:12px;margin-bottom:16px;background:#fee2e2;color:#991b1b;border-radius:8px;">
+            @SyncError
+        </div>
+    }
+
+    <h3>Pending Sync Queue</h3>
+
+    @if (SyncQueueItems.Count == 0)
+    {
+        <p>No pending sync items.</p>
+    }
+    else
+    {
+        <table style="width:100%;border-collapse:collapse;margin-bottom:32px;">
+            <thead>
+                <tr style="background:#f3f4f6;">
+                    <th style="padding:10px;text-align:left;">Entity</th>
+                    <th style="padding:10px;text-align:left;">Operation</th>
+                    <th style="padding:10px;text-align:left;">Status</th>
+                    <th style="padding:10px;text-align:left;">Attempts</th>
+                    <th style="padding:10px;text-align:left;">Created</th>
+                    <th style="padding:10px;text-align:left;">Error</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var item in SyncQueueItems)
+                {
+                    <tr style="border-bottom:1px solid #e5e7eb;">
+                        <td style="padding:10px;">@item.EntityName</td>
+                        <td style="padding:10px;">@item.Operation</td>
+                        <td style="padding:10px;">@item.Status</td>
+                        <td style="padding:10px;">@item.Attempts</td>
+                        <td style="padding:10px;">@item.CreatedAtUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</td>
+                        <td style="padding:10px;">@(item.ErrorMessage ?? "-")</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+
+    <h3>Local Sales</h3>
+
+    @if (Sales.Count == 0)
+    {
+        <p>No local sales.</p>
+    }
+    else
+    {
+        <table style="width:100%;border-collapse:collapse;margin-bottom:32px;">
+            <thead>
+                <tr style="background:#f3f4f6;">
+                    <th style="padding:10px;text-align:left;">Invoice</th>
+                    <th style="padding:10px;text-align:left;">Date</th>
+                    <th style="padding:10px;text-align:left;">Total</th>
+                    <th style="padding:10px;text-align:left;">Paid</th>
+                    <th style="padding:10px;text-align:left;">Change</th>
+                    <th style="padding:10px;text-align:left;">Payment</th>
+                    <th style="padding:10px;text-align:left;">Sync</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var sale in Sales)
+                {
+                    <tr style="border-bottom:1px solid #e5e7eb;">
+                        <td style="padding:10px;">@sale.LocalInvoiceNumber</td>
+                        <td style="padding:10px;">@sale.SaleDateUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</td>
+                        <td style="padding:10px;">€@sale.TotalAmount.ToString("F2")</td>
+                        <td style="padding:10px;">€@sale.PaidAmount.ToString("F2")</td>
+                        <td style="padding:10px;">€@sale.ChangeAmount.ToString("F2")</td>
+                        <td style="padding:10px;">@sale.PaymentStatus</td>
+                        <td style="padding:10px;">@sale.SyncStatus</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+
+    <h3>Local Stock Movements</h3>
+
+    @if (StockMovements.Count == 0)
+    {
+        <p>No local stock movements.</p>
+    }
+    else
+    {
+        <table style="width:100%;border-collapse:collapse;margin-bottom:32px;">
+            <thead>
+                <tr style="background:#f3f4f6;">
+                    <th style="padding:10px;text-align:left;">Product</th>
+                    <th style="padding:10px;text-align:left;">Type</th>
+                    <th style="padding:10px;text-align:left;">Before</th>
+                    <th style="padding:10px;text-align:left;">Change</th>
+                    <th style="padding:10px;text-align:left;">After</th>
+                    <th style="padding:10px;text-align:left;">Reference</th>
+                    <th style="padding:10px;text-align:left;">Sync</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var movement in StockMovements)
+                {
+                    <tr style="border-bottom:1px solid #e5e7eb;">
+                        <td style="padding:10px;">@movement.ProductName</td>
+                        <td style="padding:10px;">@movement.Type</td>
+                        <td style="padding:10px;">@movement.QuantityBefore</td>
+                        <td style="padding:10px;">@movement.QuantityChange</td>
+                        <td style="padding:10px;">@movement.QuantityAfter</td>
+                        <td style="padding:10px;">@(movement.ReferenceNumber ?? "-")</td>
+                        <td style="padding:10px;">@movement.SyncStatus</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+
+    <h3>Local Cash Movements</h3>
+
+    @if (CashMovements.Count == 0)
+    {
+        <p>No local cash movements.</p>
+    }
+    else
+    {
+        <table style="width:100%;border-collapse:collapse;margin-bottom:32px;">
+            <thead>
+                <tr style="background:#f3f4f6;">
+                    <th style="padding:10px;text-align:left;">Type</th>
+                    <th style="padding:10px;text-align:left;">Amount</th>
+                    <th style="padding:10px;text-align:left;">Reference</th>
+                    <th style="padding:10px;text-align:left;">Date</th>
+                    <th style="padding:10px;text-align:left;">Sync</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var movement in CashMovements)
+                {
+                    <tr style="border-bottom:1px solid #e5e7eb;">
+                        <td style="padding:10px;">@movement.Type</td>
+                        <td style="padding:10px;">€@movement.Amount.ToString("F2")</td>
+                        <td style="padding:10px;">@(movement.ReferenceNumber ?? "-")</td>
+                        <td style="padding:10px;">@movement.MovementDateUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</td>
+                        <td style="padding:10px;">@movement.SyncStatus</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+
+</div>
+
+@code {
+    private List<SyncQueueItem> SyncQueueItems = new();
+    private List<LocalSale> Sales = new();
+    private List<LocalStockMovement> StockMovements = new();
+    private List<LocalCashMovement> CashMovements = new();
+
+    private string? SyncMessage;
+    private string? SyncError;
+    private bool IsSyncing;
+
+    private int PendingQueueCount =>
+        SyncQueueItems.Count(x => x.Status == SyncQueueStatus.Pending);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        SyncQueueItems = await Db.SyncQueueItems
+            .AsNoTracking()
+            .OrderByDescending(x => x.CreatedAtUtc)
+            .Take(50)
+            .ToListAsync();
+
+        Sales = await Db.Sales
+            .AsNoTracking()
+            .OrderByDescending(x => x.SaleDateUtc)
+            .Take(50)
+            .ToListAsync();
+
+        StockMovements = await Db.StockMovements
+            .AsNoTracking()
+            .OrderByDescending(x => x.MovementDateUtc)
+            .Take(50)
+            .ToListAsync();
+
+        CashMovements = await Db.CashMovements
+            .AsNoTracking()
+            .OrderByDescending(x => x.MovementDateUtc)
+            .Take(50)
+            .ToListAsync();
+    }
+
+    private async Task SyncNow()
+    {
+        IsSyncing = true;
+        SyncMessage = null;
+        SyncError = null;
+
+        try
+        {
+            var result = await LocalSyncUploader.SyncPendingAsync();
+
+            SyncMessage =
+                $"Sync completed. Pending: {result.TotalPending}, Synced: {result.Synced}, Failed: {result.Failed}, Skipped: {result.Skipped}";
+
+            if (result.Messages.Count > 0)
+            {
+                SyncMessage += " | " + string.Join(" | ", result.Messages);
+            }
+
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            SyncError = ex.Message;
+        }
+        finally
+        {
+            IsSyncing = false;
+        }
+    }
+
+    private void GoCashSessions()
+    {
+        Nav.NavigateTo("/cashSessions");
+    }
+
+    private void GoLocalPosTest()
+    {
+        Nav.NavigateTo("/local-pos-test");
+    }
+}

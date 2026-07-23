@@ -114,265 +114,735 @@ namespace Inventory.Services
         // =========================
         // CREATE COMPLETE
         // =========================
-        public async Task<PurchaseResult> CreateCompleteAsync(CreateCompletePurchaseRequest request)
+        public async Task<PurchaseResult> CreateCompleteAsync(
+     CreateCompletePurchaseRequest request)
         {
-            var tenantId = _tenantContext.TenantId;
-            var activeCashSessionId = await _cashSessionService.EnsureActiveSessionAsync();
-
             if (request == null)
-                throw new ValidationException("Request cannot be null.");
+            {
+                throw new ValidationException(
+                    "Request cannot be null.");
+            }
 
-            if (request.Lines == null || !request.Lines.Any())
-                throw new ValidationException("Purchase must contain at least one line.");
+            var tenantId =
+                _tenantContext.TenantId;
 
-            // ── Supplier validation ─────────────────────────────────────
-            var supplier = await _supplierRepository.GetSingleAsync(s =>
-                s.Id == request.SupplierId &&
-                !s.IsDeleted &&
-                s.TenantId == tenantId);
+            if (request.ClientOperationId == Guid.Empty)
+            {
+                throw new ValidationException(
+                    "ClientOperationId is required.");
+            }
 
-            if (supplier == null)
-                throw new NotFoundException("Supplier", request.SupplierId);
+            if (request.SupplierId == Guid.Empty)
+            {
+                throw new ValidationException(
+                    "SupplierId is required.");
+            }
 
-            // ── PRELOAD PRODUCTS (NO N+1) ───────────────────────────────
-            var productIds = request.Lines.Select(l => l.ProductId).Distinct().ToList();
+            if (request.Lines == null ||
+                request.Lines.Count == 0)
+            {
+                throw new ValidationException(
+                    "Purchase must contain at least one line.");
+            }
 
-            var products = await _productRepository.Query()
-                .Include(p => p.CatalogProduct)
-                .Where(p => productIds.Contains(p.Id) && p.TenantId == tenantId)
-                .ToListAsync();
+            /*
+             * Idempotency check must happen before:
+             * - cash-session validation;
+             * - stock updates;
+             * - document-number generation;
+             * - purchase creation.
+             */
+            var existingPurchase =
+                await _repository.Query()
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(purchase =>
+                        purchase.TenantId == tenantId &&
+                        purchase.ClientOperationId ==
+                            request.ClientOperationId);
 
-            var productMap = products.ToDictionary(p => p.Id);
-
-            var catalogIds = products
-                .Select(p => p.CatalogProductId)
-                .Distinct()
-                .ToList();
-
-            // récupérer les composants des packs
-            var componentCatalogIds = catalogIds
-                .Where(c => _packService.IsPack(c))
-                .Select(c => _packService.GetComponentCatalogId(c))
-                .Where(c => c.HasValue)
-                .Select(c => c.Value)
-                .ToList();
-
-            // merge
-            var allCatalogIds = catalogIds
-                .Concat(componentCatalogIds)
-                .Distinct()
-                .ToList();
-
-            // charger tous les produits nécessaires
-            var unitProducts = await _productRepository.Query()
-                .Where(p => allCatalogIds.Contains(p.CatalogProductId) && p.TenantId == tenantId)
-                .ToListAsync();
-
-            var unitProductMap = unitProducts
-                .GroupBy(p => p.CatalogProductId)
-                .ToDictionary(g => g.Key, g => g.First());
-
-            // ── RESOLVE LINES (PACK → UNIT) ─────────────────────────────
-            var lineResolutions = new List<PurchaseLineResolution>();
+            if (existingPurchase != null)
+            {
+                return _mapper.Map<PurchaseResult>(
+                    existingPurchase);
+            }
 
             foreach (var line in request.Lines)
             {
-                if (!productMap.TryGetValue(line.ProductId, out var product))
-                    throw new NotFoundException("Product", line.ProductId);
+                if (line.ProductId == Guid.Empty)
+                {
+                    throw new ValidationException(
+                        "Every purchase line requires a ProductId.");
+                }
 
                 if (line.Quantity <= 0)
-                    throw new ValidationException("Quantity must be > 0");
-
-                var catalogId = product.CatalogProductId;
-
-                if (_packService.IsPack(catalogId))
                 {
-                    var componentCatalogId = _packService.GetComponentCatalogId(catalogId);
+                    throw new ValidationException(
+                        "Purchase quantity must be greater than zero.");
+                }
 
-                    if (!componentCatalogId.HasValue)
-                        throw new ValidationException("Pack configuration invalid.");
+                if (line.UnitPrice < 0)
+                {
+                    throw new ValidationException(
+                        "Unit purchase price cannot be negative.");
+                }
 
-                    if (!unitProductMap.TryGetValue(componentCatalogId.Value, out var unitProduct))
-                        throw new NotFoundException("Unit product", componentCatalogId.Value);
+                if (line.VatRate < 0 ||
+                    line.VatRate > 100)
+                {
+                    throw new ValidationException(
+                        "VAT rate must be between zero and 100.");
+                }
 
-                    lineResolutions.Add(new PurchaseLineResolution
+                if (line.DiscountPercent < 0 ||
+                    line.DiscountPercent > 100)
+                {
+                    throw new ValidationException(
+                        "Discount percent must be between zero and 100.");
+                }
+            }
+
+            var supplier =
+                await _supplierRepository.GetSingleAsync(
+                    supplier =>
+                        supplier.Id == request.SupplierId &&
+                        !supplier.IsDeleted &&
+                        supplier.TenantId == tenantId);
+
+            if (supplier == null)
+            {
+                throw new NotFoundException(
+                    "Supplier",
+                    request.SupplierId);
+            }
+
+            var productIds =
+                request.Lines
+                    .Select(line => line.ProductId)
+                    .Distinct()
+                    .ToList();
+
+            var products =
+                await _productRepository.Query()
+                    .Include(product =>
+                        product.CatalogProduct)
+                    .Where(product =>
+                        productIds.Contains(product.Id) &&
+                        product.TenantId == tenantId &&
+                        !product.IsDeleted)
+                    .ToListAsync();
+
+            var productMap =
+                products.ToDictionary(
+                    product => product.Id);
+
+            var missingProductId =
+                productIds.FirstOrDefault(productId =>
+                    !productMap.ContainsKey(productId));
+
+            if (missingProductId != Guid.Empty)
+            {
+                throw new NotFoundException(
+                    "Product",
+                    missingProductId);
+            }
+
+            /*
+             * Store the effective purchase price because PurchaseLine
+             * currently has no DiscountPercent property.
+             *
+             * This keeps persisted lines consistent with header totals.
+             */
+            var normalizedLines =
+                request.Lines
+                    .Select(line =>
                     {
-                        OriginalLine = line,
-                        StockProductId = unitProduct.Id,
-                        StockQuantity = _packService.GetUnitQuantity(catalogId, line.Quantity),
-                        IsPack = true,
-                        PackSize = _packService.GetPackSize(catalogId)
-                    });
-                }
-                else
-                {
-                    lineResolutions.Add(new PurchaseLineResolution
-                    {
-                        OriginalLine = line,
-                        StockProductId = line.ProductId,
-                        StockQuantity = line.Quantity,
-                        IsPack = false,
-                        PackSize = 1m
-                    });
-                }
-            }
+                        var effectiveUnitPrice =
+                            Math.Round(
+                                line.UnitPrice *
+                                (1m -
+                                 line.DiscountPercent / 100m),
+                                2,
+                                MidpointRounding.AwayFromZero);
 
-            // ── TOTALS (BACKEND AUTHORITATIVE) ──────────────────────────
-            decimal totalExclVat = 0m;
-            decimal totalVat = 0m;
+                        var lineAmountExclVat =
+                            Math.Round(
+                                line.Quantity *
+                                effectiveUnitPrice,
+                                2,
+                                MidpointRounding.AwayFromZero);
 
-            foreach (var l in request.Lines)
-            {
-                var excl = l.Quantity * l.UnitPrice * (1 - l.DiscountPercent / 100m);
-                var vat = excl * (l.VatRate / 100m);
+                        var lineVatAmount =
+                            Math.Round(
+                                lineAmountExclVat *
+                                line.VatRate /
+                                100m,
+                                2,
+                                MidpointRounding.AwayFromZero);
 
-                totalExclVat += excl;
-                totalVat += vat;
-            }
+                        return new
+                        {
+                            Source = line,
 
-            totalExclVat = Math.Round(totalExclVat, 2);
-            totalVat = Math.Round(totalVat, 2);
-            var totalInclVat = Math.Round(totalExclVat + totalVat, 2);
+                            Quantity =
+                                Math.Round(
+                                    line.Quantity,
+                                    3,
+                                    MidpointRounding.AwayFromZero),
 
-            // ── CREATE PURCHASE ─────────────────────────────────────────
-            var purchase = new Purchase
-            {
-                Id = Guid.NewGuid(),
-                TenantId = tenantId,
-                SupplierId = request.SupplierId,
-                PurchaseNumber = await _documentNumberService.GenerateAsync("PURCHASE"),
-                PurchaseDate = request.PurchaseDate == default ? DateTime.UtcNow : request.PurchaseDate,
-                TotalAmountExclVat = totalExclVat,
-                TotalVatAmount = totalVat,
-                TotalAmountInclVat = totalInclVat,
-                Status = PurchaseStatus.Received,
-                PaymentDate = request.Payment != null ? DateTime.UtcNow : null,
-                CreatedAt = DateTime.UtcNow,
-                ModifiedAt = DateTime.UtcNow
-            };
+                            EffectiveUnitPrice =
+                                effectiveUnitPrice,
 
-            await _repository.AddAsync(purchase);
+                            VatRate =
+                                Math.Round(
+                                    line.VatRate,
+                                    2,
+                                    MidpointRounding.AwayFromZero),
 
-            // ── LINES ───────────────────────────────────────────────────
-            foreach (var line in request.Lines)
-            {
-                await _purchaseLineRepository.AddAsync(new PurchaseLine
-                {
-                    Id = Guid.NewGuid(),
-                    TenantId = tenantId,
-                    PurchaseId = purchase.Id,
-                    ProductId = line.ProductId,
-                    QuantityOrdered = line.Quantity,
-                    QuantityReceived = line.Quantity,
-                    UnitPurchasePrice = line.UnitPrice,
-                    VatRate = line.VatRate
-                });
-            }
+                            AmountExclVat =
+                                lineAmountExclVat,
 
-            // ── STOCK ───────────────────────────────────────────────────
-            foreach (var group in lineResolutions.GroupBy(r => r.StockProductId))
-            {
-                var stock = await _stockRepository.GetSingleAsync(
-                    s => s.ProductId == group.Key &&
-                         !s.IsDeleted &&
-                         s.TenantId == tenantId);
+                            VatAmount =
+                                lineVatAmount
+                        };
+                    })
+                    .ToList();
 
-                var before = stock?.Quantity ?? 0;
-                var qty = group.Sum(x => x.StockQuantity);
-                var after = before + qty;
+            var totalExclVat =
+                Math.Round(
+                    normalizedLines.Sum(line =>
+                        line.AmountExclVat),
+                    2,
+                    MidpointRounding.AwayFromZero);
 
-                await _stockMovementRepository.AddAsync(new StockMovement
-                {
-                    Id = Guid.NewGuid(),
-                    TenantId = tenantId,
-                    ProductId = group.Key,
-                    Type = StockMovementType.Purchase,
-                    QuantityChange = qty,
-                    QuantityBefore = before,
-                    QuantityAfter = after,
-                    ReferenceId = purchase.Id,
-                    ReferenceNumber = purchase.PurchaseNumber,
-                    MovementDate = DateTime.UtcNow,
-                    CreatedAt = DateTime.UtcNow,
-                    ModifiedAt = DateTime.UtcNow
-                });
+            var totalVat =
+                Math.Round(
+                    normalizedLines.Sum(line =>
+                        line.VatAmount),
+                    2,
+                    MidpointRounding.AwayFromZero);
 
-                if (stock == null)
-                {
-                    await _stockRepository.AddAsync(new Stock
-                    {
-                        Id = Guid.NewGuid(),
-                        TenantId = tenantId,
-                        ProductId = group.Key,
-                        Quantity = after,
-                        CreatedAt = DateTime.UtcNow
-                    });
-                }
-                else
-                {
-                    stock.Quantity = after;
-                    stock.ModifiedAt = DateTime.UtcNow;
-                    _stockRepository.Update(stock);
-                }
-            }
+            var totalInclVat =
+                Math.Round(
+                    totalExclVat + totalVat,
+                    2,
+                    MidpointRounding.AwayFromZero);
 
-            // ── PAYMENT ─────────────────────────────────────────────────
-            decimal cashAmount = 0m;
+            PaymentMethod? paymentMethod = null;
+            Guid? activeCashSessionId = null;
 
             if (request.Payment != null)
             {
-                if (!Enum.TryParse<PaymentMethod>(request.Payment.PaymentMethod, true, out var method))
-                    throw new ValidationException("Invalid payment method.");
-
-                await _paymentRepository.AddAsync(new PurchasePayment
+                if (request.Payment.Amount <= 0)
                 {
-                    Id = Guid.NewGuid(),
-                    TenantId = tenantId,
-                    PurchaseId = purchase.Id,
-                    Method = method,
-                    Amount = request.Payment.Amount,
-                    TransactionRef = request.Payment.Reference,
-                    PaymentDate = DateTime.UtcNow,
-                    CreatedAt = DateTime.UtcNow
-                });
+                    throw new ValidationException(
+                        "Payment amount must be greater than zero.");
+                }
 
-                if (method == PaymentMethod.Cash)
-                    cashAmount = request.Payment.Amount;
+                if (request.Payment.Amount > totalInclVat)
+                {
+                    throw new ValidationException(
+                        "Payment amount cannot exceed the purchase total.");
+                }
+
+                if (!Enum.TryParse<PaymentMethod>(
+                        request.Payment.PaymentMethod,
+                        true,
+                        out var parsedMethod))
+                {
+                    throw new ValidationException(
+                        "Invalid payment method.");
+                }
+
+                paymentMethod =
+                    parsedMethod;
+
+                /*
+                 * A cash session is required only for a cash payment.
+                 * Unpaid, card or bank purchases do not need it.
+                 */
+                if (paymentMethod == PaymentMethod.Cash)
+                {
+                    activeCashSessionId =
+                        await _cashSessionService
+                            .EnsureActiveSessionAsync();
+                }
             }
 
-            // ── CASH MOVEMENT ───────────────────────────────────────────
-            if (cashAmount > 0)
+            var purchaseDate =
+                NormalizeUtc(
+                    request.PurchaseDate == default
+                        ? DateTime.UtcNow
+                        : request.PurchaseDate);
+
+            var now =
+                DateTime.UtcNow;
+
+            var purchase =
+                new Purchase
+                {
+                    Id =
+                        Guid.NewGuid(),
+
+                    TenantId =
+                        tenantId,
+
+                    ClientOperationId =
+                        request.ClientOperationId,
+
+                    SupplierId =
+                        request.SupplierId,
+
+                    PurchaseNumber =
+                        await _documentNumberService.GenerateAsync(
+                            "PURCHASE"),
+
+                    PurchaseDate =
+                        purchaseDate,
+
+                    DeliveryDate =
+                        purchaseDate,
+
+                    TotalAmountExclVat =
+                        totalExclVat,
+
+                    TotalVatAmount =
+                        totalVat,
+
+                    TotalAmountInclVat =
+                        totalInclVat,
+
+                    Status =
+                        PurchaseStatus.Received,
+
+                    PaymentDate =
+                        request.Payment != null
+                            ? now
+                            : null,
+
+                    CreatedAt =
+                        now,
+
+                    ModifiedAt =
+                        now
+                };
+
+            await _repository.AddAsync(
+                purchase);
+
+            foreach (var normalizedLine in normalizedLines)
             {
-                var last = await _cashMovementRepository.GetLastAsync(
-                    m => m.CashSessionId == activeCashSessionId &&
-                         !m.IsDeleted &&
-                         m.TenantId == tenantId,
-                    m => m.MovementDate);
+                await _purchaseLineRepository.AddAsync(
+                    new PurchaseLine
+                    {
+                        Id =
+                            Guid.NewGuid(),
 
-                var before = last?.BalanceAfter ?? 0m;
-                var after = before - cashAmount;
+                        TenantId =
+                            tenantId,
 
-                if (after < 0)
-                    throw new ValidationException("Cash drawer cannot go negative.");
+                        PurchaseId =
+                            purchase.Id,
 
-                await _cashMovementRepository.AddAsync(new CashMovement
-                {
-                    Id = Guid.NewGuid(),
-                    TenantId = tenantId,
-                    CashSessionId = activeCashSessionId,
-                    Type = CashMovementType.Withdrawal,
-                    Amount = cashAmount,
-                    BalanceBefore = before,
-                    BalanceAfter = after,
-                    ReferenceId = purchase.Id,
-                    MovementDate = DateTime.UtcNow,
-                    CreatedAt = DateTime.UtcNow
-                });
+                        ProductId =
+                            normalizedLine.Source.ProductId,
+
+                        QuantityOrdered =
+                            normalizedLine.Quantity,
+
+                        QuantityReceived =
+                            normalizedLine.Quantity,
+
+                        /*
+                         * Effective price is stored because PurchaseLine
+                         * has no separate DiscountPercent property.
+                         */
+                        UnitPurchasePrice =
+                            normalizedLine.EffectiveUnitPrice,
+
+                        VatRate =
+                            normalizedLine.VatRate
+                    });
             }
 
-            await _unitOfWork.SaveChangesAsync();
+            /*
+             * Resolve stock products.
+             * A pack purchase may increase the stock of its unit product.
+             */
+            var catalogIds =
+                products
+                    .Select(product =>
+                        product.CatalogProductId)
+                    .Distinct()
+                    .ToList();
 
-            return _mapper.Map<PurchaseResult>(purchase);
+            var componentCatalogIds =
+                catalogIds
+                    .Where(catalogId =>
+                        _packService.IsPack(catalogId))
+                    .Select(catalogId =>
+                        _packService.GetComponentCatalogId(
+                            catalogId))
+                    .Where(componentId =>
+                        componentId.HasValue)
+                    .Select(componentId =>
+                        componentId!.Value)
+                    .ToList();
+
+            var allCatalogIds =
+                catalogIds
+                    .Concat(componentCatalogIds)
+                    .Distinct()
+                    .ToList();
+
+            var requiredProducts =
+                await _productRepository.Query()
+                    .Where(product =>
+                        allCatalogIds.Contains(
+                            product.CatalogProductId) &&
+                        product.TenantId == tenantId &&
+                        !product.IsDeleted)
+                    .ToListAsync();
+
+            var productsByCatalogId =
+                requiredProducts
+                    .GroupBy(product =>
+                        product.CatalogProductId)
+                    .ToDictionary(
+                        group => group.Key,
+                        group => group.First());
+
+            var stockResolutions =
+                new List<PurchaseLineResolution>();
+
+            foreach (var normalizedLine in normalizedLines)
+            {
+                var product =
+                    productMap[
+                        normalizedLine.Source.ProductId];
+
+                var catalogId =
+                    product.CatalogProductId;
+
+                if (_packService.IsPack(catalogId))
+                {
+                    var componentCatalogId =
+                        _packService.GetComponentCatalogId(
+                            catalogId);
+
+                    if (!componentCatalogId.HasValue)
+                    {
+                        throw new ValidationException(
+                            $"Pack configuration is invalid for " +
+                            $"Product '{product.Id}'.");
+                    }
+
+                    if (!productsByCatalogId.TryGetValue(
+                            componentCatalogId.Value,
+                            out var unitProduct))
+                    {
+                        throw new NotFoundException(
+                            "Unit product",
+                            componentCatalogId.Value);
+                    }
+
+                    stockResolutions.Add(
+                        new PurchaseLineResolution
+                        {
+                            OriginalLine =
+                                normalizedLine.Source,
+
+                            StockProductId =
+                                unitProduct.Id,
+
+                            StockQuantity =
+                                _packService.GetUnitQuantity(
+                                    catalogId,
+                                    normalizedLine.Quantity),
+
+                            IsPack =
+                                true,
+
+                            PackSize =
+                                _packService.GetPackSize(
+                                    catalogId)
+                        });
+                }
+                else
+                {
+                    stockResolutions.Add(
+                        new PurchaseLineResolution
+                        {
+                            OriginalLine =
+                                normalizedLine.Source,
+
+                            StockProductId =
+                                product.Id,
+
+                            StockQuantity =
+                                normalizedLine.Quantity,
+
+                            IsPack =
+                                false,
+
+                            PackSize =
+                                1m
+                        });
+                }
+            }
+
+            foreach (var group in stockResolutions
+                         .GroupBy(resolution =>
+                             resolution.StockProductId))
+            {
+                var stock =
+                    await _stockRepository.GetSingleAsync(
+                        item =>
+                            item.ProductId == group.Key &&
+                            !item.IsDeleted &&
+                            item.TenantId == tenantId);
+
+                var quantityBefore =
+                    stock?.Quantity ?? 0m;
+
+                var quantityChange =
+                    Math.Round(
+                        group.Sum(item =>
+                            item.StockQuantity),
+                        3,
+                        MidpointRounding.AwayFromZero);
+
+                var quantityAfter =
+                    quantityBefore +
+                    quantityChange;
+
+                await _stockMovementRepository.AddAsync(
+                    new StockMovement
+                    {
+                        Id =
+                            Guid.NewGuid(),
+
+                        TenantId =
+                            tenantId,
+
+                        ProductId =
+                            group.Key,
+
+                        Type =
+                            StockMovementType.Purchase,
+
+                        QuantityChange =
+                            quantityChange,
+
+                        QuantityBefore =
+                            quantityBefore,
+
+                        QuantityAfter =
+                            quantityAfter,
+
+                        ReferenceId =
+                            purchase.Id,
+
+                        ReferenceNumber =
+                            purchase.PurchaseNumber,
+
+                        MovementDate =
+                            now,
+
+                        CreatedAt =
+                            now,
+
+                        ModifiedAt =
+                            now
+                    });
+
+                if (stock == null)
+                {
+                    await _stockRepository.AddAsync(
+                        new Stock
+                        {
+                            Id =
+                                Guid.NewGuid(),
+
+                            TenantId =
+                                tenantId,
+
+                            ProductId =
+                                group.Key,
+
+                            Quantity =
+                                quantityAfter,
+
+                            CreatedAt =
+                                now,
+
+                            ModifiedAt =
+                                now
+                        });
+                }
+                else
+                {
+                    stock.Quantity =
+                        quantityAfter;
+
+                    stock.ModifiedAt =
+                        now;
+
+                    _stockRepository.Update(
+                        stock);
+                }
+            }
+
+            if (request.Payment != null &&
+                paymentMethod.HasValue)
+            {
+                await _paymentRepository.AddAsync(
+                    new PurchasePayment
+                    {
+                        Id =
+                            Guid.NewGuid(),
+
+                        TenantId =
+                            tenantId,
+
+                        PurchaseId =
+                            purchase.Id,
+
+                        Method =
+                            paymentMethod.Value,
+
+                        Amount =
+                            Math.Round(
+                                request.Payment.Amount,
+                                2,
+                                MidpointRounding.AwayFromZero),
+
+                        TransactionRef =
+                            request.Payment.Reference,
+
+                        PaymentDate =
+                            now,
+
+                        CreatedAt =
+                            now
+                    });
+            }
+
+            if (request.Payment != null &&
+                paymentMethod == PaymentMethod.Cash &&
+                activeCashSessionId.HasValue)
+            {
+                var lastMovement =
+                    await _cashMovementRepository.GetLastAsync(
+                        movement =>
+                            movement.CashSessionId ==
+                                activeCashSessionId.Value &&
+                            !movement.IsDeleted &&
+                            movement.TenantId == tenantId,
+                        movement =>
+                            movement.MovementDate);
+
+                var balanceBefore =
+                    lastMovement?.BalanceAfter ?? 0m;
+
+                var balanceAfter =
+                    balanceBefore -
+                    request.Payment.Amount;
+
+                if (balanceAfter < 0)
+                {
+                    throw new ValidationException(
+                        "Cash drawer cannot go negative.");
+                }
+
+                await _cashMovementRepository.AddAsync(
+                    new CashMovement
+                    {
+                        Id =
+                            Guid.NewGuid(),
+
+                        TenantId =
+                            tenantId,
+
+                        CashSessionId =
+                            activeCashSessionId.Value,
+
+                        Type =
+                            CashMovementType.Withdrawal,
+
+                        Amount =
+                            Math.Round(
+                                request.Payment.Amount,
+                                2,
+                                MidpointRounding.AwayFromZero),
+
+                        BalanceBefore =
+                            balanceBefore,
+
+                        BalanceAfter =
+                            balanceAfter,
+
+                        ReferenceId =
+                            purchase.Id,
+
+                        MovementDate =
+                            now,
+
+                        CreatedAt =
+                            now
+                    });
+            }
+
+            try
+            {
+                /*
+                 * One SaveChanges means EF Core wraps all inserted and updated
+                 * rows in one database transaction.
+                 */
+                await _unitOfWork.SaveChangesAsync();
+            }
+            catch (DbUpdateException)
+            {
+                /*
+                 * Final protection against two concurrent requests using the
+                 * same ClientOperationId.
+                 */
+                var concurrentExistingPurchase =
+                    await _repository.Query()
+                        .AsNoTracking()
+                        .FirstOrDefaultAsync(item =>
+                            item.TenantId == tenantId &&
+                            item.ClientOperationId ==
+                                request.ClientOperationId);
+
+                if (concurrentExistingPurchase != null)
+                {
+                    return _mapper.Map<PurchaseResult>(
+                        concurrentExistingPurchase);
+                }
+
+                throw;
+            }
+
+            return _mapper.Map<PurchaseResult>(
+                purchase);
+        }
+
+        private static DateTime NormalizeUtc(
+    DateTime value)
+        {
+            return value.Kind switch
+            {
+                DateTimeKind.Utc =>
+                    value,
+
+                DateTimeKind.Local =>
+                    value.ToUniversalTime(),
+
+                _ =>
+                    DateTime.SpecifyKind(
+                        value,
+                        DateTimeKind.Utc)
+            };
         }
 
         // Classe helper privée

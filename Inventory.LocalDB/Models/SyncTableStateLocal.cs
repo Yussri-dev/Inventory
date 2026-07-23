@@ -1,19 +1,33 @@
-﻿namespace Inventory.LocalDB.Models
+﻿using System.ComponentModel.DataAnnotations;
+
+namespace Inventory.LocalDB.Models
 {
-    public class SyncTableStateLocal
+    public sealed class SyncTableStateLocal
     {
-        public Guid Id { get; set; } = Guid.NewGuid();
+        [Key]
+        public Guid Id { get; set; } =
+            Guid.NewGuid();
 
-        public string EntityName { get; set; } = string.Empty;
+        public Guid TenantId { get; set; }
 
-        public long LocalVersion { get; set; }
+        [Required]
+        [MaxLength(100)]
+        public string EntityName { get; set; } =
+            string.Empty;
 
-        public long ServerVersion { get; set; }
+        [Required]
+        [MaxLength(50)]
+        public string Syncmode { get; set; } =
+            SyncMode.FullSync;
 
-        public DateTime? LastSyncUtc { get; set; }
+        public bool InitialSyncCompleted { get; set; }
 
-        public string Syncmode { get; set; } = SyncMode.SimpleSync;
+        public DateTime? LastSuccessfulSyncAtUtc { get; set; }
 
-        public string? LastSyncErrorMessage { get; set; }
+        public DateTime? LastServerChangeAtUtc { get; set; }
+
+        public string? ContinuationToken { get; set; }
+
+        public string? LastError { get; set; }
     }
 }

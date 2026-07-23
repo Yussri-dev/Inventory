@@ -1,91 +1,143 @@
 ﻿@page "/stock"
-@using Inventory.Dto.Stock.Results
-@using Inventory.Dto.StockMouvements.Requests
-@using Inventory.Dto.Enums
-@using Inventory.Dto.StockMouvements.Results
 
-@inject IStockApi StockApi
-@inject IStockMovementApi StockMovementApi
+@using Inventory.LocalDB.Models
+@using Inventory.LocalDB.Services.Interfaces
+@using Inventory.Ui.Services.Sync
+
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
+
+@inject ILocalStockAdjustmentService LocalStockService
+@inject ILocalSyncUploader SyncUploader
+@inject ILocalStockSyncService StockSyncService
+@inject AppState State
+@inject ILogger<Stock> Logger
 
 <h2>Stock</h2>
+
 <div class="page-container">
-    @if (!string.IsNullOrWhiteSpace(errorMessage))
+
+    @if (!string.IsNullOrWhiteSpace(ErrorMessage))
     {
         <div class="alert error">
-            <span>@errorMessage</span>
-            <button @onclick="ClearError">x</button>
+            <span>@ErrorMessage</span>
+
+            <button type="button"
+                    @onclick="ClearError">
+                x
+            </button>
         </div>
     }
 
-    @if (!string.IsNullOrWhiteSpace(successMessage))
+    @if (!string.IsNullOrWhiteSpace(SuccessMessage))
     {
         <div class="alert success">
-            <span>@successMessage</span>
-            <button @onclick="ClearSuccess">x</button>
+            <span>@SuccessMessage</span>
+
+            <button type="button"
+                    @onclick="ClearSuccess">
+                x
+            </button>
         </div>
     }
 
     <div class="card">
-        <h4>Search Product</h4>
+        <div class="stock-toolbar">
+            <div>
+                <h4>Local stock</h4>
+
+                <p class="muted">
+                    Adjustments are saved to SQLite first and synchronized later.
+                </p>
+            </div>
+
+            <button type="button"
+                    class="btn primary"
+                    @onclick="SynchronizeAsync"
+                    disabled="@IsBusy">
+                @(IsSynchronizing
+                    ? "Synchronizing..."
+                    : "Synchronize")
+            </button>
+        </div>
+    </div>
+
+    <div class="card">
+        <h4>Search product</h4>
+
         <div class="search-grid">
             <input type="text"
                    placeholder="Search by name or barcode..."
                    class="search-input"
-                   @bind="searchTerm"
+                   @bind="SearchTerm"
                    @bind:event="oninput"
                    @onkeyup="OnSearchKeyUp"
-                   disabled="@isLoading" />
+                   disabled="@IsBusy" />
+
             <div class="search-actions">
-                <button class="btn primary" @onclick="Search" disabled="@isLoading">
+                <button type="button"
+                        class="btn primary"
+                        @onclick="SearchAsync"
+                        disabled="@IsBusy">
                     Search
                 </button>
-                <button class="btn ghost" @onclick="ClearSearch" disabled="@isLoading">
+
+                <button type="button"
+                        class="btn ghost"
+                        @onclick="ClearSearchAsync"
+                        disabled="@IsBusy">
                     Clear
                 </button>
             </div>
         </div>
     </div>
 
-    @if (isLoadingData)
+    @if (IsLoadingData)
     {
         <div class="loading-container">
-            <p>Loading Stock ...</p>
+            <p>Loading local stock...</p>
         </div>
     }
-    else if (Stocks == null || Stocks.Count == 0)
+    else if (Stocks.Count == 0)
     {
-        <p>@(isSearching ? "No Product found matching your search." : "No Products")</p>
+        <p>
+            @(IsSearching
+                ? "No local product matched your search."
+                : "No local stock is available.")
+        </p>
     }
     else
     {
         <div class="pager">
-            <button class="btn ghost" disabled="@(Page == 1)"
-                    @onclick="() => ChangePage(Page - 1)">
+            <button type="button"
+                    class="btn ghost"
+                    disabled="@(Page <= 1 || IsBusy)"
+                    @onclick="() => ChangePageAsync(Page - 1)">
                 Prev
             </button>
 
             <span class="muted">
-                Page @Page / @(Math.Ceiling((double)TotalCount / PageSize))
+                Page @Page / @TotalPages
             </span>
 
-            <button class="btn ghost"
-                    disabled="@(Page* PageSize >= TotalCount)"
-                    @onclick="() => ChangePage(Page + 1)">
+            <button type="button"
+                    class="btn ghost"
+                    disabled="@(Page >= TotalPages || IsBusy)"
+                    @onclick="() => ChangePageAsync(Page + 1)">
                 Next
             </button>
         </div>
 
         <div class="card stock-card">
-
             <table class="table stock-table">
                 <thead>
                     <tr>
-                        @* <th>#</th> *@
                         <th>Product</th>
+                        <th>Barcode</th>
                         <th>Total</th>
                         <th>Reserved</th>
                         <th>Available</th>
-                        <th>Last Update</th>
+                        <th>Last update</th>
+                        <th>Sync</th>
                         <th></th>
                     </tr>
                 </thead>
@@ -93,294 +145,716 @@
                 <tbody>
                     @foreach (var stock in Stocks)
                     {
-                        <tr class="@(SelectedStock?.Id == stock.Id ? "selected" : "")"
+                        <tr class="@(SelectedStock?.Id == stock.Id
+                                ? "selected"
+                                : string.Empty)"
                             @onclick="() => Select(stock)">
 
-                            @* <td class="mono muted">@stock.ProductId</td> *@
-                            <td>@stock.Name</td>
-                            <td>@stock.Quantity</td>
-                            <td>@stock.ReservedQuantity</td>
-                            <td class="available @(stock.AvailableQuantity <= 0 ? "danger" : stock.AvailableQuantity < 10 ? "warning" : "ok")">
-                                @stock.AvailableQuantity
+                            <td>@stock.ProductName</td>
+
+                            <td class="mono muted">
+                                @(stock.ProductBarcode ?? "-")
                             </td>
-                            <td>@stock.LastUpdated.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</td>
+
                             <td>
-                                <button class="btn small ghost"
+                                @FormatQuantity(stock.Quantity)
+                            </td>
+
+                            <td>
+                                @FormatQuantity(stock.ReservedQuantity)
+                            </td>
+
+                            <td class="available @GetAvailabilityClass(stock)">
+                                @FormatQuantity(stock.AvailableQuantity)
+                            </td>
+
+                            <td>
+                                @stock.LastUpdatedUtc
+                                    .ToLocalTime()
+                                    .ToString("dd/MM/yyyy HH:mm")
+                            </td>
+
+                            <td>
+                                @if (stock.LastSyncedAtUtc.HasValue)
+                                {
+                                    <span class="status-badge synced">
+                                        Synced
+                                    </span>
+                                }
+                                else
+                                {
+                                    <span class="status-badge local">
+                                        Local
+                                    </span>
+                                }
+                            </td>
+
+                            <td>
+                                <button type="button"
+                                        class="btn small ghost"
                                         @onclick="() => OpenAdjust(stock)"
-                                        @onclick:stopPropagation="true">
+                                        @onclick:stopPropagation="true"
+                                        disabled="@IsBusy">
                                     Adjust
                                 </button>
-                              @*   <button class="btn small ghost"
-                                        @onclick="() => OpenHistory(stock)"
-                                        @onclick:stopPropagation="true">
+
+                                <button type="button"
+                                        class="btn small ghost"
+                                        @onclick="() => OpenHistoryAsync(stock)"
+                                        @onclick:stopPropagation="true"
+                                        disabled="@IsBusy">
                                     History
-                                </button> *@
+                                </button>
                             </td>
                         </tr>
                     }
                 </tbody>
             </table>
-
         </div>
     }
 
-
-    @if (ShowHistory && SelectedStock != null)
+    @if (ShowHistory &&
+         SelectedStock != null)
     {
         <div class="side-drawer">
             <div class="drawer-header">
-                <h3>Stock history</h3>
-                <button class="btn ghost" @onclick="CloseHistory">✕</button>
+                <h3>Local stock history</h3>
+
+                <button type="button"
+                        class="btn ghost"
+                        @onclick="CloseHistory">
+                    ✕
+                </button>
             </div>
 
-            <p class="muted">@SelectedStock.Name</p>
+            <p class="muted">
+                @SelectedStock.ProductName
+            </p>
 
-            <table class="table history-table">
-                <thead>
-                    <tr>
-                        <th>Date</th>
-                        <th>Type</th>
-                        <th>Δ</th>
-                        <th>Before</th>
-                        <th>After</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach (var m in Movements)
-                    {
+            @if (IsLoadingHistory)
+            {
+                <p>Loading history...</p>
+            }
+            else if (Movements.Count == 0)
+            {
+                <p>No local movement found.</p>
+            }
+            else
+            {
+                <table class="table history-table">
+                    <thead>
                         <tr>
-                            <td>@m.MovementDate.ToLocalTime().ToString("dd/MM HH:mm")</td>
-                            <td>@m.Type</td>
-                            <td class="@(m.QuantityChange > 0 ? "ok" : "danger")">
-                                @m.QuantityChange
-                            </td>
-                            <td>@m.QuantityBefore</td>
-                            <td>@m.QuantityAfter</td>
+                            <th>Date</th>
+                            <th>Type</th>
+                            <th>Δ</th>
+                            <th>Before</th>
+                            <th>After</th>
+                            <th>Sync</th>
                         </tr>
-                    }
-                </tbody>
-            </table>
+                    </thead>
+
+                    <tbody>
+                        @foreach (var movement in Movements)
+                        {
+                            <tr>
+                                <td>
+                                    @movement.MovementDateUtc
+                                        .ToLocalTime()
+                                        .ToString("dd/MM HH:mm")
+                                </td>
+
+                                <td>@movement.Type</td>
+
+                                <td class="@(movement.QuantityChange >= 0m
+                                        ? "ok"
+                                        : "danger")">
+                                    @FormatSignedQuantity(
+                                        movement.QuantityChange)
+                                </td>
+
+                                <td>
+                                    @FormatQuantity(
+                                        movement.QuantityBefore)
+                                </td>
+
+                                <td>
+                                    @FormatQuantity(
+                                        movement.QuantityAfter)
+                                </td>
+
+                                <td>
+                                    @movement.SyncStatus
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
         </div>
     }
-
 </div>
 
-<!-- ADJUSTMENT MODAL -->
-@if (ShowAdjustModal && SelectedStock != null)
+@if (ShowAdjustModal &&
+     SelectedStock != null)
 {
-    <div class="modal-overlay" @onclick="CloseAdjust">
-        <div class="modal-content" @onclick:stopPropagation="true">
+    <div class="modal-overlay"
+         @onclick="CloseAdjust">
 
-            <h3>Adjust stock</h3>
+        <div class="modal-content"
+             @onclick:stopPropagation="true">
 
-            <p><strong>Product: @SelectedStock.Name</strong></p>
+            <h3>Adjust local stock</h3>
+
+            <p>
+                <strong>
+                    Product: @SelectedStock.ProductName
+                </strong>
+            </p>
 
             <div class="form-group">
                 <label>Current quantity</label>
-                <input class="form-input" value="@SelectedStock.Quantity" disabled />
+
+                <input class="form-input"
+                       value="@FormatQuantity(SelectedStock.Quantity)"
+                       disabled />
+            </div>
+
+            <div class="form-group">
+                <label>Reserved quantity</label>
+
+                <input class="form-input"
+                       value="@FormatQuantity(SelectedStock.ReservedQuantity)"
+                       disabled />
             </div>
 
             <div class="form-group">
                 <label>New quantity</label>
+
                 <input type="number"
                        class="form-input"
                        step="0.001"
-                       @bind="NewQuantity" />
+                       min="@SelectedStock.ReservedQuantity"
+                       @bind="NewQuantity"
+                       disabled="@IsSavingAdjustment" />
+            </div>
+
+            <div class="form-group">
+                <label>Difference</label>
+
+                <input class="form-input"
+                       value="@FormatSignedQuantity(AdjustmentDelta)"
+                       disabled />
             </div>
 
             <div class="form-group">
                 <label>Notes</label>
+
                 <input class="form-input"
-                       @bind="Notes" />
+                       maxlength="500"
+                       @bind="Notes"
+                       disabled="@IsSavingAdjustment" />
             </div>
 
             <div class="modal-footer">
-                <button class="btn secondary" @onclick="CloseAdjust">Cancel</button>
-                <button class="btn primary" @onclick="ConfirmAdjust">Confirm</button>
-            </div>
+                <button type="button"
+                        class="btn secondary"
+                        @onclick="CloseAdjust"
+                        disabled="@IsSavingAdjustment">
+                    Cancel
+                </button>
 
+                <button type="button"
+                        class="btn primary"
+                        @onclick="ConfirmAdjustAsync"
+                        disabled="@(IsSavingAdjustment ||
+                                    AdjustmentDelta == 0m)">
+                    @(IsSavingAdjustment
+                        ? "Saving..."
+                        : "Confirm")
+                </button>
+            </div>
         </div>
     </div>
 }
 
 @code {
+    private string? ErrorMessage;
+    private string? SuccessMessage;
 
-    private string? errorMessage;
-    private string? successMessage;
-    private bool isLoading;
-    private bool isLoadingData;
-    private string searchTerm = string.Empty;
-    private bool isSearching;
+    private bool IsLoadingData;
+    private bool IsLoadingHistory;
+    private bool IsSavingAdjustment;
+    private bool IsSynchronizing;
 
-    int Page = 1;
-    int PageSize = 25;
-    int TotalCount;
+    private bool IsBusy =>
+        IsLoadingData ||
+        IsLoadingHistory ||
+        IsSavingAdjustment ||
+        IsSynchronizing;
 
-    bool ShowHistory;
+    private string SearchTerm =
+        string.Empty;
 
-    private List<StockResult>? Stocks;
+    private bool IsSearching;
 
-    List<StockMouvementResult> Movements = new();
-    StockResult? SelectedStock;
+    private int Page =
+        1;
 
-    bool ShowAdjustModal;
-    decimal NewQuantity;
-    string Notes = "Manual stock adjustment";
+    private int PageSize =
+        25;
 
-    private async Task OnSearchKeyUp(KeyboardEventArgs e)
+    private int TotalCount;
+
+    private int TotalPages =>
+        Math.Max(
+            1,
+            (int)Math.Ceiling(
+                TotalCount /
+                (double)PageSize));
+
+    private List<LocalStock> Stocks =
+        new();
+
+    private List<LocalStockMovement> Movements =
+        new();
+
+    private LocalStock? SelectedStock;
+
+    private bool ShowHistory;
+    private bool ShowAdjustModal;
+
+    private decimal NewQuantity;
+
+    private decimal AdjustmentDelta =>
+        SelectedStock == null
+            ? 0m
+            : RoundQuantity(
+                NewQuantity -
+                SelectedStock.Quantity);
+
+    private string Notes =
+        "Manual stock adjustment";
+
+    protected override async Task OnInitializedAsync()
     {
-        if (e.Key == "Enter")
+        await LoadDataAsync();
+    }
+
+    private async Task OnSearchKeyUp(
+        KeyboardEventArgs args)
+    {
+        if (string.Equals(
+                args.Key,
+                "Enter",
+                StringComparison.OrdinalIgnoreCase))
         {
-            await Search();
+            await SearchAsync();
         }
     }
-    private async Task ClearSearch()
+
+    private async Task LoadDataAsync()
     {
-        searchTerm = string.Empty;
-        isSearching = false;
-        Page = 1;
-        await LoadData();
+        try
+        {
+            IsLoadingData =
+                true;
+
+            ErrorMessage =
+                null;
+
+            var effectiveSearch =
+                IsSearching
+                    ? SearchTerm
+                    : null;
+
+            TotalCount =
+                await LocalStockService
+                    .CountAsync(
+                        effectiveSearch);
+
+            if (Page >
+                TotalPages)
+            {
+                Page =
+                    TotalPages;
+            }
+
+            Stocks =
+                (await LocalStockService
+                    .SearchAsync(
+                        effectiveSearch,
+                        Page,
+                        PageSize))
+                .ToList();
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(
+                exception,
+                "Failed to load local stocks.");
+
+            ErrorMessage =
+                $"Error loading local stock: " +
+                $"{exception.GetBaseException().Message}";
+
+            Stocks =
+                new List<LocalStock>();
+
+            TotalCount =
+                0;
+        }
+        finally
+        {
+            IsLoadingData =
+                false;
+        }
+    }
+
+    private async Task SearchAsync()
+    {
+        IsSearching =
+            !string.IsNullOrWhiteSpace(
+                SearchTerm);
+
+        Page =
+            1;
+
+        await LoadDataAsync();
+    }
+
+    private async Task ClearSearchAsync()
+    {
+        SearchTerm =
+            string.Empty;
+
+        IsSearching =
+            false;
+
+        Page =
+            1;
+
+        await LoadDataAsync();
+    }
+
+    private async Task ChangePageAsync(
+        int newPage)
+    {
+        Page =
+            Math.Clamp(
+                newPage,
+                1,
+                TotalPages);
+
+        await LoadDataAsync();
+    }
+
+    private void Select(
+        LocalStock stock)
+    {
+        SelectedStock =
+            stock;
+    }
+
+    private void OpenAdjust(
+        LocalStock stock)
+    {
+        SelectedStock =
+            stock;
+
+        NewQuantity =
+            stock.Quantity;
+
+        Notes =
+            "Manual stock adjustment";
+
+        ShowAdjustModal =
+            true;
+    }
+
+    private void CloseAdjust()
+    {
+        if (IsSavingAdjustment)
+        {
+            return;
+        }
+
+        ShowAdjustModal =
+            false;
+
+        SelectedStock =
+            null;
+
+        NewQuantity =
+            0m;
+
+        Notes =
+            "Manual stock adjustment";
+    }
+
+    private async Task ConfirmAdjustAsync()
+    {
+        if (SelectedStock ==
+            null)
+        {
+            return;
+        }
+
+        if (NewQuantity <
+            0m)
+        {
+            ErrorMessage =
+                "The new quantity cannot be negative.";
+
+            return;
+        }
+
+        if (NewQuantity <
+            SelectedStock.ReservedQuantity)
+        {
+            ErrorMessage =
+                "The new quantity cannot be lower than " +
+                "the reserved quantity.";
+
+            return;
+        }
+
+        if (AdjustmentDelta ==
+            0m)
+        {
+            CloseAdjust();
+
+            return;
+        }
+
+        try
+        {
+            IsSavingAdjustment =
+                true;
+
+            var productName =
+                SelectedStock.ProductName;
+
+            await LocalStockService
+                .AdjustAsync(
+                    SelectedStock.Id,
+                    NewQuantity,
+                    Notes);
+
+            CloseAdjustAfterSave();
+
+            State.InvalidatePos();
+
+            await LoadDataAsync();
+
+            SuccessMessage =
+                $"Stock for '{productName}' was updated locally. " +
+                "The adjustment is waiting for synchronization.";
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(
+                exception,
+                "Failed to adjust local stock {StockId}.",
+                SelectedStock.Id);
+
+            ErrorMessage =
+                exception
+                    .GetBaseException()
+                    .Message;
+        }
+        finally
+        {
+            IsSavingAdjustment =
+                false;
+        }
+    }
+
+    private void CloseAdjustAfterSave()
+    {
+        ShowAdjustModal =
+            false;
+
+        SelectedStock =
+            null;
+
+        NewQuantity =
+            0m;
+
+        Notes =
+            "Manual stock adjustment";
+    }
+
+    private async Task OpenHistoryAsync(
+        LocalStock stock)
+    {
+        try
+        {
+            SelectedStock =
+                stock;
+
+            ShowHistory =
+                true;
+
+            IsLoadingHistory =
+                true;
+
+            Movements =
+                (await LocalStockService
+                    .GetHistoryAsync(
+                        stock.ProductLocalId,
+                        100))
+                .ToList();
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(
+                exception,
+                "Failed to load local stock history.");
+
+            ErrorMessage =
+                exception
+                    .GetBaseException()
+                    .Message;
+
+            Movements =
+                new List<LocalStockMovement>();
+        }
+        finally
+        {
+            IsLoadingHistory =
+                false;
+        }
+    }
+
+    private void CloseHistory()
+    {
+        ShowHistory =
+            false;
+
+        Movements.Clear();
+
+        SelectedStock =
+            null;
+    }
+
+    private async Task SynchronizeAsync()
+    {
+        try
+        {
+            IsSynchronizing =
+                true;
+
+            ErrorMessage =
+                null;
+
+            SuccessMessage =
+                null;
+
+            /*
+             * 1. Push every general pending operation first:
+             * products, purchases, sales, damages, etc.
+             */
+            var uploadResult =
+                await SyncUploader
+                    .SyncPendingAsync();
+
+            /*
+             * Do not pull server stock when one of the general
+             * operations failed. A pending sale/purchase could have
+             * already changed SQLite stock.
+             */
+            if (uploadResult.Failed >
+                0)
+            {
+                ErrorMessage =
+                    $"Synchronization stopped before stock pull. " +
+                    $"{uploadResult.Failed} upload operation(s) failed.";
+
+                return;
+            }
+
+            /*
+             * 2. LocalStockSyncService pushes manual stock
+             * adjustments and then pulls authoritative server stock.
+             */
+            await StockSyncService
+                .FullSyncAsync();
+
+            State.InvalidatePos();
+
+            await LoadDataAsync();
+
+            SuccessMessage =
+                $"Synchronization completed. " +
+                $"{uploadResult.Synced} general operation(s) uploaded.";
+        }
+        catch (HttpRequestException)
+        {
+            ErrorMessage =
+                "The API is offline. Local changes remain queued.";
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(
+                exception,
+                "Stock synchronization failed.");
+
+            ErrorMessage =
+                exception
+                    .GetBaseException()
+                    .Message;
+        }
+        finally
+        {
+            IsSynchronizing =
+                false;
+        }
+    }
+
+    private static string GetAvailabilityClass(
+        LocalStock stock)
+    {
+        return stock.AvailableQuantity <= 0m
+            ? "danger"
+            : stock.AvailableQuantity < 10m
+                ? "warning"
+                : "ok";
+    }
+
+    private static string FormatQuantity(
+        decimal value)
+    {
+        return value.ToString(
+            "0.###",
+            System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    private static string FormatSignedQuantity(
+        decimal value)
+    {
+        return value.ToString(
+            "+0.###;-0.###;0",
+            System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    private static decimal RoundQuantity(
+        decimal value)
+    {
+        return Math.Round(
+            value,
+            3,
+            MidpointRounding.AwayFromZero);
     }
 
     private void ClearError()
     {
-        errorMessage = null;
+        ErrorMessage =
+            null;
     }
 
     private void ClearSuccess()
     {
-        successMessage = null;
-    }
-
-    protected override async Task OnInitializedAsync()
-    {
-        await LoadData();
-    }
-
-    private async Task LoadData()
-    {
-        try
-        {
-            isLoadingData = true;
-            errorMessage = null;
-
-            var query = new StockQuery
-            {
-                Page = Page,
-                PageSize = PageSize,
-                Search = isSearching ? searchTerm : null
-            };
-
-            var response = await StockApi.Search(query);
-
-            Stocks = response.Items?.ToList() ?? new List<StockResult>();
-            TotalCount = response.TotalCount;
-        }
-        catch (Exception ex)
-        {
-            errorMessage = $"Error loading stock: {ex.Message}";
-            Stocks = new List<StockResult>();
-        }
-        finally
-        {
-            isLoadingData = false;
-        }
-    }
-
-    private async Task Search()
-    {
-        if (string.IsNullOrWhiteSpace(searchTerm))
-        {
-            isSearching = false;
-            Page = 1;
-            await LoadData();
-            return;
-        }
-        isSearching = true;
-        Page = 1;
-        await LoadData();
-    }
-    void Select(StockResult stock)
-    {
-        SelectedStock = stock;
-    }
-
-    void OpenAdjust(StockResult stock)
-    {
-        SelectedStock = stock;
-        NewQuantity = stock.Quantity;
-        Notes = "Manual stock adjustment";
-        ShowAdjustModal = true;
-    }
-
-    void CloseAdjust()
-    {
-        ShowAdjustModal = false;
-        SelectedStock = null;
-    }
-
-    async Task ChangePage(int newPage)
-    {
-        Page = newPage;
-        await LoadData();
-    }
-
-    async Task ConfirmAdjust()
-    {
-        if (SelectedStock == null)
-            return;
-
-        var delta = NewQuantity - SelectedStock.Quantity;
-
-        if (delta == 0)
-        {
-            CloseAdjust();
-            return;
-        }
-
-        // FULLY VALID REQUEST — matches DTO exactly
-        // await StockMovementApi.Create(new CreateStockMouvementRequest
-        // {
-        //     ProductId = SelectedStock.ProductId,
-        //     QuantityChange = delta,
-        //     QuantityBefore = SelectedStock.Quantity,
-        //     QuantityAfter = NewQuantity,
-        //     Type = StockMovementType.Adjustment,
-        //     Notes = Notes,
-        //     MovementDate = DateTime.UtcNow
-        // });
-        await StockMovementApi.Create(new CreateStockMouvementRequest
-        {
-            ProductId = SelectedStock.ProductId,
-            QuantityChange = delta,
-            Type = StockMovementType.Adjustment,
-            Notes = Notes
-        });
-
-
-        await LoadData();
-        CloseAdjust();
-    }
-
-    // async Task OpenHistory(StockResult stock)
-    // {
-    //     SelectedStock = stock;
-
-    //     var result = await StockMovementApi.Search(new StockMouvementQuery
-    //     {
-    //         ProductId = stock.ProductId,
-    //         Page = 1,
-    //         PageSize = 50
-    //     });
-
-    //     Movements = result.Items;
-    //     ShowHistory = true;
-    // }
-
-
-    void CloseHistory()
-    {
-        ShowHistory = false;
-        Movements.Clear();
+        SuccessMessage =
+            null;
     }
 }

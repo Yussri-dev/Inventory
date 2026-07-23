@@ -1,51 +1,66 @@
-﻿
-using Inventory.Domain.Abstraction;
+﻿using Inventory.Domain.Abstraction;
 using Inventory.Dto.Enums;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
-namespace Inventory.Domain.Entities
+namespace Inventory.Domain.Entities;
+
+public class Purchase : TenantEntity
 {
-    public class Purchase : TenantEntity
-    {
-        [Key]
-        public Guid Id { get; set; }
+    [Key]
+    public Guid Id { get; set; }
 
-        [Required]
-        public Guid SupplierId { get; set; }
+    [Required]
+    public Guid SupplierId { get; set; }
 
-        [ForeignKey(nameof(SupplierId))]
-        public Supplier Supplier { get; set; } = null!;
+    /*
+     * Identifiant envoyé par le client offline.
+     *
+     * Une même valeur ne doit produire qu'un seul achat
+     * pour un tenant donné.
+     */
+    [Required]
+    public Guid ClientOperationId { get; set; } =
+        Guid.NewGuid();
 
-        [Required, MaxLength(100)]
-        public string PurchaseNumber { get; set; } = null!;
+    [ForeignKey(nameof(SupplierId))]
+    public Supplier Supplier { get; set; } = null!;
 
-        [MaxLength(100)]
-        public string? SupplierInvoiceNumber { get; set; }
+    [Required, MaxLength(100)]
+    public string PurchaseNumber { get; set; } =
+        string.Empty;
 
-        [Column(TypeName = "decimal(18,2)")]
-        public decimal TotalAmountExclVat { get; set; }
+    [MaxLength(100)]
+    public string? SupplierInvoiceNumber { get; set; }
 
-        [Column(TypeName = "decimal(18,2)")]
-        public decimal TotalVatAmount { get; set; }
+    [Column(TypeName = "decimal(18,2)")]
+    public decimal TotalAmountExclVat { get; set; }
 
-        [Column(TypeName = "decimal(18,2)")]
-        public decimal TotalAmountInclVat { get; set; }
+    [Column(TypeName = "decimal(18,2)")]
+    public decimal TotalVatAmount { get; set; }
 
-        [Required]
-        public PurchaseStatus Status { get; set; }
+    [Column(TypeName = "decimal(18,2)")]
+    public decimal TotalAmountInclVat { get; set; }
 
-        public DateTime PurchaseDate { get; set; }
-        public DateTime? ExpectedDeliveryDate { get; set; }
-        public DateTime? DeliveryDate { get; set; }
-        public DateTime? PaymentDueDate { get; set; }
-        public DateTime? PaymentDate { get; set; }
+    [Required]
+    public PurchaseStatus Status { get; set; }
 
-        [MaxLength(1000)]
-        public string? Notes { get; set; }
+    public DateTime PurchaseDate { get; set; }
 
-        // Navigation properties
-        public ICollection<PurchaseLine> Lines { get; set; } = new List<PurchaseLine>();
-        public ICollection<PurchasePayment> Payments { get; set; } = new List<PurchasePayment>();
-    }
+    public DateTime? ExpectedDeliveryDate { get; set; }
+
+    public DateTime? DeliveryDate { get; set; }
+
+    public DateTime? PaymentDueDate { get; set; }
+
+    public DateTime? PaymentDate { get; set; }
+
+    [MaxLength(1000)]
+    public string? Notes { get; set; }
+
+    public ICollection<PurchaseLine> Lines { get; set; } =
+        new List<PurchaseLine>();
+
+    public ICollection<PurchasePayment> Payments { get; set; } =
+        new List<PurchasePayment>();
 }

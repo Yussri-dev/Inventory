@@ -21,12 +21,22 @@ namespace Inventory.Infrastructure.Data
             base.OnModelCreating(builder);
 
 
-            builder.Entity<ApplicationUser>()
-                .HasOne(user => user.Tenant)
-                .WithMany()
-                .HasForeignKey(user => user.TenantId)
-                .IsRequired(false)
-                .OnDelete(DeleteBehavior.Restrict);
+            builder.Entity<ApplicationUser>(
+     entity =>
+     {
+         entity.HasOne(user =>
+                 user.Tenant)
+             .WithMany(tenant =>
+                 tenant.Users)
+             .HasForeignKey(user =>
+                 user.TenantId)
+             .IsRequired(false)
+             .OnDelete(
+                 DeleteBehavior.Restrict);
+
+         entity.HasIndex(user =>
+             user.TenantId);
+     });
 
             // ============================
             // INDEXES FOR PERFORMANCE
@@ -37,12 +47,61 @@ namespace Inventory.Infrastructure.Data
             builder.Entity<Customer>().HasIndex(e => e.TenantId);
             builder.Entity<Supplier>().HasIndex(e => e.TenantId);
             builder.Entity<Sale>().HasIndex(e => e.TenantId);
-            builder.Entity<Purchase>().HasIndex(e => e.TenantId);
+
+            builder.Entity<Purchase>()
+            .HasIndex(purchase => new
+            {
+                purchase.TenantId,
+                purchase.ClientOperationId
+            })
+            .IsUnique();
+
             builder.Entity<Stock>().HasIndex(e => e.TenantId);
             builder.Entity<StockMovement>().HasIndex(e => e.TenantId);
             builder.Entity<CashSession>().HasIndex(e => e.TenantId);
             builder.Entity<Payment>().HasIndex(e => e.TenantId);
-            builder.Entity<Return>().HasIndex(e => e.TenantId);
+
+            builder.Entity<Return>(entity =>
+            {
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.ClientOperationId
+                })
+                .IsUnique();
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.CashSessionId
+                });
+
+                entity.HasOne(x => x.Sale)
+                    .WithMany()
+                    .HasForeignKey(x => x.SaleId)
+                    .OnDelete(DeleteBehavior.Restrict);
+
+                entity.HasOne(x => x.CashSession)
+                    .WithMany()
+                    .HasForeignKey(x => x.CashSessionId)
+                    .OnDelete(DeleteBehavior.Restrict);
+
+                entity.Property(x => x.ReturnNumber)
+                    .HasMaxLength(100)
+                    .IsRequired();
+
+                entity.Property(x => x.TotalAmount)
+                    .HasPrecision(18, 2);
+
+                entity.Property(x => x.Reason)
+                    .HasMaxLength(1000);
+
+                entity.Property(x => x.RefundMethod)
+                    .HasConversion<string>()
+                    .HasMaxLength(50);
+            });
+
+
             builder.Entity<SupplierReturn>().HasIndex(e => e.TenantId);
             builder.Entity<Damage>().HasIndex(e => e.TenantId);
             builder.Entity<InventorySession>().HasIndex(e => e.TenantId);

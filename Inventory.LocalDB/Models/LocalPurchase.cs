@@ -3,16 +3,21 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Inventory.LocalDB.Models
 {
-    public class LocalPurchase
+    public class LocalPurchase : ILocalTenantEntity
     {
         [Key]
         public Guid Id { get; set; } = Guid.NewGuid();
 
         public Guid? ServerId { get; set; }
+        public Guid TenantId { get; set; }
 
         public Guid ClientOperationId { get; set; } = Guid.NewGuid();
 
-        public Guid? SupplierLocalId { get; set; }
+        [Required]
+        public Guid SupplierLocalId { get; set; }
+
+        [Required, MaxLength(200)]
+        public string SupplierName { get; set; } = string.Empty;
 
         public Guid? SupplierServerId { get; set; }
 
@@ -54,7 +59,7 @@ namespace Inventory.LocalDB.Models
         public string SyncStatus { get; set; } = SyncQueueStatus.Pending;
 
         public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
-
+        public DateTime? ModifiedAtUtc { get; set; }
         public DateTime? LastSyncedAtUtc { get; set; }
 
         public ICollection<LocalPurchaseLine> Lines { get; set; } = new List<LocalPurchaseLine>();

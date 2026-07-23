@@ -3,17 +3,19 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Inventory.LocalDB.Models
 {
-    public class LocalStock
+    public class LocalStock : ILocalTenantEntity
     {
         [Key]
         public Guid Id { get; set; } = Guid.NewGuid();
+
+        public Guid TenantId { get; set; }
 
         public Guid? ServerId { get; set; }
 
         [Required]
         public Guid ProductLocalId { get; set; }
 
-        public Guid ProductServerId { get; set; }
+        public Guid? ProductServerId { get; set; }
 
         [MaxLength(200)]
         public string ProductName { get; set; } = string.Empty;

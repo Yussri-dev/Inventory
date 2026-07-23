@@ -1,5 +1,6 @@
 ﻿using Inventory.Dto.CashSessions.Requests;
 using Inventory.Dto.CashSessions.Results;
+using Inventory.Dto.Pages.Results;
 using Inventory.Dto.Queries;
 using Inventory.Services.Features.CashSession.Close;
 using Inventory.Services.Features.CashSession.Create;
@@ -13,148 +14,221 @@ using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
-namespace Inventory.Api.Controllers
+namespace Inventory.Api.Controllers;
+
+[ApiController]
+[ApiVersion("1.0")]
+[Route("api/v{version:apiVersion}/cashsessions")]
+[Authorize]
+public sealed class CashSessionsController : ControllerBase
 {
-    [ApiController]
-    [ApiVersion("1.0")]
-    [Route("api/v{version:apiVersion}/cashsessions")]
+    private readonly IMediator _mediator;
 
-    [Authorize]
-    public class CashSessionsController : ControllerBase
+    public CashSessionsController(
+        IMediator mediator)
     {
-        private readonly IMediator _mediator;
-        public CashSessionsController(IMediator mediator)
-        {
-            _mediator = mediator;
-        }
+        _mediator = mediator;
+    }
 
+    // =========================
+    // GET ACTIVE SERVER SESSION
+    // =========================
 
-        [HttpGet("active")]
-        [ProducesResponseType(typeof(CashSessionResult), StatusCodes.Status200OK)]
-        [ProducesResponseType(StatusCodes.Status404NotFound)]
-        public async Task<IActionResult> GetActive(CancellationToken cancellationToken)
-        {
-            var result = await _mediator.Send(
-                new GetActiveCashSessionQuery(),
-                cancellationToken
-            );
-
-            return result == null ? NoContent() : Ok(result);
-        }
-
-
-
-        [HttpPost]
-        [ProducesResponseType(typeof(object), StatusCodes.Status201Created)]
-        [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        [ProducesResponseType(StatusCodes.Status409Conflict)]
-        public async Task<IActionResult> Create(
-            [FromBody] CreateCashSessionRequest request,
-
-            CancellationToken cancellationToken)
-        {
-            if (!ModelState.IsValid)
-                return BadRequest(ModelState);
-
-            var result = await _mediator.Send(
-                new CreateCashSessionCommand(request),
-                cancellationToken
-            );
-            return CreatedAtAction(
-                nameof(GetById),
-                new { version = "1.0", id = result.Id },
-                result
-            );
-        }
-
-        [HttpGet("{id:guid}")]
-        [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
-        [ProducesResponseType(StatusCodes.Status404NotFound)]
-        public async Task<IActionResult> GetById(Guid id, CancellationToken cancellationToken)
-        {
-            var result = await _mediator.Send(
-                new GetCashSessionByIdQuery(id),
-                cancellationToken
-            );
-            return Ok(result);
-        }
-
-        [HttpGet]
-        [ProducesResponseType(typeof(List<object>), StatusCodes.Status200OK)] // List of products
-        public async Task<IActionResult> GetAll(CancellationToken cancellationToken)
-        {
-            var results = await _mediator.Send(
-                new GetAllCashSessionsQuery(),
-                cancellationToken
-            );
-            return Ok(results);
-        }
-
-        [HttpPut("{id:guid}")]
-        [ProducesResponseType(typeof(object), StatusCodes.Status200OK)] // Updated
-        [ProducesResponseType(StatusCodes.Status400BadRequest)]          // Invalid payload
-        [ProducesResponseType(StatusCodes.Status404NotFound)]            // Not found
-        [ProducesResponseType(StatusCodes.Status409Conflict)]            // Conflict
-        public async Task<IActionResult> Update(
-            Guid id,
-            [FromBody] UpdateCashSessionRequest request,
-            CancellationToken cancellationToken)
-        {
-            if (!ModelState.IsValid)
-                return BadRequest(ModelState);
-            var result = await _mediator.Send(
-                new UpdateCashSessionCommand(id, request),
-                cancellationToken
-            );
-            return Ok(result);
-        }
-
-        [HttpDelete("{id:guid}")]
-        [ProducesResponseType(StatusCodes.Status204NoContent)] // Deleted
-        [ProducesResponseType(StatusCodes.Status404NotFound)]  // Not found
-        public async Task<IActionResult> Delete(Guid id, CancellationToken cancellationToken)
-        {
+    [HttpGet("active")]
+    [ProducesResponseType(
+        typeof(CashSessionResult),
+        StatusCodes.Status200OK)]
+    [ProducesResponseType(
+        StatusCodes.Status204NoContent)]
+    public async Task<ActionResult<CashSessionResult>> GetActive(
+        CancellationToken cancellationToken)
+    {
+        var result =
             await _mediator.Send(
-                new DeleteCashSessionCommand(id),
-                cancellationToken
-            );
+                new GetActiveCashSessionQuery(),
+                cancellationToken);
+
+        if (result == null)
+        {
             return NoContent();
         }
 
-        [HttpGet("search")]
-        [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
-        [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        public async Task<IActionResult> Search(
-            [FromQuery] CashSessionQuery query,
+        return Ok(result);
+    }
 
-            CancellationToken cancellationToken)
-        {
-            var result = await _mediator.Send(
-                new SearchCashSessionsQuery(query),
-                cancellationToken
-            );
-            return Ok(result);
-        }
+    // =========================
+    // CREATE / OPEN
+    // =========================
 
-        [HttpPost("{id:guid}/close")]
-        [ProducesResponseType(typeof(CashSessionResult), StatusCodes.Status200OK)]
-        [ProducesResponseType(StatusCodes.Status404NotFound)]
-        [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        public async Task<IActionResult> Close(
-            Guid id,
-            [FromBody] CloseCashSessionRequest request,
-            CancellationToken cancellationToken)
-        {
-            if (!ModelState.IsValid)
-                return BadRequest(ModelState);
+    [HttpPost]
+    [ProducesResponseType(
+        typeof(CashSessionResult),
+        StatusCodes.Status201Created)]
+    [ProducesResponseType(
+        StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(
+        StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<CashSessionResult>> Create(
+        [FromBody] CreateCashSessionRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result =
+            await _mediator.Send(
+                new CreateCashSessionCommand(
+                    request),
+                cancellationToken);
 
-            var result = await _mediator.Send(
-                new CloseCashSessionCommand(id, request),
-                cancellationToken
-            );
+        return CreatedAtAction(
+            nameof(GetById),
+            new
+            {
+                version = "1.0",
+                id = result.Id
+            },
+            result);
+    }
 
-            return Ok(result);
-        }
+    // =========================
+    // GET BY ID
+    // =========================
 
+    [HttpGet("{id:guid}")]
+    [ProducesResponseType(
+        typeof(CashSessionResult),
+        StatusCodes.Status200OK)]
+    [ProducesResponseType(
+        StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<CashSessionResult>> GetById(
+        Guid id,
+        CancellationToken cancellationToken)
+    {
+        var result =
+            await _mediator.Send(
+                new GetCashSessionByIdQuery(
+                    id),
+                cancellationToken);
+
+        return Ok(result);
+    }
+
+    // =========================
+    // GET ALL
+    // =========================
+
+    [HttpGet]
+    [ProducesResponseType(
+        typeof(List<CashSessionResult>),
+        StatusCodes.Status200OK)]
+    public async Task<ActionResult<List<CashSessionResult>>> GetAll(
+        CancellationToken cancellationToken)
+    {
+        var results =
+            await _mediator.Send(
+                new GetAllCashSessionsQuery(),
+                cancellationToken);
+
+        return Ok(results);
+    }
+
+    // =========================
+    // UPDATE
+    // =========================
+
+    [HttpPut("{id:guid}")]
+    [ProducesResponseType(
+        typeof(CashSessionResult),
+        StatusCodes.Status200OK)]
+    [ProducesResponseType(
+        StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(
+        StatusCodes.Status404NotFound)]
+    [ProducesResponseType(
+        StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<CashSessionResult>> Update(
+        Guid id,
+        [FromBody] UpdateCashSessionRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result =
+            await _mediator.Send(
+                new UpdateCashSessionCommand(
+                    id,
+                    request),
+                cancellationToken);
+
+        return Ok(result);
+    }
+
+    // =========================
+    // DELETE
+    // =========================
+
+    [HttpDelete("{id:guid}")]
+    [ProducesResponseType(
+        StatusCodes.Status204NoContent)]
+    [ProducesResponseType(
+        StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(
+        StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> Delete(
+        Guid id,
+        CancellationToken cancellationToken)
+    {
+        await _mediator.Send(
+            new DeleteCashSessionCommand(
+                id),
+            cancellationToken);
+
+        return NoContent();
+    }
+
+    // =========================
+    // SEARCH / QUERY
+    // =========================
+
+    [HttpGet("search")]
+    [ProducesResponseType(
+        typeof(PagedResult<CashSessionResult>),
+        StatusCodes.Status200OK)]
+    [ProducesResponseType(
+        StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<PagedResult<CashSessionResult>>> Search(
+        [FromQuery] CashSessionQuery query,
+        CancellationToken cancellationToken)
+    {
+        var result =
+            await _mediator.Send(
+                new SearchCashSessionsQuery(
+                    query),
+                cancellationToken);
+
+        return Ok(result);
+    }
+
+    // =========================
+    // CLOSE
+    // =========================
+
+    [HttpPost("{id:guid}/close")]
+    [ProducesResponseType(
+        typeof(CashSessionResult),
+        StatusCodes.Status200OK)]
+    [ProducesResponseType(
+        StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(
+        StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<CashSessionResult>> Close(
+        Guid id,
+        [FromBody] CloseCashSessionRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result =
+            await _mediator.Send(
+                new CloseCashSessionCommand(
+                    id,
+                    request),
+                cancellationToken);
+
+        return Ok(result);
     }
 }

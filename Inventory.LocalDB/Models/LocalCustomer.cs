@@ -1,49 +1,56 @@
-﻿using System;
-using System.Collections.Generic;
-using System.ComponentModel;
-using System.ComponentModel.DataAnnotations;
-using System.ComponentModel.DataAnnotations.Schema;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿using System.ComponentModel.DataAnnotations;
 
-namespace Inventory.LocalDB.Models
+namespace Inventory.LocalDB.Models;
+
+public sealed class LocalCustomer : ILocalTenantEntity
 {
-    public class LocalCustomer
-    {
-        [Key]
-        public Guid Id { get; set; } = Guid.NewGuid();
+    [Key]
+    public Guid Id { get; set; } =
+        Guid.NewGuid();
 
-        public Guid? ServerId { get; set; }
+    public Guid? ServerId { get; set; }
 
-        [MaxLength(200)]
-        public string Name { get; set; } = string.Empty;
+    public Guid TenantId { get; set; }
 
-        [MaxLength(100)]
-        public string? Email { get; set; }
+    [Required]
+    [MaxLength(200)]
+    public string Name { get; set; } =
+        string.Empty;
 
-        [MaxLength(50)]
-        public string? Phone { get; set; }
+    [MaxLength(200)]
+    public string? Email { get; set; }
 
-        [MaxLength(500)]
-        public string? Address { get; set; }
+    [MaxLength(50)]
+    public string? Phone { get; set; }
 
-        [MaxLength(50)]
-        public string? TaxNumber { get; set; }
+    [MaxLength(500)]
+    public string? Address { get; set; }
 
-        [Column(TypeName = "decimal(18,2)")]
-        public decimal CreditLimit { get; set; }
+    [MaxLength(100)]
+    public string? TaxNumber { get; set; }
 
-        [Column(TypeName = "decimal(18,2)")]
-        public decimal CurrentBalance { get; set; }
+    public decimal CreditLimit { get; set; }
 
-        public bool IsActive { get; set; } = true;
+    public decimal CurrentBalance { get; set; }
 
-        [MaxLength(1000)]
-        public string? Notes { get; set; }
+    public bool IsActive { get; set; } =
+        true;
 
-        public DateTime? LastSyncedAtUtc { get; set; }
+    public bool IsDeleted { get; set; }
 
-        public bool IsDeletedLocally { get; set; }
-    }
+    [MaxLength(1000)]
+    public string? Notes { get; set; }
+
+    [MaxLength(50)]
+    public string SyncStatus { get; set; } =
+        SyncQueueStatus.Pending;
+
+    public DateTime CreatedAtUtc { get; set; } =
+        DateTime.UtcNow;
+
+    public DateTime? ModifiedAtUtc { get; set; }
+
+    public DateTime? DeletedAtUtc { get; set; }
+
+    public DateTime? LastSyncedAtUtc { get; set; }
 }

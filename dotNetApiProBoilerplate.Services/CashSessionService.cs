@@ -15,7 +15,6 @@ namespace Inventory.Services
     public class CashSessionService : ICashSessionService
     {
         private readonly IRepository<CashSession> _repository;
-        private readonly IRepository<Sale> _saleRepository;
         private readonly IRepository<CashMovement> _cashMovementRepository;
         private readonly IUnitOfWork _unitOfWork;
         private readonly IMapper _mapper;
@@ -23,14 +22,12 @@ namespace Inventory.Services
 
         public CashSessionService(
             IRepository<CashSession> repository,
-            IRepository<Sale> saleRepository,
             IRepository<CashMovement> cashMovementRepository,
             IUnitOfWork unitOfWork,
             IMapper mapper,
             ITenantContext tenantContext)
         {
             _repository = repository;
-            _saleRepository = saleRepository;
             _cashMovementRepository = cashMovementRepository;
             _unitOfWork = unitOfWork;
             _mapper = mapper;
@@ -79,125 +76,371 @@ namespace Inventory.Services
         // =========================
         // CREATE (OPEN SESSION)
         // =========================
-        public async Task<CashSessionResult> CreateAsync(CreateCashSessionRequest request)
+        public async Task<CashSessionResult> CreateAsync(
+            CreateCashSessionRequest request)
         {
-            var tenantId = _tenantContext.TenantId;
-            var userId = _tenantContext.UserId;
+            ArgumentNullException.ThrowIfNull(request);
 
-            // Vérifier qu'il n'y a pas déjà une session ouverte
-            var existingOpenSession = await _repository.GetSingleAsync(
-                cs => cs.TenantId == tenantId &&
-                      cs.Status == CashSessionStatus.Open &&
-                      !cs.IsDeleted);
+            var tenantId =
+                _tenantContext.TenantId;
+
+            var userId =
+                _tenantContext.UserId;
+
+            if (request.ClientOperationId ==
+                Guid.Empty)
+            {
+                throw new ValidationException(
+                    new Dictionary<string, string[]>
+                    {
+                        {
+                            nameof(request.ClientOperationId),
+                            new[]
+                            {
+                                "ClientOperationId is required."
+                            }
+                        }
+                    });
+            }
+
+            if (request.OpeningAmount <
+                0m)
+            {
+                throw new ValidationException(
+                    new Dictionary<string, string[]>
+                    {
+                        {
+                            nameof(request.OpeningAmount),
+                            new[]
+                            {
+                                "OpeningAmount cannot be negative."
+                            }
+                        }
+                    });
+            }
+
+            /*
+             * Check idempotency first. A retry of the same local
+             * operation returns the previously created server session.
+             */
+            var existingByOperation =
+                await _repository.GetSingleAsync(
+                    session =>
+                        session.TenantId == tenantId &&
+                        session.ClientOperationId ==
+                            request.ClientOperationId &&
+                        !session.IsDeleted);
+
+            if (existingByOperation != null)
+            {
+                return _mapper.Map<CashSessionResult>(
+                    existingByOperation);
+            }
+
+            /*
+             * An open session with another ClientOperationId is a real
+             * business conflict and must not be linked automatically.
+             */
+            var existingOpenSession =
+                await _repository.GetSingleAsync(
+                    session =>
+                        session.TenantId == tenantId &&
+                        session.Status ==
+                            CashSessionStatus.Open &&
+                        !session.IsDeleted);
 
             if (existingOpenSession != null)
             {
                 throw new ConflictException(
-                    $"A cash session is already open (Session #{existingOpenSession.SessionNumber}). Close it before opening a new one.");
+                    $"A different cash session is already open " +
+                    $"(Session #{existingOpenSession.SessionNumber}). " +
+                    "Close it before uploading this offline session.");
             }
 
-            var cashSession = _mapper.Map<CashSession>(request);
+            var now =
+                DateTime.UtcNow;
 
-            cashSession.Id = Guid.NewGuid();
-            cashSession.TenantId = tenantId;
-            cashSession.CreatedByUserId = userId;
-            cashSession.OpenedByUserId = userId;
-            cashSession.OpenedAt = DateTime.UtcNow;
-            cashSession.Status = CashSessionStatus.Open;
-            cashSession.OpeningAmount = request.OpeningAmount;
-            cashSession.ClosingAmountExpected = request.OpeningAmount;
-            cashSession.CreatedAt = DateTime.UtcNow;
-            cashSession.ModifiedAt = DateTime.UtcNow;
+            var openedAt =
+                EnsureUtc(
+                    request.OpenedAtUtc ??
+                    now);
 
-            // Générer le numéro de session
-            var sessionCount = (await _repository.GetAllAsync())
-                .Count(s => s.TenantId == tenantId);
-            cashSession.SessionNumber = $"CS-{DateTime.UtcNow:yyyyMMdd}-{(sessionCount + 1):D4}";
+            var openingAmount =
+                RoundMoney(
+                    request.OpeningAmount);
 
-            await _repository.AddAsync(cashSession);
+            var cashSession =
+                _mapper.Map<CashSession>(
+                    request);
 
-            await _cashMovementRepository.AddAsync(new CashMovement
-            {
-                Id = Guid.NewGuid(),
-                TenantId = tenantId,
-                CashSessionId = cashSession.Id,
-                Type = CashMovementType.Opening,
-                Amount = request.OpeningAmount,
-                BalanceBefore = 0,
-                BalanceAfter = request.OpeningAmount,
-                Reason = "Session opening",
-                MovementDate = DateTime.UtcNow,
-                CreatedAt = DateTime.UtcNow
-            });
+            cashSession.Id =
+                Guid.NewGuid();
 
+            cashSession.TenantId =
+                tenantId;
+
+            cashSession.ClientOperationId =
+                request.ClientOperationId;
+
+            cashSession.CreatedByUserId =
+                userId;
+
+            cashSession.OpenedByUserId =
+                userId;
+
+            cashSession.OpenedAt =
+                openedAt;
+
+            cashSession.Status =
+                CashSessionStatus.Open;
+
+            cashSession.OpeningAmount =
+                openingAmount;
+
+            cashSession.ClosingAmountExpected =
+                openingAmount;
+
+            cashSession.ClosingAmountCounted =
+                0m;
+
+            cashSession.Difference =
+                0m;
+
+            cashSession.OpeningNotes =
+                NormalizeNullable(
+                    request.OpeningNotes);
+
+            cashSession.CreatedAt =
+                now;
+
+            cashSession.ModifiedAt =
+                now;
+
+            cashSession.SessionNumber =
+                GenerateSessionNumber(
+                    openedAt);
+
+            await _repository.AddAsync(
+                cashSession);
+
+            await _cashMovementRepository.AddAsync(
+                new CashMovement
+                {
+                    Id =
+                        Guid.NewGuid(),
+
+                    TenantId =
+                        tenantId,
+
+                    CashSessionId =
+                        cashSession.Id,
+
+                    Type =
+                        CashMovementType.Opening,
+
+                    Amount =
+                        openingAmount,
+
+                    BalanceBefore =
+                        0m,
+
+                    BalanceAfter =
+                        openingAmount,
+
+                    Reason =
+                        "Session opening",
+
+                    MovementDate =
+                        openedAt,
+
+                    CreatedAt =
+                        now
+                });
 
             await _unitOfWork.SaveChangesAsync();
 
-            return _mapper.Map<CashSessionResult>(cashSession);
+            return _mapper.Map<CashSessionResult>(
+                cashSession);
         }
+
 
         // =========================
         // CLOSE SESSION
         // =========================
-        public async Task<CashSessionResult> CloseSessionAsync(Guid id, CloseCashSessionRequest request)
+        public async Task<CashSessionResult> CloseSessionAsync(
+            Guid id,
+            CloseCashSessionRequest request)
         {
-            var tenantId = _tenantContext.TenantId;
-            var userId = _tenantContext.UserId;
+            ArgumentNullException.ThrowIfNull(request);
 
-            var cashSession = await _repository.GetByIdAsync(id);
+            if (id == Guid.Empty)
+            {
+                throw new ValidationException(
+                    new Dictionary<string, string[]>
+                    {
+                        {
+                            nameof(id),
+                            new[]
+                            {
+                                "Cash session id is required."
+                            }
+                        }
+                    });
+            }
 
-            if (cashSession == null || cashSession.IsDeleted)
-                throw new NotFoundException("CashSession", id);
+            if (request.ActualCash < 0m)
+            {
+                throw new ValidationException(
+                    new Dictionary<string, string[]>
+                    {
+                        {
+                            nameof(request.ActualCash),
+                            new[]
+                            {
+                                "ActualCash cannot be negative."
+                            }
+                        }
+                    });
+            }
 
-            if (!_tenantContext.IsSuperAdmin && cashSession.TenantId != tenantId)
-                throw new NotFoundException("CashSession", id);
+            var userId =
+                _tenantContext.UserId;
 
-            if (cashSession.Status != CashSessionStatus.Open)
-                throw new ValidationException(new Dictionary<string, string[]>
-        {
-            { "Status", new[] { "Cash session is not open." } }
-        });
+            var cashSession =
+                await _repository.GetByIdAsync(id);
 
-            var cashMovements = (await _cashMovementRepository.GetAllAsync())
-                .Where(cm =>
-                    cm.CashSessionId == id &&
-                    !cm.IsDeleted &&
-                    (_tenantContext.IsSuperAdmin || cm.TenantId == tenantId))
-                .OrderBy(cm => cm.MovementDate)  // ✅ CHANGÉ: tri croissant
-                .ToList();
+            if (cashSession == null ||
+                cashSession.IsDeleted ||
+                !CanAccessTenant(cashSession.TenantId))
+            {
+                throw new NotFoundException(
+                    "CashSession",
+                    id);
+            }
 
+            /*
+             * Idempotent close:
+             * when the server committed but the response was lost,
+             * the retry returns the already-closed session.
+             */
+            if (cashSession.Status ==
+                CashSessionStatus.Closed)
+            {
+                return _mapper.Map<CashSessionResult>(
+                    cashSession);
+            }
+
+            if (cashSession.Status !=
+                CashSessionStatus.Open)
+            {
+                throw new ValidationException(
+                    new Dictionary<string, string[]>
+                    {
+                        {
+                            nameof(cashSession.Status),
+                            new[]
+                            {
+                                "Cash session is not open."
+                            }
+                        }
+                    });
+            }
+
+            var cashMovements =
+                (await _cashMovementRepository.GetAllAsync())
+                    .Where(movement =>
+                        movement.CashSessionId == id &&
+                        movement.TenantId ==
+                            cashSession.TenantId &&
+                        !movement.IsDeleted)
+                    .OrderBy(movement =>
+                        movement.MovementDate)
+                    .ThenBy(movement =>
+                        movement.CreatedAt)
+                    .ToList();
+
+            /*
+             * BalanceAfter is authoritative. OpeningAmount is the
+             * fallback for legacy sessions without movement rows.
+             */
             var expectedCash =
-                cashMovements.LastOrDefault()?.BalanceAfter
-                ?? cashSession.OpeningAmount;
+                RoundMoney(
+                    cashMovements.LastOrDefault()?.BalanceAfter
+                    ?? cashSession.OpeningAmount);
 
-            cashSession.ClosingAmountExpected = expectedCash;
-            cashSession.ClosingAmountCounted = request.ActualCash;
-            cashSession.Difference = request.ActualCash - expectedCash;
-            cashSession.ClosingNotes = request.ClosingNotes;
-            cashSession.Status = CashSessionStatus.Closed;
-            cashSession.ClosedAt = DateTime.UtcNow;
-            cashSession.ClosedByUserId = userId;
-            cashSession.ModifiedAt = DateTime.UtcNow;
+            var actualCash =
+                RoundMoney(
+                    request.ActualCash);
 
-            _repository.Update(cashSession);
+            var now =
+                DateTime.UtcNow;
+
+            cashSession.ClosingAmountExpected =
+                expectedCash;
+
+            cashSession.ClosingAmountCounted =
+                actualCash;
+
+            cashSession.Difference =
+                RoundMoney(
+                    actualCash -
+                    expectedCash);
+
+            cashSession.ClosingNotes =
+                NormalizeNullable(
+                    request.ClosingNotes);
+
+            cashSession.Status =
+                CashSessionStatus.Closed;
+
+            cashSession.ClosedAt =
+                now;
+
+            cashSession.ClosedByUserId =
+                userId;
+
+            cashSession.ModifiedAt =
+                now;
+
+            cashSession.ModifiedByUserId =
+                userId;
+
+            _repository.Update(
+                cashSession);
+
             await _unitOfWork.SaveChangesAsync();
 
-            return _mapper.Map<CashSessionResult>(cashSession);
+            return _mapper.Map<CashSessionResult>(
+                cashSession);
         }
+
         // =========================
         // GET BY ID
         // =========================
-        public async Task<CashSessionResult> GetByIdAsync(Guid id)
+        public async Task<CashSessionResult> GetByIdAsync(
+            Guid id)
         {
-            var tenantId = _tenantContext.TenantId;
-            var cashSession = await _repository.GetByIdAsync(id);
-
-            if (cashSession is null || cashSession.IsDeleted || cashSession.TenantId != tenantId)
+            if (id == Guid.Empty)
             {
-                throw new NotFoundException("CashSession", id);
+                throw new NotFoundException(
+                    "CashSession",
+                    id);
             }
 
-            return _mapper.Map<CashSessionResult>(cashSession);
+            var cashSession =
+                await _repository.GetByIdAsync(id);
+
+            if (cashSession is null ||
+                cashSession.IsDeleted ||
+                !CanAccessTenant(cashSession.TenantId))
+            {
+                throw new NotFoundException(
+                    "CashSession",
+                    id);
+            }
+
+            return _mapper.Map<CashSessionResult>(
+                cashSession);
         }
 
 
@@ -210,19 +453,13 @@ namespace Inventory.Services
             return source.Where(s => s.TenantId == tenantId).AsQueryable();
         }
 
-        public async Task<CashSessionResult?> GetActiveAsync()
+        /*
+         * Compatibility wrapper. Keep one canonical implementation and
+         * remove this method later if the interface no longer exposes it.
+         */
+        public Task<CashSessionResult?> GetActiveAsync()
         {
-            var tenantId = _tenantContext.TenantId;
-
-            var session = await _repository.GetSingleAsync(
-                s => s.TenantId == tenantId
-                  && s.Status == CashSessionStatus.Open
-                  && !s.IsDeleted
-            );
-
-            return session == null
-                ? null
-                : _mapper.Map<CashSessionResult>(session);
+            return GetActiveSessionAsync();
         }
 
 
@@ -247,14 +484,17 @@ namespace Inventory.Services
         // =========================
         public async Task<CashSessionResult> UpdateAsync(Guid id, UpdateCashSessionRequest request)
         {
-            var tenantId = _tenantContext.TenantId;
             var userId = _tenantContext.UserId;
 
             var cashSession = await _repository.GetByIdAsync(id);
 
-            if (cashSession is null || cashSession.IsDeleted || cashSession.TenantId != tenantId)
+            if (cashSession is null ||
+                cashSession.IsDeleted ||
+                !CanAccessTenant(cashSession.TenantId))
             {
-                throw new NotFoundException("CashSession", id);
+                throw new NotFoundException(
+                    "CashSession",
+                    id);
             }
 
             if (cashSession.Status == CashSessionStatus.Closed)
@@ -280,14 +520,17 @@ namespace Inventory.Services
         // =========================
         public async Task<bool> DeleteAsync(Guid id)
         {
-            var tenantId = _tenantContext.TenantId;
             var userId = _tenantContext.UserId;
 
             var cashSession = await _repository.GetByIdAsync(id);
 
-            if (cashSession is null || cashSession.IsDeleted || cashSession.TenantId != tenantId)
+            if (cashSession is null ||
+                cashSession.IsDeleted ||
+                !CanAccessTenant(cashSession.TenantId))
             {
-                throw new NotFoundException("CashSession", id);
+                throw new NotFoundException(
+                    "CashSession",
+                    id);
             }
 
             if (cashSession.Status == CashSessionStatus.Open)
@@ -307,6 +550,61 @@ namespace Inventory.Services
             await _unitOfWork.SaveChangesAsync();
 
             return true;
+        }
+
+        private bool CanAccessTenant(
+            Guid entityTenantId)
+        {
+            return _tenantContext.IsSuperAdmin ||
+                   entityTenantId ==
+                       _tenantContext.TenantId;
+        }
+
+        private static string GenerateSessionNumber(
+            DateTime openedAtUtc)
+        {
+            /*
+             * Count + 1 is unsafe across concurrent devices and can be
+             * reused after deletions. The timestamp plus a random suffix
+             * remains readable and practically unique.
+             */
+            return $"CS-{openedAtUtc:yyyyMMdd-HHmmss}-" +
+                   $"{Guid.NewGuid():N}"[..4].ToUpperInvariant();
+        }
+
+        private static DateTime EnsureUtc(
+            DateTime value)
+        {
+            return value.Kind switch
+            {
+                DateTimeKind.Utc =>
+                    value,
+
+                DateTimeKind.Local =>
+                    value.ToUniversalTime(),
+
+                _ =>
+                    DateTime.SpecifyKind(
+                        value,
+                        DateTimeKind.Utc)
+            };
+        }
+
+        private static decimal RoundMoney(
+            decimal value)
+        {
+            return Math.Round(
+                value,
+                2,
+                MidpointRounding.AwayFromZero);
+        }
+
+        private static string? NormalizeNullable(
+            string? value)
+        {
+            return string.IsNullOrWhiteSpace(value)
+                ? null
+                : value.Trim();
         }
 
         // =========================

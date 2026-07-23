@@ -1,52 +1,103 @@
 ﻿@page "/returns"
-@using Inventory.Dto.Enums
-@using Inventory.Dto.Receipts
-@using Inventory.Dto.SaleLines.Results
-@using Inventory.Dto.Sales.Results
-@using Inventory.Dto.Returns.Requests
 
+@using Inventory.Dto.Enums
+@using Inventory.LocalDB.Models
+@using Inventory.LocalDB.Services.Interfaces
+@using Inventory.LocalDB.Services.Results
+
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
+
+@inject ILocalReturnService LocalReturnService
 @inject IJSRuntime JS
-@inject IProductApi ProductApi
-@inject ISaleApi SaleApi
-@inject ISaleLineApi SaleLineApi
-@inject IReturnApi ReturnApi
-@inject ICustomerApi CustomerApi
+@inject AppState State
 @inject NavigationManager Navigation
+@inject ILogger<Returns> Logger
+
+@if (!string.IsNullOrWhiteSpace(SuccessMessage))
+{
+    <div class="toast-success">
+        <span>@SuccessMessage</span>
+    </div>
+}
+
+@if (!string.IsNullOrWhiteSpace(ErrorMessage))
+{
+    <div class="toast-error">
+        <span>@ErrorMessage</span>
+    </div>
+}
 
 <div class="sale-container">
-    <!-- LEFT COLUMN: Return Cart & Totals -->
-    <div class="sale-left" @onclick="() => FocusSaleSearchInput()">
-        <!-- Header: Return Info -->
+
+    <!-- LEFT: RETURN CART -->
+    <div class="sale-left"
+         @onclick="FocusSaleSearchInputAsync">
+
         <div class="card header-section">
             <div class="sale-info">
                 <div>
-                    <strong class="title">Return</strong>
-                    <span class="muted">Lines: @ReturnLines.Count</span>
+                    <strong class="title">Local return</strong>
+
+                    <span class="muted">
+                        Lines: @ReturnLines.Count
+                    </span>
                 </div>
             </div>
+
             @if (OriginalSale != null)
             {
                 <div class="customer-section">
-                    <label>Original Sale</label>
+                    <label>Original sale</label>
+
                     <div class="original-sale-info">
-                        <strong>@OriginalSale.InvoiceNumber</strong>
-                        <span class="muted">@OriginalSale.SaleDate.ToString("dd/MM/yyyy")</span>
-                        @if (OriginalSale.CustomerId.HasValue)
+                        <strong>
+                            @OriginalSale.LocalInvoiceNumber
+                        </strong>
+
+                        @if (!string.IsNullOrWhiteSpace(
+                                OriginalSale.ServerInvoiceNumber))
                         {
-                            <span class="muted">Customer ID: @OriginalSale.CustomerId</span>
+                            <span class="muted">
+                                Server:
+                                @OriginalSale.ServerInvoiceNumber
+                            </span>
+                        }
+
+                        <span class="muted">
+                            @OriginalSale.SaleDateUtc
+                                .ToLocalTime()
+                                .ToString("dd/MM/yyyy HH:mm")
+                        </span>
+
+                        @if (!string.IsNullOrWhiteSpace(
+                                OriginalSale.CustomerName))
+                        {
+                            <span class="muted">
+                                Customer:
+                                @OriginalSale.CustomerName
+                            </span>
+                        }
+
+                        @if (!OriginalSale.ServerSaleId.HasValue)
+                        {
+                            <span class="badge warning">
+                                Sale waiting for synchronization
+                            </span>
                         }
                     </div>
                 </div>
             }
         </div>
 
-        <!-- Return Cart Table -->
         <div class="card cart-table">
             @if (ReturnLines.Count == 0)
             {
                 <div class="empty-state">
                     <p>No items selected for return</p>
-                    <p class="muted">Search for a sale and select items to return</p>
+
+                    <p class="muted">
+                        Search a local sale and select its products.
+                    </p>
                 </div>
             }
             else
@@ -54,54 +105,103 @@
                 <table class="table">
                     <thead>
                         <tr>
-                            <th style="width: 150px;">Quantity</th>
+                            <th style="width:180px;">Quantity</th>
                             <th>Product</th>
-                            <th style="width: 120px;">Unit Price</th>
-                            <th style="width: 120px;">Amount</th>
-                            <th style="width: 100px;">Tax</th>
-                            <th style="width: 200px;">Reason</th>
-                            <th style="width: 100px;">Restock</th>
+                            <th style="width:110px;">Unit price</th>
+                            <th style="width:110px;">Amount</th>
+                            <th style="width:100px;">VAT</th>
+                            <th style="width:190px;">Reason</th>
+                            <th style="width:90px;">Restock</th>
                         </tr>
                     </thead>
+
                     <tbody>
                         @foreach (var line in ReturnLines)
                         {
-                            <tr class="@(line == SelectedReturnLine ? "selected" : "")"
-                                @onclick="() => OnReturnLineClicked(line)">
+                            <tr class="@(ReferenceEquals(
+                                    line,
+                                    SelectedReturnLine)
+                                    ? "selected"
+                                    : string.Empty)"
+                                @onclick="() => SelectReturnLine(line)">
+
                                 <td>
                                     <div class="qty-controls">
-                                        <button class="qty-btn"
+                                        <button type="button"
+                                                class="qty-btn"
                                                 @onclick="() => DecrementReturn(line)"
-                                                @onclick:stopPropagation="true">
+                                                @onclick:stopPropagation="true"
+                                                disabled="@IsSaving">
                                             −
                                         </button>
-                                        <span class="qty-value">@line.Quantity / @line.MaxQuantity</span>
-                                        <button class="qty-btn"
+
+                                        <span class="qty-value">
+                                            @FormatQuantity(line.Quantity)
+                                            /
+                                            @FormatQuantity(line.MaximumQuantity)
+                                        </span>
+
+                                        <button type="button"
+                                                class="qty-btn"
                                                 @onclick="() => IncrementReturn(line)"
-                                                @onclick:stopPropagation="true">
+                                                @onclick:stopPropagation="true"
+                                                disabled="@IsSaving">
                                             +
                                         </button>
                                     </div>
                                 </td>
-                                <td>@line.ProductName</td>
-                                <td class="text-right">€@line.UnitPrice.ToString("F2")</td>
-                                <td class="text-right">€@line.Amount.ToString("F2")</td>
-                                <td class="text-right">€@line.TaxAmount.ToString("F2")</td>
+
+                                <td>
+                                    @line.Source.ProductName
+
+                                    @if (line.Source.IsPack)
+                                    {
+                                        <span class="muted"
+                                              style="display:block;font-size:11px;">
+                                            Pack ×
+                                            @FormatQuantity(
+                                                line.Source.UnitsPerPack)
+                                            stock units
+                                        </span>
+                                    }
+                                </td>
+
+                                <td class="text-right">
+                                    €@line.Source.EffectiveUnitPrice.ToString("F2")
+                                </td>
+
+                                <td class="text-right">
+                                    €@line.Amount.ToString("F2")
+                                </td>
+
+                                <td class="text-right">
+                                    €@line.TaxAmount.ToString("F2")
+                                </td>
+
                                 <td>
                                     <select class="reason-select"
                                             @bind="line.Reason"
-                                            @onclick:stopPropagation="true">
-                                        <option value="">-- Select reason --</option>
+                                            @onclick:stopPropagation="true"
+                                            disabled="@IsSaving">
+
+                                        <option value="">
+                                            -- Select reason --
+                                        </option>
+
                                         @foreach (var reason in ReturnReasons)
                                         {
-                                            <option value="@reason">@reason</option>
+                                            <option value="@reason">
+                                                @reason
+                                            </option>
                                         }
                                     </select>
                                 </td>
+
                                 <td>
                                     <input type="checkbox"
                                            @bind="line.RestockItem"
                                            @onclick:stopPropagation="true"
+                                           disabled="@IsSaving"
                                            title="Restock this item?" />
                                 </td>
                             </tr>
@@ -111,82 +211,146 @@
             }
         </div>
 
-        <!-- Totals Row -->
         <div class="totals-row">
             <div class="total-item">
-                <span class="total-label">Total Qty</span>
-                <strong class="total-value primary">@TotalReturnQuantity</strong>
+                <span class="total-label">Total quantity</span>
+
+                <strong class="total-value primary">
+                    @FormatQuantity(TotalReturnQuantity)
+                </strong>
             </div>
+
             <div class="total-item">
-                <span class="total-label">Number of Lines</span>
-                <strong class="total-value primary">@ReturnLines.Count</strong>
+                <span class="total-label">Number of lines</span>
+
+                <strong class="total-value primary">
+                    @ReturnLines.Count
+                </strong>
             </div>
+
             <div class="total-item">
-                <span class="total-label">Refund Total</span>
-                <strong class="total-value primary">€@TotalRefundAmount.ToString("F2")</strong>
+                <span class="total-label">Refund total</span>
+
+                <strong class="total-value primary">
+                    €@TotalRefundAmount.ToString("F2")
+                </strong>
             </div>
         </div>
 
-        <!-- Action Buttons -->
         <div class="actions-footer">
             <div class="tax-info">
-                <strong>Tax Refund: €@TotalRefundTax.ToString("F2")</strong>
+                <strong>
+                    VAT refund:
+                    €@TotalRefundTax.ToString("F2")
+                </strong>
             </div>
-            <button class="btn btn-secondary" @onclick="ResetReturn">Reset</button>
-            <button class="btn btn-secondary" @onclick="RemoveSelectedReturnLine" disabled="@(SelectedReturnLine == null)">
+
+            <button type="button"
+                    class="btn btn-secondary"
+                    @onclick="ResetReturn"
+                    disabled="@IsSaving">
+                Reset
+            </button>
+
+            <button type="button"
+                    class="btn btn-secondary"
+                    @onclick="RemoveSelectedReturnLine"
+                    disabled="@(IsSaving ||
+                                SelectedReturnLine == null)">
                 Delete
             </button>
-            <button class="btn btn-primary" @onclick="OpenRefundModal" disabled="@(IsSaving || ReturnLines.Count == 0)">
-                @(IsSaving ? "Processing..." : "Process Refund")
+
+            <button type="button"
+                    class="btn btn-primary"
+                    @onclick="OpenRefundModal"
+                    disabled="@(IsSaving ||
+                                ReturnLines.Count == 0)">
+                Process refund
             </button>
-            <button class="btn btn-secondary" @onclick="NavigateToDashboard">Close</button>
+
+            <button type="button"
+                    class="btn btn-secondary"
+                    @onclick="NavigateToDashboard"
+                    disabled="@IsSaving">
+                Close
+            </button>
         </div>
     </div>
 
-    <!-- RIGHT COLUMN: Sale Search & Products -->
+    <!-- RIGHT: LOCAL SALE SEARCH -->
     <div class="sale-right">
-        <!-- Sale Search Section -->
+
         <div class="card search-section">
             <div class="search-box">
                 <input type="text"
                        class="search-input"
-                       placeholder="Search sale by invoice number..."
+                       placeholder="Search local sale by invoice..."
                        @bind="SaleSearchText"
                        @bind:event="oninput"
                        @onkeydown="OnSaleSearchKeyDown"
                        @ref="saleSearchInputRef"
+                       disabled="@IsBusy"
                        autofocus />
+
                 <span class="search-icon">🔍</span>
             </div>
+
             @if (IsSearchingSales)
             {
-                <div class="loading-state">Searching sales...</div>
+                <div class="loading-state">
+                    Searching local sales...
+                </div>
             }
         </div>
 
-        <!-- Sale Results -->
         @if (SearchedSales.Count > 0)
         {
             <div class="card sale-results-container">
-                <h4>Sales Found (@SearchedSales.Count)</h4>
+                <h4>
+                    Local sales found (@SearchedSales.Count)
+                </h4>
+
                 <ul class="sale-list">
                     @foreach (var sale in SearchedSales)
                     {
-                        <li class="sale-item @(OriginalSale?.Id == sale.Id ? "selected" : "")"
-                            @onclick="() => SelectSale(sale)">
+                        <li class="sale-item @(OriginalSale?.LocalSaleId ==
+                                                sale.LocalSaleId
+                                                ? "selected"
+                                                : string.Empty)"
+                            @onclick="() => SelectSaleAsync(sale.LocalSaleId)">
+
                             <div class="sale-item-header">
-                                <strong>@sale.InvoiceNumber</strong>
-                                <span class="muted">@sale.SaleDate.ToString("dd/MM/yyyy HH:mm")</span>
+                                <strong>
+                                    @sale.LocalInvoiceNumber
+                                </strong>
+
+                                <span class="muted">
+                                    @sale.SaleDateUtc
+                                        .ToLocalTime()
+                                        .ToString("dd/MM/yyyy HH:mm")
+                                </span>
                             </div>
-                            @if (sale.CustomerId.HasValue)
+
+                            @if (!string.IsNullOrWhiteSpace(
+                                    sale.CustomerName))
                             {
                                 <div class="sale-item-customer">
-                                    <span class="muted">Customer ID: @sale.CustomerId</span>
+                                    <span class="muted">
+                                        @sale.CustomerName
+                                    </span>
                                 </div>
                             }
+
                             <div class="sale-item-total">
-                                <span class="muted">Total: €@sale.TotalAmount.ToString("F2")</span>
-                                <span class="muted">Status: @sale.Status</span>
+                                <span class="muted">
+                                    Total:
+                                    €@sale.TotalAmount.ToString("F2")
+                                </span>
+
+                                <span class="muted">
+                                    Returnable lines:
+                                    @sale.Lines.Count
+                                </span>
                             </div>
                         </li>
                     }
@@ -194,205 +358,355 @@
             </div>
         }
 
-        <!-- Original Sale Products -->
-        @if (OriginalSale != null && OriginalSaleLines.Count > 0)
+        @if (OriginalSale != null &&
+             OriginalSale.Lines.Count > 0)
         {
             <div class="card product-list-container">
-                <h4>Products from Sale</h4>
+                <h4>Returnable products</h4>
+
                 <ul class="product-list">
-                    @foreach (var line in OriginalSaleLines)
+                    @foreach (var line in OriginalSale.Lines)
                     {
-                        <li class="product-item @(IsLineInReturn(line) ? "in-cart" : "")"
+                        <li class="product-item @(IsLineInReturn(line)
+                                ? "in-cart"
+                                : string.Empty)"
                             @onclick="() => AddToReturn(line)">
-                            <strong>Product ID: @line.ProductId</strong>
+
+                            <strong>
+                                @line.ProductName
+                            </strong>
+
                             <div class="product-details">
-                                <span class="muted">Qty: @line.AvailableQuantity</span>
-                                <span class="muted">€@line.UnitPrice.ToString("F2")</span>
-                                <span class="price">Total: €@line.LineAmountInclVat.ToString("F2")</span>
+                                <span class="muted">
+                                    Sold:
+                                    @FormatQuantity(line.SoldQuantity)
+                                </span>
+
+                                <span class="muted">
+                                    Already returned:
+                                    @FormatQuantity(line.ReturnedQuantity)
+                                </span>
+
+                                <span class="muted">
+                                    Available:
+                                    @FormatQuantity(line.AvailableQuantity)
+                                </span>
+
+                                <span class="muted">
+                                    €@line.EffectiveUnitPrice.ToString("F2")
+                                </span>
                             </div>
+
                             @if (IsLineInReturn(line))
                             {
-                                <span class="badge">In return</span>
+                                <span class="badge">
+                                    In return
+                                </span>
                             }
                         </li>
                     }
                 </ul>
+            </div>
+
+            <div class="card">
+                <button type="button"
+                        class="btn btn-secondary"
+                        style="width:100%;"
+                        @onclick="AddAllToReturn"
+                        disabled="@IsSaving">
+                    Add all returnable products
+                </button>
             </div>
         }
         else if (OriginalSale != null)
         {
             <div class="card empty-state">
-                <p>No products found in this sale</p>
-            </div>
-        }
-
-        <!-- Quick Actions -->
-        @if (OriginalSale != null && OriginalSaleLines.Count > 0)
-        {
-            <div class="card">
-                <button class="btn btn-secondary" style="width: 100%;" @onclick="AddAllToReturn">
-                    Add All Products to Return
-                </button>
+                <p>
+                    No remaining product can be returned from this sale.
+                </p>
             </div>
         }
     </div>
 </div>
 
-<!-- REFUND MODAL -->
 @if (ShowRefundModal)
 {
-    <div class="modal-overlay" @onclick="CloseRefundModal">
-        <div class="modal-content refund-modal" @onclick:stopPropagation="true">
+    <div class="modal-overlay"
+         @onclick="CloseRefundModal">
+
+        <div class="modal-content refund-modal"
+             @onclick:stopPropagation="true">
+
             <div class="modal-header">
-                <h3>Process Refund</h3>
-                <button class="modal-close" @onclick="CloseRefundModal">×</button>
+                <h3>Process local refund</h3>
+
+                <button type="button"
+                        class="modal-close"
+                        @onclick="CloseRefundModal"
+                        disabled="@IsSaving">
+                    ×
+                </button>
             </div>
 
             <div class="modal-body">
                 <div class="refund-summary">
                     <div class="summary-item">
-                        <span class="label">Refund Amount:</span>
-                        <span class="value total">€@TotalRefundAmount.ToString("F2")</span>
+                        <span class="label">Refund amount:</span>
+
+                        <span class="value total">
+                            €@TotalRefundAmount.ToString("F2")
+                        </span>
                     </div>
+
                     <div class="summary-item">
-                        <span class="label">Tax Refund:</span>
-                        <span class="value">€@TotalRefundTax.ToString("F2")</span>
+                        <span class="label">VAT refund:</span>
+
+                        <span class="value">
+                            €@TotalRefundTax.ToString("F2")
+                        </span>
                     </div>
+
                     <div class="summary-item">
                         <span class="label">Items:</span>
-                        <span class="value">@TotalReturnQuantity units (@ReturnLines.Count lines)</span>
+
+                        <span class="value">
+                            @FormatQuantity(TotalReturnQuantity)
+                            (@ReturnLines.Count lines)
+                        </span>
                     </div>
                 </div>
 
                 <div class="refund-method-section">
-                    <h4>Refund Method:</h4>
+                    <h4>Refund method</h4>
+
                     <div class="method-buttons">
-                        @foreach (RefundMethod type in Enum.GetValues(typeof(RefundMethod)))
+                        @foreach (var method in
+                            Enum.GetValues<RefundMethod>())
                         {
-                            @if (type != RefundMethod.Original)
+                            if (method == RefundMethod.Original)
                             {
-                                <button class="method-btn @(CurrentRefundMethod == type ? "active" : "")"
-                                        @onclick="@(() => CurrentRefundMethod = type)">
-                                    <span class="method-icon">@GetRefundMethodIcon(type)</span>
-                                    <span class="method-name">@GetRefundMethodName(type)</span>
-                                </button>
+                                continue;
                             }
+
+                            var creditDisabled =
+                                method == RefundMethod.Credit &&
+                                OriginalSale?.CustomerLocalId == null;
+
+                            <button type="button"
+                                    class="method-btn @(CurrentRefundMethod ==
+                                                        method
+                                                        ? "active"
+                                                        : string.Empty)"
+                                    @onclick="() => CurrentRefundMethod = method"
+                                    disabled="@(IsSaving || creditDisabled)">
+
+                                <span class="method-icon">
+                                    @GetRefundMethodIcon(method)
+                                </span>
+
+                                <span class="method-name">
+                                    @GetRefundMethodName(method)
+                                </span>
+                            </button>
                         }
                     </div>
                 </div>
 
                 <div class="return-items-section">
-                    <h4>Items Being Returned:</h4>
+                    <h4>Items being returned</h4>
+
                     <div class="return-items-list">
                         @foreach (var line in ReturnLines)
                         {
                             <div class="return-item">
                                 <div class="item-details">
-                                    <strong>@line.ProductName</strong>
-                                    <span class="muted">Qty: @line.Quantity × €@line.UnitPrice.ToString("F2")</span>
+                                    <strong>
+                                        @line.Source.ProductName
+                                    </strong>
+
+                                    <span class="muted">
+                                        @FormatQuantity(line.Quantity)
+                                        ×
+                                        €@line.Source.EffectiveUnitPrice.ToString("F2")
+                                    </span>
                                 </div>
+
                                 <div class="item-reason">
-                                    @if (!string.IsNullOrEmpty(line.Reason))
+                                    @if (!string.IsNullOrWhiteSpace(
+                                            line.Reason))
                                     {
-                                        <span class="badge reason-badge">@line.Reason</span>
+                                        <span class="badge reason-badge">
+                                            @line.Reason
+                                        </span>
                                     }
                                     else
                                     {
-                                        <span class="badge warning">No reason</span>
+                                        <span class="badge warning">
+                                            No reason
+                                        </span>
                                     }
                                 </div>
-                                <span class="item-amount">€@line.Amount.ToString("F2")</span>
+
+                                <span class="item-amount">
+                                    €@line.Amount.ToString("F2")
+                                </span>
                             </div>
                         }
                     </div>
                 </div>
 
                 <div class="notes-section">
-                    <label>Additional Notes (Optional):</label>
+                    <label>Additional notes</label>
+
                     <textarea class="notes-input"
                               @bind="RefundNotes"
-                              placeholder="Enter any additional notes about this return..."
-                              rows="3"></textarea>
+                              maxlength="1000"
+                              rows="3"
+                              disabled="@IsSaving"
+                              placeholder="Optional return notes...">
+                    </textarea>
                 </div>
 
-                @if (HasMissingReasons())
+                @if (HasMissingReasons)
                 {
                     <div class="alert alert-warning">
-                        ⚠️ Some items are missing return reasons. Please select a reason for all items.
+                        Select a reason for every returned item.
+                    </div>
+                }
+
+                @if (CurrentRefundMethod ==
+                        RefundMethod.Credit &&
+                    OriginalSale?.CustomerLocalId == null)
+                {
+                    <div class="alert alert-warning">
+                        A credit refund requires a customer.
                     </div>
                 }
             </div>
 
             <div class="modal-footer">
-                <button class="btn btn-secondary" @onclick="CloseRefundModal">
+                <button type="button"
+                        class="btn btn-secondary"
+                        @onclick="CloseRefundModal"
+                        disabled="@IsSaving">
                     Cancel
                 </button>
-                <button class="btn btn-success btn-complete"
-                        @onclick="CompleteRefund"
-                        disabled="@(IsSaving || HasMissingReasons())">
-                    @if (IsSaving)
-                    {
-                        <span>Processing...</span>
-                    }
-                    else
-                    {
-                        <span>Complete Refund €@TotalRefundAmount.ToString("F2")</span>
-                    }
+
+                <button type="button"
+                        class="btn btn-success btn-complete"
+                        @onclick="CompleteRefundAsync"
+                        disabled="@(IsSaving ||
+                                    HasMissingReasons ||
+                                    ReturnLines.Count == 0)">
+                    @(IsSaving
+                        ? "Saving locally..."
+                        : $"Complete refund €{TotalRefundAmount:F2}")
                 </button>
             </div>
         </div>
     </div>
 }
-@* 
-<div id="receipt" style="display:none">
+
+<div id="receipt"
+     style="display:none">
+
     <h3>RETURN RECEIPT</h3>
-    <p>Return #: @returnReceipt.ReturnNumber</p>
-    <p>@returnReceipt.Date.ToString("dd/MM/yyyy HH:mm")</p>
-    <p>Original Sale: @returnReceipt.OriginalSaleNumber</p>
+
+    <p>
+        Return:
+        @Receipt.ReturnNumber
+    </p>
+
+    <p>
+        @Receipt.Date.ToLocalTime().ToString("dd/MM/yyyy HH:mm")
+    </p>
+
+    <p>
+        Original sale:
+        @Receipt.OriginalSaleNumber
+    </p>
+
     <hr />
-    @foreach (var l in returnReceipt.Lines)
+
+    @foreach (var line in Receipt.Lines)
     {
         <div>
-            @l.Name<br />
-            @l.Quantity x €@l.UnitPrice = €@l.Amount<br />
-            Reason: @l.Reason
+            @line.Name<br />
+            @FormatQuantity(line.Quantity)
+            ×
+            €@line.UnitPrice.ToString("F2")
+            =
+            €@line.Amount.ToString("F2")
+            <br />
+            Reason:
+            @line.Reason
         </div>
     }
+
     <hr />
-    <strong>Refund Total: €@returnReceipt.Total</strong>
-    <p>Tax Refund: €@returnReceipt.Tax</p>
-    <p>Method: @returnReceipt.RefundMethod</p>
-    @if (!string.IsNullOrEmpty(returnReceipt.Notes))
+
+    <strong>
+        Refund total:
+        €@Receipt.Total.ToString("F2")
+    </strong>
+
+    <p>
+        VAT refund:
+        €@Receipt.Tax.ToString("F2")
+    </p>
+
+    <p>
+        Method:
+        @Receipt.RefundMethod
+    </p>
+
+    @if (!string.IsNullOrWhiteSpace(
+            Receipt.Notes))
     {
-        <p>Notes: @returnReceipt.Notes</p>
+        <p>
+            Notes:
+            @Receipt.Notes
+        </p>
     }
-    <p>Thank you</p>
-</div> *@
+</div>
 
 @code {
-    // STATE
-    List<ReturnCartLine> ReturnLines = new();
-    List<SaleResult> SearchedSales = new();
-    List<SaleLineWithReturnsResult> OriginalSaleLines = new();
-    Dictionary<Guid, string> ProductNames = new(); // Cache for product names
+    private readonly List<ReturnCartLine> ReturnLines =
+        new();
 
-    SaleResult? OriginalSale;
-    ReturnCartLine? SelectedReturnLine;
+    private List<LocalReturnableSaleResult> SearchedSales =
+        new();
 
-    string SaleSearchText = string.Empty;
-    string RefundNotes = string.Empty;
+    private LocalReturnableSaleResult? OriginalSale;
 
-    bool IsSaving;
-    bool IsSearchingSales;
-    bool ShowRefundModal;
+    private ReturnCartLine? SelectedReturnLine;
 
-    RefundMethod CurrentRefundMethod = RefundMethod.Cash;
+    private string SaleSearchText =
+        string.Empty;
 
-    ElementReference saleSearchInputRef;
+    private string RefundNotes =
+        string.Empty;
 
-    private ReturnReceiptModel returnReceipt = new();
+    private string? SuccessMessage;
+    private string? ErrorMessage;
 
-    readonly string[] ReturnReasons = new[]
+    private bool IsSaving;
+    private bool IsSearchingSales;
+    private bool ShowRefundModal;
+
+    private bool IsBusy =>
+        IsSaving ||
+        IsSearchingSales;
+
+    private RefundMethod CurrentRefundMethod =
+        RefundMethod.Cash;
+
+    private ElementReference saleSearchInputRef;
+
+    private ReturnReceiptModel Receipt =
+        new();
+
+    private readonly string[] ReturnReasons =
     {
         "Defective",
         "Wrong Item",
@@ -402,507 +716,847 @@
         "Other"
     };
 
-    // COMPUTED PROPERTIES
-    decimal TotalReturnQuantity => ReturnLines.Sum(l => l.Quantity);
-    decimal TotalRefundAmount => ReturnLines.Sum(l => l.Amount);
-    decimal TotalRefundTax => ReturnLines.Sum(l => l.TaxAmount);
+    private decimal TotalReturnQuantity =>
+        ReturnLines.Sum(line =>
+            line.Quantity);
 
-    // INIT
-    protected override async Task OnInitializedAsync()
-    {
-        await FocusSaleSearchInput();
-    }
+    private decimal TotalRefundAmount =>
+        RoundMoney(
+            ReturnLines.Sum(line =>
+                line.Amount));
 
-    // SALE SEARCH
-    async Task OnSaleSearchKeyDown(KeyboardEventArgs e)
+    private decimal TotalRefundTax =>
+        RoundMoney(
+            ReturnLines.Sum(line =>
+                line.TaxAmount));
+
+    private bool HasMissingReasons =>
+        ReturnLines.Any(line =>
+            string.IsNullOrWhiteSpace(
+                line.Reason));
+
+    protected override async Task OnAfterRenderAsync(
+        bool firstRender)
     {
-        if (e.Key == "Enter" && !string.IsNullOrWhiteSpace(SaleSearchText))
+        if (firstRender)
         {
-            await SearchSales();
+            await FocusSaleSearchInputAsync();
         }
     }
 
-    async Task SearchSales()
+    private async Task OnSaleSearchKeyDown(
+        KeyboardEventArgs args)
     {
-        if (string.IsNullOrWhiteSpace(SaleSearchText))
-            return;
+        if (string.Equals(
+                args.Key,
+                "Enter",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            await SearchSalesAsync();
+        }
+    }
 
-        IsSearchingSales = true;
-        StateHasChanged();
+    private async Task SearchSalesAsync()
+    {
+        if (string.IsNullOrWhiteSpace(
+                SaleSearchText))
+        {
+            return;
+        }
 
         try
         {
-            var result = await SaleApi.Search(new SaleQuery
-            {
-                Search = SaleSearchText.Trim(),
-                PageSize = 10
-            });
+            IsSearchingSales =
+                true;
 
-            SearchedSales = result.Items.ToList();
+            ErrorMessage =
+                null;
+
+            SearchedSales =
+                (await LocalReturnService
+                    .SearchSalesAsync(
+                        SaleSearchText.Trim(),
+                        20))
+                .ToList();
+
+            if (SearchedSales.Count ==
+                0)
+            {
+                ErrorMessage =
+                    "No returnable local sale was found.";
+            }
         }
-        catch (Exception ex)
+        catch (Exception exception)
         {
-            Console.WriteLine($"Search error: {ex.Message}");
-            await JS.InvokeVoidAsync("alert", $"Error searching sales: {ex.Message}");
+            Logger.LogError(
+                exception,
+                "Failed to search local sales for return.");
+
+            ErrorMessage =
+                exception
+                    .GetBaseException()
+                    .Message;
         }
         finally
         {
-            IsSearchingSales = false;
-            StateHasChanged();
+            IsSearchingSales =
+                false;
         }
     }
 
-    async Task SelectSale(SaleResult sale)
+    private async Task SelectSaleAsync(
+        Guid localSaleId)
     {
         try
         {
-            // Load full sale details
-            var fullSale = await SaleApi.GetById(sale.Id);
-            OriginalSale = fullSale;
+            OriginalSale =
+                await LocalReturnService
+                    .GetReturnableSaleAsync(
+                        localSaleId)
+                ?? throw new KeyNotFoundException(
+                    "The local sale was not found.");
 
-            // Get sale lines - you may need to call a separate endpoint depending on your API
-            // Assuming SaleApi has a method to get lines by sale ID
-            // If not, you may need to create one or modify this
-            try
-            {
-                // Option 1: If your SaleResult includes Lines
-                // OriginalSaleLines = new List<SaleLineWithReturnsResult>(); // Replace with actual line loading
-
-                // Option 2: If you need to call SaleLineApi separately
-                var lines = await SaleLineApi.GetBySaleWithReturnsAsync(sale.Id);
-
-                OriginalSaleLines = lines;
-
-                // var saleLines = await SaleLineApi.GetAllAsync();
-                // OriginalSaleLines = saleLines.ToList();
-
-                // For now, we'll assume you need to implement this
-                // await JS.InvokeVoidAsync("alert", "Note: Sale line loading needs to be implemented based on your API structure");
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error loading sale lines: {ex.Message}");
-            }
-
-            // Load product names for the lines
-            await LoadProductNames();
-
-            // Clear existing return lines
             ReturnLines.Clear();
-            SelectedReturnLine = null;
 
-            StateHasChanged();
+            SelectedReturnLine =
+                null;
+
+            await FocusSaleSearchInputAsync();
         }
-        catch (Exception ex)
+        catch (Exception exception)
         {
-            Console.WriteLine($"Error loading sale: {ex.Message}");
-            await JS.InvokeVoidAsync("alert", $"Error loading sale details: {ex.Message}");
+            Logger.LogError(
+                exception,
+                "Failed to load local sale {SaleId} for return.",
+                localSaleId);
+
+            ErrorMessage =
+                exception
+                    .GetBaseException()
+                    .Message;
         }
     }
 
-    async Task LoadProductNames()
+    private void AddToReturn(
+        LocalReturnableSaleLineResult source)
     {
-        foreach (var line in OriginalSaleLines)
+        if (source.AvailableQuantity <=
+            0m)
         {
-            if (!ProductNames.ContainsKey(line.ProductId))
+            return;
+        }
+
+        var existing =
+            ReturnLines.FirstOrDefault(line =>
+                line.Source.LocalSaleLineId ==
+                    source.LocalSaleLineId);
+
+        if (existing !=
+            null)
+        {
+            SelectedReturnLine =
+                existing;
+
+            return;
+        }
+
+        var line =
+            new ReturnCartLine(source)
             {
-                try
-                {
-                    var product = await ProductApi.GetById(line.ProductId);
-                    ProductNames[line.ProductId] = product.CatalogName;
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Error loading product {line.ProductId}: {ex.Message}");
-                    ProductNames[line.ProductId] = $"Product {line.ProductId}";
-                }
+                Quantity =
+                    Math.Min(
+                        1m,
+                        source.AvailableQuantity),
+
+                Reason =
+                    string.Empty,
+
+                RestockItem =
+                    true
+            };
+
+        ReturnLines.Add(
+            line);
+
+        SelectedReturnLine =
+            line;
+    }
+
+    private void AddAllToReturn()
+    {
+        if (OriginalSale ==
+            null)
+        {
+            return;
+        }
+
+        foreach (var source in OriginalSale.Lines)
+        {
+            if (source.AvailableQuantity <=
+                    0m ||
+                IsLineInReturn(
+                    source))
+            {
+                continue;
             }
+
+            ReturnLines.Add(
+                new ReturnCartLine(source)
+                {
+                    Quantity =
+                        source.AvailableQuantity,
+
+                    Reason =
+                        string.Empty,
+
+                    RestockItem =
+                        true
+                });
         }
     }
 
-    string GetProductName(Guid productId)
+    private bool IsLineInReturn(
+        LocalReturnableSaleLineResult source)
     {
-        return ProductNames.TryGetValue(productId, out var name) ? name : $"Product {productId}";
+        return ReturnLines.Any(line =>
+            line.Source.LocalSaleLineId ==
+                source.LocalSaleLineId);
     }
 
-    // RETURN CART OPERATIONS
-    void AddToReturn(SaleLineWithReturnsResult saleLine)
+    private void IncrementReturn(
+        ReturnCartLine line)
     {
-        if (saleLine.AvailableQuantity <= 0)
+        if (line.Quantity <
+            line.MaximumQuantity)
+        {
+            line.Quantity =
+                RoundQuantity(
+                    Math.Min(
+                        line.MaximumQuantity,
+                        line.Quantity +
+                        1m));
+        }
+    }
+
+    private void DecrementReturn(
+        ReturnCartLine line)
+    {
+        if (line.Quantity >
+            1m)
+        {
+            line.Quantity =
+                RoundQuantity(
+                    line.Quantity -
+                    1m);
+
             return;
+        }
 
-        var existingLine = ReturnLines.FirstOrDefault(l => l.SaleLineId == saleLine.Id);
+        ReturnLines.Remove(
+            line);
 
-        if (existingLine != null)
+        if (ReferenceEquals(
+                SelectedReturnLine,
+                line))
         {
-            SelectedReturnLine = existingLine;
+            SelectedReturnLine =
+                null;
+        }
+    }
+
+    private void SelectReturnLine(
+        ReturnCartLine line)
+    {
+        SelectedReturnLine =
+            line;
+    }
+
+    private void RemoveSelectedReturnLine()
+    {
+        if (SelectedReturnLine ==
+            null)
+        {
             return;
         }
 
-        ReturnLines.Add(new ReturnCartLine
-        {
-            SaleLineId = saleLine.Id,
-            ProductId = saleLine.ProductId,
-            ProductName = GetProductName(saleLine.ProductId),
-            UnitPrice = saleLine.UnitPrice,
-            TaxRate = saleLine.VatRate,
-            Quantity = 1,
-            MaxQuantity = (int)saleLine.AvailableQuantity,
-            Reason = string.Empty
-        });
+        ReturnLines.Remove(
+            SelectedReturnLine);
+
+        SelectedReturnLine =
+            null;
     }
 
-
-    // void AddAllToReturn()
-    // {
-    //     foreach (var saleLine in OriginalSaleLines)
-    //     {
-    //         if (!IsLineInReturn(saleLine))
-    //         {
-    //             ReturnLines.Add(new ReturnCartLine
-    //             {
-    //                 SaleLineId = saleLine.Id,
-    //                 ProductId = saleLine.ProductId,
-    //                 ProductName = GetProductName(saleLine.ProductId),
-    //                 UnitPrice = saleLine.UnitPrice,
-    //                 TaxRate = saleLine.VatRate,
-    //                 Quantity = (decimal)saleLine.Quantity,
-    //                 MaxQuantity = (decimal)saleLine.Quantity,
-    //                 Reason = string.Empty
-    //             });
-    //         }
-    //     }
-    //     StateHasChanged();
-
-    // }
-
-    void AddAllToReturn()
-    {
-        foreach (var saleLine in OriginalSaleLines)
-        {
-            if (saleLine.AvailableQuantity <= 0)
-                continue;
-
-            if (IsLineInReturn(saleLine))
-                continue;
-
-            ReturnLines.Add(new ReturnCartLine
-            {
-                SaleLineId = saleLine.Id,
-                ProductId = saleLine.ProductId,
-                ProductName = GetProductName(saleLine.ProductId),
-                UnitPrice = saleLine.UnitPrice,
-                TaxRate = saleLine.VatRate,
-                Quantity = (int)saleLine.AvailableQuantity,
-                MaxQuantity = (int)saleLine.AvailableQuantity,
-                Reason = string.Empty
-            });
-        }
-        // StateHasChanged();
-    }
-
-
-    bool IsLineInReturn(SaleLineWithReturnsResult saleLine)
-    {
-        return ReturnLines.Any(r => r.SaleLineId == saleLine.Id);
-    }
-
-    void IncrementReturn(ReturnCartLine line)
-    {
-        if (line.Quantity < line.MaxQuantity)
-        {
-            line.Quantity++;
-            StateHasChanged();
-        }
-    }
-
-    void DecrementReturn(ReturnCartLine line)
-    {
-        if (line.Quantity > 1)
-        {
-            line.Quantity--;
-        }
-        else
-        {
-            ReturnLines.Remove(line);
-            if (SelectedReturnLine == line)
-                SelectedReturnLine = null;
-        }
-
-        StateHasChanged();
-    }
-
-    void OnReturnLineClicked(ReturnCartLine line)
-    {
-        SelectedReturnLine = line;
-        StateHasChanged();
-    }
-
-    void RemoveSelectedReturnLine()
-    {
-        if (SelectedReturnLine != null)
-        {
-            ReturnLines.Remove(SelectedReturnLine);
-            SelectedReturnLine = null;
-            StateHasChanged();
-        }
-    }
-
-    void ResetReturn()
+    private void ResetReturn()
     {
         ReturnLines.Clear();
-        SelectedReturnLine = null;
-        OriginalSale = null;
-        OriginalSaleLines.Clear();
+
         SearchedSales.Clear();
-        SaleSearchText = string.Empty;
-        ProductNames.Clear();
-        StateHasChanged();
-        _ = FocusSaleSearchInput();
+
+        OriginalSale =
+            null;
+
+        SelectedReturnLine =
+            null;
+
+        SaleSearchText =
+            string.Empty;
+
+        RefundNotes =
+            string.Empty;
+
+        CurrentRefundMethod =
+            RefundMethod.Cash;
+
+        _ = FocusSaleSearchInputAsync();
     }
 
-    // REFUND MODAL
-    void OpenRefundModal()
+    private void OpenRefundModal()
     {
-        if (ReturnLines.Count == 0)
-            return;
-
-        ShowRefundModal = true;
-        CurrentRefundMethod = RefundMethod.Cash;
-        RefundNotes = string.Empty;
-        StateHasChanged();
-    }
-
-    void CloseRefundModal()
-    {
-        ShowRefundModal = false;
-        StateHasChanged();
-    }
-
-    bool HasMissingReasons()
-    {
-        return ReturnLines.Any(l => string.IsNullOrWhiteSpace(l.Reason));
-    }
-
-
-    // COMPLETE REFUND
-    async Task CompleteRefund()
-    {
-        if (HasMissingReasons())
+        if (OriginalSale ==
+                null ||
+            ReturnLines.Count ==
+                0)
         {
-            await JS.InvokeVoidAsync("alert", "Please select a reason for all items.");
             return;
         }
 
-        if (CurrentRefundMethod == RefundMethod.Original)
+        ShowRefundModal =
+            true;
+
+        CurrentRefundMethod =
+            RefundMethod.Cash;
+
+        RefundNotes =
+            string.Empty;
+    }
+
+    private void CloseRefundModal()
+    {
+        if (IsSaving)
         {
-            await JS.InvokeVoidAsync("alert", "Original payment method refunds are not currently supported. Please select Cash, Card, Credit, or Exchange.");
             return;
         }
-        IsSaving = true;
-        StateHasChanged();
+
+        ShowRefundModal =
+            false;
+    }
+
+    private async Task CompleteRefundAsync()
+    {
+        if (OriginalSale ==
+            null)
+        {
+            ErrorMessage =
+                "Select an original sale.";
+
+            return;
+        }
+
+        if (ReturnLines.Count ==
+            0)
+        {
+            ErrorMessage =
+                "Select at least one return line.";
+
+            return;
+        }
+
+        if (HasMissingReasons)
+        {
+            ErrorMessage =
+                "Select a reason for every return line.";
+
+            return;
+        }
+
+        if (CurrentRefundMethod ==
+            RefundMethod.Original)
+        {
+            ErrorMessage =
+                "Original refund method is not supported.";
+
+            return;
+        }
+
+        if (CurrentRefundMethod ==
+                RefundMethod.Credit &&
+            !OriginalSale.CustomerLocalId.HasValue)
+        {
+            ErrorMessage =
+                "A credit refund requires a customer.";
+
+            return;
+        }
 
         try
         {
-            var returnNumber = await GenerateReturnNumber();
-            var request = new CreateCompleteReturnRequest
-            {
-                SaleId = OriginalSale!.Id,
-                ReturnDate = DateTime.UtcNow,
-                RefundType = CurrentRefundMethod,
-                Lines = ReturnLines.Select(l => new ReturnLineItem
-                {
-                    ProductId = l.ProductId,
-                    Quantity = l.Quantity,
-                    UnitPrice = l.UnitPrice,
-                    VatRate = l.TaxRate,
-                    Reason = l.Reason,
-                    RestockItem = l.RestockItem
-                }).ToList()
-            };
+            IsSaving =
+                true;
 
+            ErrorMessage =
+                null;
 
-            var result = await ReturnApi.CreateComplete(request);
+            SuccessMessage =
+                null;
 
-            // Create receipt
-            var receiptData = new ReturnReceiptModel
-            {
-                ReturnNumber = result.ReturnNumber ?? "N/A",
-                OriginalSaleNumber = OriginalSale.InvoiceNumber,
-                Date = result.ReturnDate,
-                Total = TotalRefundAmount,
-                Tax = TotalRefundTax,
-                RefundMethod = GetRefundMethodName(CurrentRefundMethod),
-                Notes = RefundNotes,
-                Lines = ReturnLines.Select(l => new ReturnReceiptLine
-                {
-                    Name = l.ProductName,
-                    Quantity = l.Quantity,
-                    UnitPrice = l.UnitPrice,
-                    Amount = l.Amount,
-                    Reason = l.Reason
-                }).ToList()
-            };
+            var localReturn =
+                BuildLocalReturn();
 
-            await PrintReturnReceipt(receiptData);
+            var savedReturn =
+                await LocalReturnService
+                    .CreateAsync(
+                        localReturn);
 
-            await JS.InvokeVoidAsync("alert", $"Return processed successfully!\nRefund: €{TotalRefundAmount:F2}");
+            State.InvalidatePos();
+
+            Receipt =
+                BuildReceipt(
+                    savedReturn);
+
+            await JS.InvokeVoidAsync(
+                "printReceipt");
+
+            var localNumber =
+                savedReturn.LocalReturnNumber;
+
+            ShowRefundModal =
+                false;
 
             ResetReturn();
-            CloseRefundModal();
-        }
-        catch (ValidationApiException ex)
-        {
-            var errors = ex.Content?.Errors;
-            var message = "Validation failed:\n";
-            
-            if (errors != null)
-            {
-                foreach (var error in errors)
-                {
-                    message += $"- {error.Key}: {string.Join(", ", error.Value)}\n";
-                }
-            }
-            else
-            {
-                message += ex.Message;
-            }
 
-            Console.WriteLine($"Validation error completion return: {message}");
-            await JS.InvokeVoidAsync("alert", message);
+            SuccessMessage =
+                $"Return {localNumber} was processed locally and " +
+                "queued for synchronization.";
         }
-        catch (Exception ex)
+        catch (Exception exception)
         {
-            Console.WriteLine($"Error completing return: {ex.Message}");
-            await JS.InvokeVoidAsync("alert", $"Error processing return: {ex.Message}");
+            Logger.LogError(
+                exception,
+                "Failed to process the local return.");
+
+            ErrorMessage =
+                exception
+                    .GetBaseException()
+                    .Message;
         }
         finally
         {
-            IsSaving = false;
-            StateHasChanged();
+            IsSaving =
+                false;
         }
     }
 
-    // UTILITY METHODS
-    string GetRefundMethodIcon(RefundMethod type)
+    private LocalReturn BuildLocalReturn()
     {
-        return type switch
+        var originalSale =
+            OriginalSale
+            ?? throw new InvalidOperationException(
+                "Original sale is required.");
+
+        var now =
+            DateTime.UtcNow;
+
+        var localReturn =
+            new LocalReturn
+            {
+                Id =
+                    Guid.NewGuid(),
+
+                ServerId =
+                    null,
+
+                ClientOperationId =
+                    Guid.NewGuid(),
+
+                LocalReturnNumber =
+                    string.Empty,
+
+                LocalSaleId =
+                    originalSale.LocalSaleId,
+
+                ServerSaleId =
+                    originalSale.ServerSaleId,
+
+                CustomerLocalId =
+                    originalSale.CustomerLocalId,
+
+                CustomerServerId =
+                    originalSale.CustomerServerId,
+
+                OriginalLocalInvoiceNumber =
+                    originalSale.LocalInvoiceNumber,
+
+                OriginalServerInvoiceNumber =
+                    originalSale.ServerInvoiceNumber,
+
+                RefundMethod =
+                    CurrentRefundMethod.ToString(),
+
+                Reason =
+                    BuildReturnReason(),
+
+                ReturnDateUtc =
+                    now,
+
+                IsProcessed =
+                    false,
+
+                SyncStatus =
+                    SyncQueueStatus.Pending,
+
+                CreatedAtUtc =
+                    now
+            };
+
+        foreach (var cartLine in ReturnLines)
         {
-            RefundMethod.Cash => "💵",
-            RefundMethod.Card => "💳",
-            RefundMethod.Credit => "📝",
-            RefundMethod.Exchange => "🔄",
-            RefundMethod.Original => "🔙",
-            _ => "💰"
+            var source =
+                cartLine.Source;
+
+            localReturn.Lines.Add(
+                new LocalReturnLine
+                {
+                    Id =
+                        Guid.NewGuid(),
+
+                    LocalSaleLineId =
+                        source.LocalSaleLineId,
+
+                    ProductLocalId =
+                        source.ProductLocalId,
+
+                    ProductServerId =
+                        source.ProductServerId,
+
+                    ProductName =
+                        source.ProductName,
+
+                    ProductBarcode =
+                        source.ProductBarcode,
+
+                    Quantity =
+                        RoundQuantity(
+                            cartLine.Quantity),
+
+                    UnitProductLocalId =
+                        source.UnitProductLocalId,
+
+                    UnitProductServerId =
+                        source.UnitProductServerId,
+
+                    UnitQuantity =
+                        source.IsPack
+                            ? RoundQuantity(
+                                cartLine.Quantity *
+                                source.UnitsPerPack)
+                            : RoundQuantity(
+                                cartLine.Quantity),
+
+                    IsPack =
+                        source.IsPack,
+
+                    UnitsPerPack =
+                        source.IsPack
+                            ? source.UnitsPerPack
+                            : 1m,
+
+                    UnitPrice =
+                        source.EffectiveUnitPrice,
+
+                    VatRate =
+                        source.VatRate,
+
+                    UnitCostPrice =
+                        source.UnitCostPrice,
+
+                    Reason =
+                        cartLine.Reason,
+
+                    RestockItem =
+                        cartLine.RestockItem
+                });
+        }
+
+        return localReturn;
+    }
+
+    private ReturnReceiptModel BuildReceipt(
+        LocalReturn localReturn)
+    {
+        return new ReturnReceiptModel
+        {
+            ReturnNumber =
+                localReturn.LocalReturnNumber,
+
+            OriginalSaleNumber =
+                localReturn.OriginalLocalInvoiceNumber ??
+                OriginalSale?.LocalInvoiceNumber ??
+                string.Empty,
+
+            Date =
+                localReturn.ReturnDateUtc,
+
+            Total =
+                localReturn.TotalAmount,
+
+            Tax =
+                localReturn.Lines.Sum(line =>
+                    line.TaxAmount),
+
+            RefundMethod =
+                GetRefundMethodName(
+                    CurrentRefundMethod),
+
+            Notes =
+                RefundNotes,
+
+            Lines =
+                localReturn.Lines
+                    .Select(line =>
+                        new ReturnReceiptLine
+                        {
+                            Name =
+                                line.ProductName,
+
+                            Quantity =
+                                line.Quantity,
+
+                            UnitPrice =
+                                line.UnitPrice,
+
+                            Amount =
+                                line.LineAmount,
+
+                            Reason =
+                                line.Reason ??
+                                string.Empty
+                        })
+                    .ToList()
         };
     }
 
-    string GetRefundMethodName(RefundMethod type)
+    private string BuildReturnReason()
     {
-        return type switch
+        var parts =
+            new List<string>
+            {
+                $"Refund method: " +
+                $"{GetRefundMethodName(CurrentRefundMethod)}"
+            };
+
+        if (!string.IsNullOrWhiteSpace(
+                RefundNotes))
         {
-            RefundMethod.Cash => "Cash",
-            RefundMethod.Card => "Card",
-            RefundMethod.Credit => "Store Credit",
-            RefundMethod.Exchange => "Exchange",
-            RefundMethod.Original => "Original Payment",
-            _ => "Other"
+            parts.Add(
+                $"Notes: {RefundNotes.Trim()}");
+        }
+
+        var reasonSummary =
+            ReturnLines
+                .GroupBy(line =>
+                    line.Reason)
+                .Select(group =>
+                    $"{group.Key}: {group.Count()} line(s)");
+
+        parts.Add(
+            $"Items: {string.Join(", ", reasonSummary)}");
+
+        var value =
+            string.Join(
+                " | ",
+                parts);
+
+        return value.Length <=
+               1000
+            ? value
+            : value[..1000];
+    }
+
+    private static string GetRefundMethodIcon(
+        RefundMethod method)
+    {
+        return method switch
+        {
+            RefundMethod.Cash =>
+                "💵",
+
+            RefundMethod.Card =>
+                "💳",
+
+            RefundMethod.Credit =>
+                "📝",
+
+            RefundMethod.Exchange =>
+                "🔄",
+
+            RefundMethod.Original =>
+                "🔙",
+
+            _ =>
+                "💰"
         };
     }
 
-    async Task<string> GenerateReturnNumber()
+    private static string GetRefundMethodName(
+        RefundMethod method)
     {
-        // Generate a unique return number based on timestamp
-        // Format: RET-YYYYMMDD-HHMMSS
-        return $"RET-{DateTime.Now:yyyyMMdd-HHmmss}";
+        return method switch
+        {
+            RefundMethod.Cash =>
+                "Cash",
+
+            RefundMethod.Card =>
+                "Card",
+
+            RefundMethod.Credit =>
+                "Store credit",
+
+            RefundMethod.Exchange =>
+                "Exchange",
+
+            RefundMethod.Original =>
+                "Original payment",
+
+            _ =>
+                "Other"
+        };
     }
 
-    string BuildReturnReason()
-    {
-        var reasons = new List<string>();
-
-        // Add refund method
-        reasons.Add($"Refund Method: {GetRefundMethodName(CurrentRefundMethod)}");
-
-        // Add user notes if any
-        if (!string.IsNullOrWhiteSpace(RefundNotes))
-        {
-            reasons.Add($"Notes: {RefundNotes}");
-        }
-
-        // Add summary of item reasons
-        var reasonGroups = ReturnLines
-            .GroupBy(l => l.Reason)
-            .Select(g => $"{g.Key}: {g.Count()} item(s)");
-
-        if (reasonGroups.Any())
-        {
-            reasons.Add($"Items: {string.Join(", ", reasonGroups)}");
-        }
-
-        return string.Join(" | ", reasons);
-    }
-
-    void NavigateToDashboard()
+    private void NavigateToDashboard()
     {
         Navigation.NavigateTo("/");
     }
 
-    async Task FocusSaleSearchInput()
+    private async Task FocusSaleSearchInputAsync()
     {
+        if (ShowRefundModal)
+        {
+            return;
+        }
+
         try
         {
-            await Task.Delay(100); // Small delay to ensure DOM is ready
-            await saleSearchInputRef.FocusAsync();
+            await Task.Delay(50);
+
+            await saleSearchInputRef
+                .FocusAsync();
         }
-        catch (Exception ex)
+        catch
         {
-            Console.WriteLine($"Focus error: {ex.Message}");
-            // Silently fail - focus is not critical
+            // Focus is optional while the page is rendering/navigating.
         }
     }
 
-    async Task PrintReturnReceipt(ReturnReceiptModel receipt)
+    private static decimal RoundMoney(
+        decimal value)
     {
-        this.returnReceipt = receipt;
-        await JS.InvokeVoidAsync("printReceipt");
+        return Math.Round(
+            value,
+            2,
+            MidpointRounding.AwayFromZero);
     }
 
-    // MODELS
-    class ReturnCartLine
+    private static decimal RoundQuantity(
+        decimal value)
     {
-        public Guid SaleLineId { get; set; }
-        public Guid ProductId { get; set; }
-        public string ProductName { get; set; } = "";
+        return Math.Round(
+            value,
+            3,
+            MidpointRounding.AwayFromZero);
+    }
+
+    private static string FormatQuantity(
+        decimal value)
+    {
+        return value.ToString(
+            "0.###",
+            System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    private sealed class ReturnCartLine
+    {
+        public ReturnCartLine(
+            LocalReturnableSaleLineResult source)
+        {
+            Source =
+                source;
+        }
+
+        public LocalReturnableSaleLineResult Source { get; }
+
         public decimal Quantity { get; set; }
-        public decimal MaxQuantity { get; set; }
-        public decimal UnitPrice { get; set; }
-        public decimal TaxRate { get; set; }
-        public string Reason { get; set; } = "";
-        public bool RestockItem { get; set; } = true; // Default to true
 
-        public decimal Amount => Quantity * UnitPrice;
-        public decimal TaxAmount => Amount * (TaxRate / 100);
+        public decimal MaximumQuantity =>
+            Source.AvailableQuantity;
+
+        public string Reason { get; set; } =
+            string.Empty;
+
+        public bool RestockItem { get; set; } =
+            true;
+
+        public decimal Amount =>
+            RoundMoney(
+                Quantity *
+                Source.EffectiveUnitPrice);
+
+        public decimal TaxAmount
+        {
+            get
+            {
+                if (Source.VatRate <=
+                    0m)
+                {
+                    return 0m;
+                }
+
+                var amountExclVat =
+                    Amount /
+                    (1m + Source.VatRate / 100m);
+
+                return RoundMoney(
+                    Amount -
+                    amountExclVat);
+            }
+        }
     }
 
-    class ReturnReceiptModel
+    private sealed class ReturnReceiptModel
     {
-        public string ReturnNumber { get; set; } = "";
-        public string OriginalSaleNumber { get; set; } = "";
+        public string ReturnNumber { get; set; } =
+            string.Empty;
+
+        public string OriginalSaleNumber { get; set; } =
+            string.Empty;
+
         public DateTime Date { get; set; }
+
         public decimal Total { get; set; }
+
         public decimal Tax { get; set; }
-        public string RefundMethod { get; set; } = "";
-        public string Notes { get; set; } = "";
-        public List<ReturnReceiptLine> Lines { get; set; } = new();
+
+        public string RefundMethod { get; set; } =
+            string.Empty;
+
+        public string Notes { get; set; } =
+            string.Empty;
+
+        public List<ReturnReceiptLine> Lines { get; set; } =
+            new();
     }
 
-    class ReturnReceiptLine
+    private sealed class ReturnReceiptLine
     {
-        public string Name { get; set; } = "";
+        public string Name { get; set; } =
+            string.Empty;
+
         public decimal Quantity { get; set; }
+
         public decimal UnitPrice { get; set; }
+
         public decimal Amount { get; set; }
-        public string Reason { get; set; } = "";
+
+        public string Reason { get; set; } =
+            string.Empty;
     }
 }

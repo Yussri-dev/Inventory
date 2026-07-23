@@ -1,41 +1,45 @@
-﻿using Inventory.Dto.CustomerTransactions.Requests;
-using Inventory.Dto.CustomerTransactions.Results;
-using Inventory.Dto.Pages.Results;
+﻿using Inventory.Dto.Pages.Results;
 using Inventory.Dto.Products.Requests;
 using Inventory.Dto.Products.Results;
 using Inventory.Dto.Queries;
-using Inventory.Dto.Stock.Requests;
-using Inventory.Dto.Stock.Results;
-using Inventory.Dto.StockMouvements.Requests;
-using Inventory.Dto.StockMouvements.Results;
 using Refit;
 
-namespace Inventory.Ui.Interfaces
+namespace Inventory.Ui.Interfaces;
+
+public interface IProductApi
 {
-    public interface IProductApi
-    {
-        [Post("/api/v1/products")]
-        Task<ProductResult> Create([Body] CreateProductRequest request);
+    [Post("/api/v1/products")]
+    Task<ProductResult> Create(
+        [Body] CreateProductRequest request,
+        CancellationToken cancellationToken = default);
 
-        [Get("/api/v1/products")]
-        Task<List<ProductResult>> GetAll();
+    [Get("/api/v1/products")]
+    Task<List<ProductResult>> GetAll(
+        CancellationToken cancellationToken = default);
 
-        [Get("/api/v1/products/{id}")]
-        Task<ProductResult> GetById(Guid id);
+    [Get("/api/v1/products/{id}")]
+    Task<ProductResult> GetById(
+        Guid id,
+        CancellationToken cancellationToken = default);
 
-        [Put("/api/v1/products/{id}")]
-        Task<ProductResult> Update(
-            Guid id,
-            [Body] UpdateProductRequest request);
+    [Put("/api/v1/products/{id}")]
+    Task<ProductResult> Update(
+        Guid id,
+        [Body] UpdateProductRequest request,
+        CancellationToken cancellationToken = default);
 
-        [Delete("/api/v1/products/{id}")]
-        Task Delete(Guid id);
+    [Delete("/api/v1/products/{id}")]
+    Task Delete(
+        Guid id,
+        CancellationToken cancellationToken = default);
 
-        [Get("/api/v1/products/search")]
-        Task<PagedResult<ProductResult>> Search(
-            [Query] ProductQuery query);
+    [Get("/api/v1/products/search")]
+    Task<PagedResult<ProductResult>> Search(
+        [Query] ProductQuery query,
+        CancellationToken cancellationToken = default);
 
-        [Get("/api/v1/products/{id}/label")]
-        Task<HttpResponseMessage> GetLabel(Guid id);
-    }
+    [Get("/api/v1/products/{id}/label")]
+    Task<HttpResponseMessage> GetLabel(
+        Guid id,
+        CancellationToken cancellationToken = default);
 }

@@ -1,15 +1,42 @@
 ﻿@page "/productcategory"
+
 @using Inventory.Dto.ProductCategory.Requests
 @using Inventory.Dto.ProductCategory.Results
-@inject IProductCategoryApi Api
+@using Inventory.LocalDB.Services.Interfaces
+@using Inventory.Ui.Services.Sync
+@using Inventory.Ui.State
 
-<h3>ProductCategorys</h3>
+@inject IProductCategoryApi Api
+@inject ILocalProductCategoryQueryService LocalCategoryQuery
+@inject ILocalProductCategorySyncService ProductCategorySync
+@inject AppState State
+
+<h3>Product Categories</h3>
 
 <div class="page-container">
 
+    @if (isOfflineMode)
+    {
+        <div class="alert warning">
+            Offline mode — product categories are loaded from SQLite.
+            Create, edit and delete are unavailable.
+        </div>
+    }
+
+    @if (isSynchronizing)
+    {
+        <div class="alert">
+            Synchronizing categories with the server...
+        </div>
+    }
+
     <!-- CREATE / EDIT -->
     <div class="card">
-        <h4>@(editingId == null ? "Create ProductCategory" : "Edit ProductCategory")</h4>
+        <h4>
+            @(editingId == null
+                ? "Create Product Category"
+                : "Edit Product Category")
+        </h4>
 
         <EditForm Model="form" OnValidSubmit="HandleSubmit">
             <DataAnnotationsValidator />
@@ -19,47 +46,69 @@
                 <div class="form-row">
                     <div class="form-field">
                         <label>Name *</label>
+
                         <InputText class="inputText"
                                    @bind-Value="form.Name"
-                                   disabled="@isLoading" />
+                                   disabled="@(isLoading || isOfflineMode)" />
+
                         <ValidationMessage For="@(() => form.Name)" />
                     </div>
 
                     <div class="form-field">
                         <label>Display Order</label>
+
                         <InputNumber class="inputText"
                                      @bind-Value="form.DisplayOrder"
-                                     disabled="@isLoading" />
+                                     disabled="@(isLoading || isOfflineMode)" />
                     </div>
                 </div>
 
                 <div class="form-row">
                     <div class="form-field">
                         <label>Color</label>
+
                         <InputText class="inputText"
                                    placeholder="#FF0000"
                                    @bind-Value="form.Color"
-                                   disabled="@isLoading" />
+                                   disabled="@(isLoading || isOfflineMode)" />
+
+                        <ValidationMessage For="@(() => form.Color)" />
                     </div>
 
                     <div class="form-field">
                         <label>Icon</label>
+
                         <InputText class="inputText"
                                    placeholder="fa-apple"
                                    @bind-Value="form.Icon"
-                                   disabled="@isLoading" />
+                                   disabled="@(isLoading || isOfflineMode)" />
+
+                        <ValidationMessage For="@(() => form.Icon)" />
                     </div>
                 </div>
 
                 <div class="actions-end">
-                    <button type="submit" class="btn primary" disabled="@isLoading">
-                        @(editingId == null ? "Create" : "Update")
+                    <button type="submit"
+                            class="btn primary"
+                            disabled="@(isLoading || isOfflineMode)">
+                        @if (isLoading)
+                        {
+                            <span>Saving...</span>
+                        }
+                        else
+                        {
+                            <span>
+                                @(editingId == null ? "Create" : "Update")
+                            </span>
+                        }
                     </button>
 
                     @if (editingId != null)
                     {
-                        <button type="button" class="btn ghost"
-                                @onclick="CancelEdit">
+                        <button type="button"
+                                class="btn ghost"
+                                @onclick="CancelEdit"
+                                disabled="@isLoading">
                             Cancel
                         </button>
                     }
@@ -71,22 +120,33 @@
 
     <!-- SEARCH -->
     <div class="card">
-        <h4>Search Product Category</h4>
+        <h4>Search Product Categories</h4>
 
         <div class="search-grid">
             <input type="text"
-                   placeholder="Search category name"
+                   placeholder="Search category name, color or icon"
                    @bind="searchTerm"
                    @bind:event="oninput"
                    @onkeyup="OnSearchKeyUp"
-                   disabled="@isLoading" />
+                   disabled="@isLoadingData" />
 
             <div class="search-actions">
-                <button class="btn primary" @onclick="Search" disabled="@isLoading">
+                <button class="btn primary"
+                        @onclick="Search"
+                        disabled="@isLoadingData">
                     Search
                 </button>
-                <button class="btn ghost" @onclick="ClearSearch" disabled="@isLoading">
+
+                <button class="btn ghost"
+                        @onclick="ClearSearch"
+                        disabled="@isLoadingData">
                     Clear
+                </button>
+
+                <button class="btn ghost"
+                        @onclick="SynchronizeManuallyAsync"
+                        disabled="@isSynchronizing">
+                    @(isSynchronizing ? "Syncing..." : "Sync")
                 </button>
             </div>
         </div>
@@ -95,36 +155,48 @@
     @if (isLoadingData)
     {
         <div class="loading-container">
-            <p>Loading Product Category...</p>
+            <p>Loading product categories...</p>
         </div>
     }
-    else if (items is null || items.Count == 0)
+    else if (items.Count == 0)
     {
-        <p>@(isSearching ? "No Product Category found matching your search." : "No Product Category.")</p>
+        <p>
+            @(isSearching
+                ? "No product categories match the search."
+                : "No product categories are stored locally.")
+        </p>
     }
     else
     {
         <div class="pager">
-            <button class="btn ghost" disabled="@(Page == 1)"
+            <button class="btn ghost"
+                    disabled="@(Page <= 1)"
                     @onclick="() => ChangePage(Page - 1)">
                 Prev
             </button>
 
             <span class="muted">
-                Page @Page / @(Math.Ceiling((double)TotalCount / PageSize))
+                Page @Page / @TotalPages
             </span>
 
             <button class="btn ghost"
-                    disabled="@(Page* PageSize >= TotalCount)"
+                    disabled="@(Page >= TotalPages)"
                     @onclick="() => ChangePage(Page + 1)">
                 Next
             </button>
         </div>
+
         <div class="results-header">
-            <span>@items.Count ProductCategory(s) found</span>
+            <span>
+                @items.Count displayed / @TotalCount category(s)
+            </span>
+
             @if (isSearching)
             {
-                <button class="btn small ghost" @onclick="ClearSearch">Show All</button>
+                <button class="btn small ghost"
+                        @onclick="ClearSearch">
+                    Show All
+                </button>
             }
         </div>
 
@@ -147,31 +219,50 @@
                         Icon @GetSortIcon(nameof(ProductCategoryResult.Icon))
                     </th>
 
-                    <th style="width:160px"></th>
+                    <th style="width:160px">Actions</th>
                 </tr>
             </thead>
 
             <tbody>
-                @foreach (var c in items)
+                @foreach (var category in items)
                 {
                     <tr>
-                        <td>@c.Name</td>
-                        <td>@c.DisplayOrder</td>
+                        <td>@category.Name</td>
+
+                        <td>@category.DisplayOrder</td>
+
                         <td>
-                            <span style="background:@c.Color; padding:4px 10px; border-radius:4px;">
-                                @c.Color
-                            </span>
+                            @if (!string.IsNullOrWhiteSpace(category.Color))
+                            {
+                                <span style="
+                                    background:@category.Color;
+                                    padding:4px 10px;
+                                    border-radius:4px;">
+                                    @category.Color
+                                </span>
+                            }
+                            else
+                            {
+                                <span class="muted">-</span>
+                            }
                         </td>
-                        <td>@c.Icon</td>
+
+                        <td>
+                            @(string.IsNullOrWhiteSpace(category.Icon)
+                                ? "-"
+                                : category.Icon)
+                        </td>
 
                         <td class="actions-end">
                             <button class="btn small ghost"
-                                    @onclick="() => StartEdit(c)">
+                                    @onclick="() => StartEdit(category)"
+                                    disabled="@(isLoading || isOfflineMode)">
                                 Edit
                             </button>
 
                             <button class="btn small danger"
-                                    @onclick="() => AskDelete(c)">
+                                    @onclick="() => AskDelete(category)"
+                                    disabled="@(isLoading || isOfflineMode)">
                                 Delete
                             </button>
                         </td>
@@ -181,16 +272,37 @@
         </table>
     }
 
-    @if (showDelete && ProductCategoryToDelete != null)
+    @if (showDelete && categoryToDelete != null)
     {
-        <div class="modal-overlay" @onclick="CancelDelete">
-            <div class="modal-content" @onclick:stopPropagation="true">
+        <div class="modal-overlay"
+             @onclick="CancelDelete">
+
+            <div class="modal-content"
+                 @onclick:stopPropagation="true">
+
                 <h4>Confirm Delete</h4>
-                <p>Are you sure you want to delete <strong>@ProductCategoryToDelete.Name</strong>?</p>
-                <p class="text-muted">This action cannot be undone.</p>
+
+                <p>
+                    Are you sure you want to delete
+                    <strong>@categoryToDelete.Name</strong>?
+                </p>
+
+                <p class="text-muted">
+                    This action cannot be undone.
+                </p>
+
                 <div class="modal-actions">
-                    <button class="btn ghost" @onclick="CancelDelete">Cancel</button>
-                    <button class="btn danger" @onclick="ConfirmDelete">Delete</button>
+                    <button class="btn ghost"
+                            @onclick="CancelDelete"
+                            disabled="@isLoading">
+                        Cancel
+                    </button>
+
+                    <button class="btn danger"
+                            @onclick="ConfirmDelete"
+                            disabled="@isLoading">
+                        @(isLoading ? "Deleting..." : "Delete")
+                    </button>
                 </div>
             </div>
         </div>
@@ -198,7 +310,7 @@
 
 </div>
 
-@if (!string.IsNullOrEmpty(successMessage))
+@if (!string.IsNullOrWhiteSpace(successMessage))
 {
     <div class="toast-success">
         <span class="toast-icon"></span>
@@ -206,7 +318,7 @@
     </div>
 }
 
-@if (!string.IsNullOrEmpty(errorMessage))
+@if (!string.IsNullOrWhiteSpace(errorMessage))
 {
     <div class="toast-error">
         <span class="toast-icon"></span>
@@ -215,16 +327,22 @@
 }
 
 @code {
-    private List<ProductCategoryResult>? items;
+    private List<ProductCategoryResult> allItems = new();
+    private List<ProductCategoryResult> items = new();
+
     private ProductCategoryForm form = new();
+
     private Guid? editingId;
 
     private bool isLoading;
     private bool isLoadingData;
     private bool isSearching;
+    private bool isOfflineMode = true;
+    private bool isSynchronizing;
+    private bool syncAttempted;
 
-    private string sortBy = "DisplayOrder";
-    private bool sortDescending = false;
+    private string sortBy = nameof(ProductCategoryResult.DisplayOrder);
+    private bool sortDescending;
 
     private string? errorMessage;
     private string? successMessage;
@@ -232,75 +350,69 @@
     private string searchTerm = string.Empty;
 
     private bool showDelete;
-    private ProductCategoryResult? ProductCategoryToDelete;
+    private ProductCategoryResult? categoryToDelete;
 
+    private int Page = 1;
+    private int PageSize = 10;
+    private int TotalCount;
 
-    int Page = 1;
-    int PageSize = 10;
-    int TotalCount;
+    private int TotalPages =>
+        Math.Max(
+            1,
+            (int)Math.Ceiling(
+                TotalCount / (double)PageSize));
 
-    async Task ShowSuccess(string message)
-    {
-        successMessage = null;
-        StateHasChanged();
-
-        successMessage = message;
-
-        StateHasChanged();
-
-        await Task.Delay(3000).ContinueWith(_ =>
-        {
-            successMessage = null;
-            InvokeAsync(StateHasChanged);
-        });
-    }
-
-    async Task ShowError(string message)
-    {
-        errorMessage = null;
-        StateHasChanged();
-
-        errorMessage = message;
-
-        StateHasChanged();
-
-        await Task.Delay(3000).ContinueWith(_ =>
-        {
-            errorMessage = null;
-            InvokeAsync(StateHasChanged);
-        });
-    }
+    private bool CanUseServer =>
+        !isOfflineMode &&
+        !isSynchronizing;
 
     protected override async Task OnInitializedAsync()
     {
-        await LoadData();
+        Page = 1;
+        isOfflineMode = true;
+
+        // Toujours afficher SQLite en premier.
+        await LoadLocalDataAsync();
     }
 
-    private async Task LoadData()
+    protected override Task OnAfterRenderAsync(
+        bool firstRender)
+    {
+        if (!firstRender || syncAttempted)
+            return Task.CompletedTask;
+
+        syncAttempted = true;
+
+        // La page est déjà affichée depuis SQLite.
+        // La synchronisation est ensuite tentée.
+        _ = InvokeAsync(TrySynchronizeWithServerAsync);
+
+        return Task.CompletedTask;
+    }
+
+    private async Task LoadLocalDataAsync()
     {
         try
         {
             isLoadingData = true;
             errorMessage = null;
 
-            var query = new ProductCategoryQuery
-            {
-                Page = Page,
-                PageSize = PageSize,
-                Search = isSearching ? searchTerm : null,
-                SortBy = sortBy,
-                Desc = sortDescending
-            };
+            allItems = await LocalCategoryQuery
+                .GetAllAsync();
 
-            var response = await Api.Search(query);
-
-            items = response.Items?.ToList() ?? new List<ProductCategoryResult>();
-            TotalCount = response.TotalCount;
+            ApplyLocalView();
         }
-        catch (Exception ex)
+        catch (Exception exception)
         {
-            await ShowError("Failed to load Product Category");
+            allItems = new List<ProductCategoryResult>();
             items = new List<ProductCategoryResult>();
+            TotalCount = 0;
+
+            ShowError(
+                $"Failed to load local categories: " +
+                $"{exception.GetBaseException().Message}");
+
+            System.Diagnostics.Debug.WriteLine(exception);
         }
         finally
         {
@@ -308,7 +420,487 @@
         }
     }
 
-    private async Task Sort(string column)
+    private void ApplyLocalView()
+    {
+        IEnumerable<ProductCategoryResult> query =
+            allItems;
+
+        if (isSearching &&
+            !string.IsNullOrWhiteSpace(searchTerm))
+        {
+            var term = searchTerm.Trim();
+
+            query = query.Where(x =>
+                (!string.IsNullOrWhiteSpace(x.Name) &&
+                 x.Name.Contains(
+                     term,
+                     StringComparison.OrdinalIgnoreCase))
+                ||
+                (!string.IsNullOrWhiteSpace(x.Color) &&
+                 x.Color.Contains(
+                     term,
+                     StringComparison.OrdinalIgnoreCase))
+                ||
+                (!string.IsNullOrWhiteSpace(x.Icon) &&
+                 x.Icon.Contains(
+                     term,
+                     StringComparison.OrdinalIgnoreCase)));
+        }
+
+        query = ApplySorting(query);
+
+        TotalCount = query.Count();
+
+        if (Page > TotalPages)
+            Page = TotalPages;
+
+        items = query
+            .Skip((Page - 1) * PageSize)
+            .Take(PageSize)
+            .ToList();
+    }
+
+    private IEnumerable<ProductCategoryResult> ApplySorting(
+        IEnumerable<ProductCategoryResult> query)
+    {
+        return sortBy switch
+        {
+            nameof(ProductCategoryResult.Name) =>
+                sortDescending
+                    ? query.OrderByDescending(x => x.Name)
+                    : query.OrderBy(x => x.Name),
+
+            nameof(ProductCategoryResult.DisplayOrder) =>
+                sortDescending
+                    ? query.OrderByDescending(x => x.DisplayOrder)
+                    : query.OrderBy(x => x.DisplayOrder),
+
+            nameof(ProductCategoryResult.Color) =>
+                sortDescending
+                    ? query.OrderByDescending(x => x.Color)
+                    : query.OrderBy(x => x.Color),
+
+            nameof(ProductCategoryResult.Icon) =>
+                sortDescending
+                    ? query.OrderByDescending(x => x.Icon)
+                    : query.OrderBy(x => x.Icon),
+
+            _ => query
+                .OrderBy(x => x.DisplayOrder)
+                .ThenBy(x => x.Name)
+        };
+    }
+
+    private async Task TrySynchronizeWithServerAsync()
+    {
+        if (isSynchronizing)
+            return;
+
+        try
+        {
+            isSynchronizing = true;
+
+            // La réussite de cet appel prouve que l’API est accessible.
+            await ProductCategorySync.FullSyncAsync();
+
+            isOfflineMode = false;
+
+            // Toujours relire SQLite après la synchronisation.
+            await LoadLocalDataAsync();
+
+            State.InvalidatePos();
+        }
+        catch (HttpRequestException exception)
+        {
+            isOfflineMode = true;
+
+            System.Diagnostics.Debug.WriteLine(
+                $"Product category API unavailable: {exception}");
+        }
+        catch (TaskCanceledException exception)
+        {
+            isOfflineMode = true;
+
+            System.Diagnostics.Debug.WriteLine(
+                $"Product category API timeout: {exception}");
+        }
+        catch (Exception exception)
+        {
+            isOfflineMode = true;
+
+            System.Diagnostics.Debug.WriteLine(
+                $"Product category synchronization failed: {exception}");
+        }
+        finally
+        {
+            isSynchronizing = false;
+
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task SynchronizeManuallyAsync()
+    {
+        await TrySynchronizeWithServerAsync();
+    }
+
+    private async Task RefreshAfterServerMutationAsync(
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await ProductCategorySync.FullSyncAsync(
+                cancellationToken);
+
+            isOfflineMode = false;
+
+            await LoadLocalDataAsync();
+
+            State.InvalidatePos();
+        }
+        catch
+        {
+            isOfflineMode = true;
+            throw;
+        }
+    }
+
+    private Task HandleSubmit()
+    {
+        return editingId == null
+            ? Create()
+            : Update();
+    }
+
+    private async Task Create()
+    {
+        if (isLoading)
+            return;
+
+        if (!CanUseServer)
+        {
+            ShowError(
+                "Create is unavailable in offline mode.");
+
+            return;
+        }
+
+        form.Name = form.Name.Trim();
+
+        var categoryName = form.Name;
+
+        try
+        {
+            isLoading = true;
+            ClearMessages();
+
+            await Api.Create(
+                new CreateProductCategoryRequest
+                {
+                    Name = form.Name,
+                    DisplayOrder = form.DisplayOrder,
+
+                    Color = string.IsNullOrWhiteSpace(form.Color)
+                        ? null
+                        : form.Color.Trim(),
+
+                    Icon = string.IsNullOrWhiteSpace(form.Icon)
+                        ? null
+                        : form.Icon.Trim()
+                });
+
+            var localSyncSucceeded = true;
+
+            try
+            {
+                await RefreshAfterServerMutationAsync();
+            }
+            catch (Exception exception)
+            {
+                localSyncSucceeded = false;
+
+                System.Diagnostics.Debug.WriteLine(
+                    $"Local category refresh after create failed: " +
+                    $"{exception}");
+            }
+
+            Reset();
+            Page = 1;
+
+            ApplyLocalView();
+
+            if (localSyncSucceeded)
+            {
+                ShowSuccess(
+                    $"Product category '{categoryName}' " +
+                    "created successfully.");
+            }
+            else
+            {
+                ShowError(
+                    $"Product category '{categoryName}' was created " +
+                    "on the server, but SQLite was not refreshed.");
+            }
+        }
+        catch (HttpRequestException exception)
+        {
+            isOfflineMode = true;
+
+            ShowError(
+                $"Server unavailable: " +
+                $"{exception.GetBaseException().Message}");
+        }
+        catch (Exception exception)
+        {
+            ShowError(
+                $"Failed to create product category: " +
+                $"{exception.GetBaseException().Message}");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task Update()
+    {
+        if (editingId == null || isLoading)
+            return;
+
+        if (!CanUseServer)
+        {
+            ShowError(
+                "Update is unavailable in offline mode.");
+
+            return;
+        }
+
+        form.Name = form.Name.Trim();
+
+        var categoryId = editingId.Value;
+        var categoryName = form.Name;
+
+        try
+        {
+            isLoading = true;
+            ClearMessages();
+
+            await Api.Update(
+                categoryId,
+                new UpdateProductCategoryRequest
+                {
+                    Name = form.Name,
+                    DisplayOrder = form.DisplayOrder,
+
+                    Color = string.IsNullOrWhiteSpace(form.Color)
+                        ? null
+                        : form.Color.Trim(),
+
+                    Icon = string.IsNullOrWhiteSpace(form.Icon)
+                        ? null
+                        : form.Icon.Trim()
+                });
+
+            var localSyncSucceeded = true;
+
+            try
+            {
+                await RefreshAfterServerMutationAsync();
+            }
+            catch (Exception exception)
+            {
+                localSyncSucceeded = false;
+
+                System.Diagnostics.Debug.WriteLine(
+                    $"Local category refresh after update failed: " +
+                    $"{exception}");
+            }
+
+            Reset();
+
+            ApplyLocalView();
+
+            if (localSyncSucceeded)
+            {
+                ShowSuccess(
+                    $"Product category '{categoryName}' " +
+                    "updated successfully.");
+            }
+            else
+            {
+                ShowError(
+                    $"Product category '{categoryName}' was updated " +
+                    "on the server, but SQLite was not refreshed.");
+            }
+        }
+        catch (HttpRequestException exception)
+        {
+            isOfflineMode = true;
+
+            ShowError(
+                $"Server unavailable: " +
+                $"{exception.GetBaseException().Message}");
+        }
+        catch (Exception exception)
+        {
+            ShowError(
+                $"Failed to update product category: " +
+                $"{exception.GetBaseException().Message}");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void StartEdit(
+        ProductCategoryResult category)
+    {
+        if (!CanUseServer)
+        {
+            ShowError(
+                "Edit is unavailable in offline mode.");
+
+            return;
+        }
+
+        editingId = category.Id;
+
+        form = new ProductCategoryForm
+        {
+            Name = category.Name,
+            DisplayOrder = category.DisplayOrder,
+            Color = category.Color ?? string.Empty,
+            Icon = category.Icon ?? string.Empty
+        };
+    }
+
+    private void AskDelete(
+        ProductCategoryResult category)
+    {
+        if (!CanUseServer)
+        {
+            ShowError(
+                "Delete is unavailable in offline mode.");
+
+            return;
+        }
+
+        categoryToDelete = category;
+        showDelete = true;
+    }
+
+    private async Task ConfirmDelete()
+    {
+        if (categoryToDelete == null ||
+            isLoading)
+        {
+            return;
+        }
+
+        if (!CanUseServer)
+        {
+            showDelete = false;
+
+            ShowError(
+                "Delete is unavailable in offline mode.");
+
+            return;
+        }
+
+        var categoryId = categoryToDelete.Id;
+        var categoryName = categoryToDelete.Name;
+
+        try
+        {
+            isLoading = true;
+            showDelete = false;
+            ClearMessages();
+
+            await Api.Delete(categoryId);
+
+            var localSyncSucceeded = true;
+
+            try
+            {
+                await RefreshAfterServerMutationAsync();
+            }
+            catch (Exception exception)
+            {
+                localSyncSucceeded = false;
+
+                System.Diagnostics.Debug.WriteLine(
+                    $"Local category refresh after delete failed: " +
+                    $"{exception}");
+            }
+
+            categoryToDelete = null;
+
+            if (items.Count == 1 && Page > 1)
+                Page--;
+
+            ApplyLocalView();
+
+            if (localSyncSucceeded)
+            {
+                ShowSuccess(
+                    $"Product category '{categoryName}' " +
+                    "deleted successfully.");
+            }
+            else
+            {
+                ShowError(
+                    $"Product category '{categoryName}' was deleted " +
+                    "on the server, but SQLite was not refreshed.");
+            }
+        }
+        catch (HttpRequestException exception)
+        {
+            isOfflineMode = true;
+            showDelete = false;
+
+            ShowError(
+                $"Server unavailable: " +
+                $"{exception.GetBaseException().Message}");
+        }
+        catch (Exception exception)
+        {
+            showDelete = true;
+
+            ShowError(
+                $"Failed to delete product category: " +
+                $"{exception.GetBaseException().Message}");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task Search()
+    {
+        searchTerm = searchTerm.Trim();
+        isSearching = !string.IsNullOrWhiteSpace(searchTerm);
+        Page = 1;
+
+        ApplyLocalView();
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task ClearSearch()
+    {
+        searchTerm = string.Empty;
+        isSearching = false;
+        Page = 1;
+
+        ApplyLocalView();
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task Sort(
+        string column)
     {
         if (sortBy == column)
         {
@@ -321,227 +913,47 @@
         }
 
         Page = 1;
-        await LoadData();
+
+        ApplyLocalView();
+
+        await InvokeAsync(StateHasChanged);
     }
 
-    private string GetSortIcon(string column)
+    private string GetSortIcon(
+        string column)
     {
         if (sortBy != column)
-        {
             return "↕";
-        }
-        return sortDescending ? "▼" : "▲";
+
+        return sortDescending
+            ? "▼"
+            : "▲";
     }
 
-    async Task ChangePage(int newPage)
+    private async Task ChangePage(
+        int newPage)
     {
-        Page = newPage;
-        await LoadData();
+        Page = Math.Clamp(
+            newPage,
+            1,
+            TotalPages);
+
+        ApplyLocalView();
+
+        await InvokeAsync(StateHasChanged);
     }
 
-    private async Task Search()
+    private async Task OnSearchKeyUp(
+        KeyboardEventArgs args)
     {
-        if (string.IsNullOrWhiteSpace(searchTerm))
-        {
-            await LoadData();
-            return;
-        }
-
-        try
-        {
-            isLoadingData = true;
-            errorMessage = null;
-
-            var result = await Api.Search(new ProductCategoryQuery
-            {
-                Search = searchTerm
-            });
-
-            items = result.Items.ToList();
-            isSearching = true;
-        }
-        catch (Exception ex)
-        {
-            // errorMessage = $"Search failed: {ex.Message}";
-            await ShowError("Search Failed ");
-            items = new List<ProductCategoryResult>();
-        }
-        finally
-        {
-            isLoadingData = false;
-        }
-    }
-
-    private async Task OnSearchKeyUp(KeyboardEventArgs e)
-    {
-        if (e.Key == "Enter")
-        {
+        if (args.Key == "Enter")
             await Search();
-        }
-    }
-
-    private async Task ClearSearch()
-    {
-        searchTerm = string.Empty;
-        await LoadData();
-    }
-
-    private async Task HandleSubmit()
-    {
-        if (editingId == null)
-        {
-            await Create();
-        }
-        else
-        {
-            await Update();
-        }
-    }
-
-    private async Task Create()
-    {
-        try
-        {
-            isLoading = true;
-            ClearMessages();
-
-            await Api.Create(new CreateProductCategoryRequest
-            {
-                Name = form.Name,
-                DisplayOrder = form.DisplayOrder,
-                Color = form.Color,
-                Icon = form.Icon
-            });
-
-            // successMessage = $"Product Category '{form.Name}' created successfully.";
-            await ShowSuccess($"Producr Category {form.Name} created successfully !");
-            Reset();
-
-            // Refresh current view
-            if (isSearching)
-            {
-                await Search();
-            }
-            else
-            {
-                await LoadData();
-            }
-        }
-        catch (Exception ex)
-        {
-            // errorMessage = $"Failed to create Product Category: {ex.Message}";
-            await ShowError("Failed to create Product Category !");
-        }
-        finally
-        {
-            isLoading = false;
-        }
-    }
-
-    private async Task Update()
-    {
-        if (editingId == null)
-            return;
-
-        try
-        {
-            isLoading = true;
-            ClearMessages();
-
-            await Api.Update(editingId.Value, new UpdateProductCategoryRequest
-            {
-                Name = form.Name,
-                DisplayOrder = form.DisplayOrder,
-                Color = form.Color,
-                Icon = form.Icon
-            });
-
-            // successMessage = $"Product Category '{form.Name}' updated successfully.";
-            await ShowSuccess("Product Category {form.Name} updated successfully !");
-            Reset();
-
-            // Refresh current view
-            if (isSearching)
-            {
-                await Search();
-            }
-            else
-            {
-                await LoadData();
-            }
-        }
-        catch (Exception ex)
-        {
-            // errorMessage = $"Failed to update Product Category: {ex.Message}";
-            await ShowError("Failed to update Product Category");
-        }
-        finally
-        {
-            isLoading = false;
-        }
-    }
-
-    private void StartEdit(ProductCategoryResult c)
-    {
-        editingId = c.Id;
-
-        form = new ProductCategoryForm
-        {
-            Name = c.Name,
-            DisplayOrder = c.DisplayOrder,
-            Color = c.Color,
-            Icon = c.Icon
-        };
-    }
-    private void AskDelete(ProductCategoryResult s)
-    {
-        ProductCategoryToDelete = s;
-        showDelete = true;
-    }
-
-    private async Task ConfirmDelete()
-    {
-        if (ProductCategoryToDelete == null)
-            return;
-
-        try
-        {
-            isLoading = true;
-            showDelete = false;
-            ClearMessages();
-
-            var ProductCategoryName = ProductCategoryToDelete.Name;
-            await Api.Delete(ProductCategoryToDelete.Id);
-
-            // successMessage = $"Product Category '{ProductCategoryName}' deleted successfully.";
-            await ShowSuccess($"Product Category {ProductCategoryName} deleted successfully");
-            ProductCategoryToDelete = null;
-
-            // Refresh current view
-            if (isSearching)
-            {
-                await Search();
-            }
-            else
-            {
-                await LoadData();
-            }
-        }
-        catch (Exception ex)
-        {
-            // errorMessage = $"Failed to delete Product Category: {ex.Message}";
-            await ShowError("Failed to delete Product Category");
-        }
-        finally
-        {
-            isLoading = false;
-        }
     }
 
     private void CancelDelete()
     {
         showDelete = false;
-        ProductCategoryToDelete = null;
+        categoryToDelete = null;
     }
 
     private void CancelEdit()
@@ -555,26 +967,66 @@
         form = new ProductCategoryForm();
     }
 
-
     private void ClearMessages()
     {
         errorMessage = null;
         successMessage = null;
     }
 
+    private void ShowSuccess(
+        string message)
+    {
+        successMessage = message;
+        errorMessage = null;
+
+        _ = ClearSuccessMessageLaterAsync();
+    }
+
+    private void ShowError(
+        string message)
+    {
+        errorMessage = message;
+        successMessage = null;
+
+        _ = ClearErrorMessageLaterAsync();
+    }
+
+    private async Task ClearSuccessMessageLaterAsync()
+    {
+        await Task.Delay(3000);
+
+        successMessage = null;
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task ClearErrorMessageLaterAsync()
+    {
+        await Task.Delay(3000);
+
+        errorMessage = null;
+
+        await InvokeAsync(StateHasChanged);
+    }
+
     private sealed class ProductCategoryForm
     {
         [Required(ErrorMessage = "Name is required")]
-        [StringLength(200, ErrorMessage = "Name cannot exceed 200 characters")]
+        [StringLength(
+            100,
+            ErrorMessage = "Name cannot exceed 100 characters")]
         public string Name { get; set; } = string.Empty;
 
         public int DisplayOrder { get; set; }
 
-        [StringLength(200, ErrorMessage = "Color cannot exceed 200 characters")]
+        [StringLength(
+            50,
+            ErrorMessage = "Color cannot exceed 50 characters")]
         public string Color { get; set; } = string.Empty;
 
-        [StringLength(200, ErrorMessage = "Icon cannot exceed 200 characters")]
+        [StringLength(
+            100,
+            ErrorMessage = "Icon cannot exceed 100 characters")]
         public string Icon { get; set; } = string.Empty;
-
     }
 }

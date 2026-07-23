@@ -1,22 +1,25 @@
 ﻿using MediatR;
 
-namespace Inventory.Services.Features.InventorySessions.Validate
+namespace Inventory.Services.Features.InventorySessions.Validate;
+
+public sealed class ValidateInventorySessionCommandHandler
+    : IRequestHandler<ValidateInventorySessionCommand, bool>
 {
-    public class ValidateInventorySessionCommandHandler
-       : IRequestHandler<ValidateInventorySessionCommand, bool>
+    private readonly InventorySessionService _service;
+
+    public ValidateInventorySessionCommandHandler(
+        InventorySessionService service)
     {
-        private readonly InventorySessionService _service;
+        _service =
+            service;
+    }
 
-        public ValidateInventorySessionCommandHandler(InventorySessionService service)
-        {
-            _service = service;
-        }
-
-        public async Task<bool> Handle(
-            ValidateInventorySessionCommand request,
-            CancellationToken cancellationToken)
-        {
-            return await _service.ValidateAsync(request.Id);
-        }
+    public Task<bool> Handle(
+        ValidateInventorySessionCommand request,
+        CancellationToken cancellationToken)
+    {
+        return _service.ValidateAsync(
+            request.Id,
+            cancellationToken);
     }
 }

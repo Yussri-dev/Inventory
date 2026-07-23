@@ -3,11 +3,12 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Inventory.LocalDB.Models
 {
-    public class LocalPurchaseLine
+    public class LocalPurchaseLine : ILocalTenantEntity
     {
         [Key]
         public Guid Id { get; set; } = Guid.NewGuid();
 
+        public Guid TenantId { get; set; }
         [Required]
         public Guid LocalPurchaseId { get; set; }
 
@@ -34,15 +35,34 @@ namespace Inventory.LocalDB.Models
         public decimal UnitPurchasePrice { get; set; }
 
         [Column(TypeName = "decimal(5,2)")]
+        public decimal DiscountPercent { get; set; }
+
+        [Column(TypeName = "decimal(5,2)")]
         public decimal VatRate { get; set; }
 
         [NotMapped]
-        public decimal LineAmountExclVat => QuantityReceived * UnitPurchasePrice;
+        public decimal EffectiveUnitPurchasePrice =>
+    Math.Round(
+        UnitPurchasePrice *
+        (1m - DiscountPercent / 100m),
+        2);
 
         [NotMapped]
-        public decimal VatAmount => LineAmountExclVat * (VatRate / 100m);
+        public decimal LineAmountExclVat =>
+            Math.Round(
+                QuantityReceived *
+                EffectiveUnitPurchasePrice,
+                2);
 
         [NotMapped]
-        public decimal LineAmountInclVat => LineAmountExclVat + VatAmount;
+        public decimal VatAmount =>
+            Math.Round(
+                LineAmountExclVat *
+                (VatRate / 100m),
+                2);
+
+        [NotMapped]
+        public decimal LineAmountInclVat =>
+            LineAmountExclVat + VatAmount;
     }
 }

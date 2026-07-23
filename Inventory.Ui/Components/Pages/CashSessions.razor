@@ -1,27 +1,132 @@
 ﻿@page "/cashSessions"
 
-@using Inventory.Dto.CashSessions.Requests
 @using Inventory.Dto.CashSessions.Results
-@using Inventory.Dto.Enums
-@using Inventory.Ui.State
-@using Inventory.Ui.Services
+@using Inventory.LocalDB.Models
+@using Inventory.LocalDB.Services.Interfaces
+@using Inventory.Ui.Interfaces
+@using Inventory.Ui.Services.Sync
+@using Refit
 
-@inject AppState State
-@inject ICashSessionApi CashSessionApi
+@inject ILocalCashSessionService LocalCashSessionService
+@inject ILocalTenantContext LocalTenantContext
+@inject ICashSessionReconciliationService CashSessionReconciliation
+@inject ILocalSyncUploader LocalSyncUploader
 @inject NavigationManager Navigation
-@implements IDisposable
 
 <div class="cash-session-container">
 
-    @if (ActiveSession != null)
+    @if (!string.IsNullOrWhiteSpace(ErrorMessage))
     {
-        <!-- ACTIVE SESSION VIEW -->
+        <div class="alert alert-danger">
+            @ErrorMessage
+        </div>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(SuccessMessage))
+    {
+        <div class="alert alert-success">
+            @SuccessMessage
+        </div>
+    }
+
+    @if (ReconciliationResult?.ServerSession != null &&
+         ReconciliationResult.State is
+             CashSessionReconciliationState.Conflict or
+             CashSessionReconciliationState.ServerSessionOnly)
+    {
+        <div class="card session-conflict"
+             style="border:2px solid var(--danger, #dc3545); margin-bottom:1rem;">
+            <div class="session-header">
+                <div class="session-status">
+                    <span class="status-badge closed">
+                        ⚠ SERVER SESSION OPEN
+                    </span>
+
+                    <h2>
+                        Server #@ReconciliationResult.ServerSession.SessionNumber
+                    </h2>
+                </div>
+            </div>
+
+            <div class="session-details">
+                <p>@ReconciliationResult.Message</p>
+
+                <div class="detail-row">
+                    <div class="detail-item">
+                        <span class="label">Server opened at</span>
+                        <strong>
+                            @(ReconciliationResult.ServerSession.OpenedAt
+                                .ToLocalTime()
+                                .ToString("dd/MM/yyyy HH:mm"))
+                        </strong>
+                    </div>
+
+                    <div class="detail-item">
+                        <span class="label">Server expected cash</span>
+                        <strong class="amount">
+                            €@(ReconciliationResult.ServerSession
+                                .ClosingAmountExpected
+                                .ToString("F2"))
+                        </strong>
+                    </div>
+                </div>
+
+                @if (ReconciliationResult.LocalSession != null)
+                {
+                    <div class="detail-row">
+                        <div class="detail-item">
+                            <span class="label">Different local session</span>
+                            <strong>
+                                @ReconciliationResult.LocalSession.SessionNumber
+                            </strong>
+                        </div>
+
+                        <div class="detail-item">
+                            <span class="label">Local opened at</span>
+                            <strong>
+                                @(ReconciliationResult.LocalSession.OpenedAtUtc
+                                    .ToLocalTime()
+                                    .ToString("dd/MM/yyyy HH:mm"))
+                            </strong>
+                        </div>
+                    </div>
+                }
+            </div>
+
+            <div class="quick-actions">
+                <button class="btn btn-danger"
+                        @onclick="OpenServerCloseModal"
+                        disabled="@IsLoading">
+                    Count and close server session
+                </button>
+
+                <button class="btn btn-secondary"
+                        @onclick="ReloadAndReconcile"
+                        disabled="@IsLoading">
+                    Check again
+                </button>
+            </div>
+        </div>
+    }
+
+    @if (IsLoadingData)
+    {
+        <div class="card session-inactive">
+            <div class="empty-state">
+                <div class="icon">⏳</div>
+                <h2>Loading cash session...</h2>
+            </div>
+        </div>
+    }
+    else if (ActiveSession != null)
+    {
         <div class="card session-active">
             <div class="session-header">
                 <div class="session-status">
                     <span class="status-badge open">● OPEN</span>
                     <h2>Cash Session #@ActiveSession.SessionNumber</h2>
                 </div>
+
                 <button class="btn btn-danger" @onclick="OpenCloseModal">
                     Close Session
                 </button>
@@ -31,11 +136,12 @@
                 <div class="detail-row">
                     <div class="detail-item">
                         <span class="label">Opened At</span>
-                        <strong>@ActiveSession.OpenedAt.ToString("dd/MM/yyyy HH:mm")</strong>
+                        <strong>@ActiveSession.OpenedAtUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</strong>
                     </div>
+
                     <div class="detail-item">
                         <span class="label">Duration</span>
-                        <strong>@GetSessionDuration(ActiveSession.OpenedAt)</strong>
+                        <strong>@GetSessionDuration(ActiveSession.OpenedAtUtc)</strong>
                     </div>
                 </div>
 
@@ -44,13 +150,14 @@
                         <span class="label">Opening Balance</span>
                         <strong class="amount">€@ActiveSession.OpeningAmount.ToString("F2")</strong>
                     </div>
+
                     <div class="detail-item">
                         <span class="label">Expected Cash</span>
                         <strong class="amount success">€@ActiveSession.ClosingAmountExpected.ToString("F2")</strong>
                     </div>
                 </div>
 
-                @if (!string.IsNullOrEmpty(ActiveSession.OpeningNotes))
+                @if (!string.IsNullOrWhiteSpace(ActiveSession.OpeningNotes))
                 {
                     <div class="notes">
                         <span class="label">Opening Notes:</span>
@@ -63,6 +170,7 @@
                 <button class="btn btn-primary" @onclick="NavigateToSales">
                     Start Selling
                 </button>
+
                 <button class="btn btn-secondary" @onclick="ViewHistory">
                     View History
                 </button>
@@ -71,24 +179,34 @@
     }
     else
     {
-        <!-- NO ACTIVE SESSION VIEW -->
         <div class="card session-inactive">
             <div class="empty-state">
                 <div class="icon">🏪</div>
                 <h2>No Active Cash Session</h2>
-                <p>Open a new cash session to start selling</p>
-                <button class="btn btn-primary btn-lg" @onclick="OpenCreateModal">
+                <p>Open a new local cash session to start selling offline.</p>
+
+                <button class="btn btn-primary btn-lg"
+                        @onclick="OpenCreateModal"
+                        disabled="@(ReconciliationResult?.ServerSession != null)">
                     Open New Session
                 </button>
+
+                @if (ReconciliationResult?.ServerSession != null)
+                {
+                    <p class="muted">
+                        Resolve the open server session before opening a
+                        different local session.
+                    </p>
+                }
             </div>
         </div>
     }
 
-    <!-- RECENT SESSIONS -->
     @if (RecentSessions.Count > 0)
     {
         <div class="card recent-sessions">
             <h3>Recent Sessions</h3>
+
             <table class="table">
                 <thead>
                     <tr>
@@ -101,20 +219,21 @@
                         <th>Status</th>
                     </tr>
                 </thead>
+
                 <tbody>
                     @foreach (var session in RecentSessions)
                     {
                         <tr>
                             <td><strong>@session.SessionNumber</strong></td>
-                            <td>@session.OpenedAt.ToString("dd/MM/yyyy HH:mm")</td>
-                            <td>@(session.ClosedAt?.ToString("dd/MM/yyyy HH:mm") ?? "-")</td>
+                            <td>@session.OpenedAtUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</td>
+                            <td>@(session.ClosedAtUtc?.ToLocalTime().ToString("dd/MM/yyyy HH:mm") ?? "-")</td>
                             <td>€@session.ClosingAmountExpected.ToString("F2")</td>
                             <td>€@session.ClosingAmountCounted.ToString("F2")</td>
                             <td class="@GetDifferenceClass(session.Difference)">
                                 €@session.Difference.ToString("F2")
                             </td>
                             <td>
-                                <span class="status-badge @session.Status.ToString().ToLower()">
+                                <span class="status-badge @session.Status.ToLower()">
                                     @session.Status
                                 </span>
                             </td>
@@ -126,7 +245,6 @@
     }
 </div>
 
-<!-- MODAL: OPEN SESSION -->
 @if (ShowCreateModal)
 {
     <div class="modal-overlay" @onclick="CloseCreateModal">
@@ -148,7 +266,7 @@
                 </div>
 
                 <div class="form-group">
-                    <label>Opening Notes (optional)</label>
+                    <label>Opening Notes</label>
                     <textarea class="form-textarea"
                               @bind="OpeningNotes"
                               rows="3"
@@ -157,7 +275,10 @@
             </div>
 
             <div class="modal-footer">
-                <button class="btn btn-secondary" @onclick="CloseCreateModal">Cancel</button>
+                <button class="btn btn-secondary" @onclick="CloseCreateModal">
+                    Cancel
+                </button>
+
                 <button class="btn btn-primary" @onclick="CreateSession" disabled="@IsLoading">
                     @(IsLoading ? "Opening..." : "Open Session")
                 </button>
@@ -166,13 +287,16 @@
     </div>
 }
 
-<!-- MODAL: CLOSE SESSION -->
 @if (ShowCloseModal)
 {
     <div class="modal-overlay" @onclick="CloseCloseModal">
         <div class="modal-content" @onclick:stopPropagation="true">
             <div class="modal-header">
-                <h3>Close Cash Session</h3>
+                <h3>
+                    @(CloseTarget == CashSessionCloseTarget.Server
+                        ? "Close Server Cash Session"
+                        : "Close Local Cash Session")
+                </h3>
                 <button class="modal-close" @onclick="CloseCloseModal">×</button>
             </div>
 
@@ -180,65 +304,90 @@
                 <div class="session-summary">
                     <div class="summary-item">
                         <span class="label">Expected Cash</span>
-                        <strong class="amount">€@(ActiveSession?.ClosingAmountExpected.ToString("F2") ?? "0.00")</strong>
+                        <strong class="amount">
+                            €@(CloseExpectedAmount.ToString("F2"))
+                        </strong>
                     </div>
                 </div>
 
                 <div class="form-group">
                     <div class="rouleaux">
                         <h4>Rouleaux</h4>
-                        <label>0.01 € * 25 </label>
+
+                        <label>0.01 € * 25</label>
                         <input class="form-input" type="number" @bind="R001" min="0" />
+
                         <label>0.02 € * 25</label>
                         <input class="form-input" type="number" @bind="R002" min="0" />
+
                         <label>0.05 € * 25</label>
                         <input class="form-input" type="number" @bind="R005" min="0" />
+
                         <label>0.10 € * 25</label>
                         <input class="form-input" type="number" @bind="R010" min="0" />
+
                         <label>0.20 € * 25</label>
                         <input class="form-input" type="number" @bind="R020" min="0" />
+
                         <label>0.50 € * 25</label>
                         <input class="form-input" type="number" @bind="R050" min="0" />
+
                         <label>1 € * 25</label>
                         <input class="form-input" type="number" @bind="R1" min="0" />
+
                         <label>2 € * 25</label>
                         <input class="form-input" type="number" @bind="R2" min="0" />
                     </div>
 
                     <div class="coins">
                         <h4>Coins</h4>
+
                         <label>0.01 €</label>
                         <input class="form-input" type="number" @bind="C001" min="0" />
+
                         <label>0.02 €</label>
                         <input class="form-input" type="number" @bind="C002" min="0" />
+
                         <label>0.05 €</label>
                         <input class="form-input" type="number" @bind="C005" min="0" />
+
                         <label>0.10 €</label>
                         <input class="form-input" type="number" @bind="C010" min="0" />
+
                         <label>0.20 €</label>
                         <input class="form-input" type="number" @bind="C020" min="0" />
+
                         <label>0.50 €</label>
                         <input class="form-input" type="number" @bind="C050" min="0" />
+
                         <label>1 €</label>
                         <input class="form-input" type="number" @bind="C1" min="0" />
+
                         <label>2 €</label>
                         <input class="form-input" type="number" @bind="C2" min="0" />
                     </div>
 
                     <div class="notes">
                         <h4>Billets</h4>
+
                         <label>5 €</label>
                         <input class="form-input" type="number" @bind="B5" min="0" />
+
                         <label>10 €</label>
                         <input class="form-input" type="number" @bind="B10" min="0" />
+
                         <label>20 €</label>
                         <input class="form-input" type="number" @bind="B20" min="0" />
+
                         <label>50 €</label>
                         <input class="form-input" type="number" @bind="B50" min="0" />
+
                         <label>100 €</label>
                         <input class="form-input" type="number" @bind="B100" min="0" />
+
                         <label>200 €</label>
                         <input class="form-input" type="number" @bind="B200" min="0" />
+
                         <label>500 €</label>
                         <input class="form-input" type="number" @bind="B500" min="0" />
                     </div>
@@ -246,14 +395,16 @@
 
                 <div class="session-summary">
                     <div class="summary-item">
-                        <di class="label">Rouleaux: €@RouleauxTotal</di>
-                        <di class="label">Coins: €@CoinsTotal</di>
-                        <di class="label">Notes: €@NotesTotal</di>
-                        <div class="amount"><strong>Total Cash: €@ActualCashCalculated</strong></div>
+                        <div class="label">Rouleaux: €@RouleauxTotal.ToString("F2")</div>
+                        <div class="label">Coins: €@CoinsTotal.ToString("F2")</div>
+                        <div class="label">Notes: €@NotesTotal.ToString("F2")</div>
+                        <div class="amount">
+                            <strong>Total Cash: €@ActualCashCalculated.ToString("F2")</strong>
+                        </div>
                     </div>
                 </div>
 
-                @if (ActiveSession != null)
+                @if (CanDisplayCloseDifference)
                 {
                     <div class="difference-preview">
                         <span class="label">Difference:</span>
@@ -264,7 +415,7 @@
                 }
 
                 <div class="form-group">
-                    <label>Closing Notes (optional)</label>
+                    <label>Closing Notes</label>
                     <textarea class="form-textarea"
                               @bind="ClosingNotes"
                               rows="3"
@@ -273,9 +424,18 @@
             </div>
 
             <div class="modal-footer">
-                <button class="btn btn-secondary" @onclick="CloseCloseModal">Cancel</button>
-                <button class="btn btn-danger" @onclick="CloseSession" disabled="@IsLoading">
-                    @(IsLoading ? "Closing..." : "Close Session")
+                <button class="btn btn-secondary" @onclick="CloseCloseModal">
+                    Cancel
+                </button>
+
+                <button class="btn btn-danger"
+                        @onclick="CloseSelectedSession"
+                        disabled="@IsLoading">
+                    @(IsLoading
+                        ? "Closing..."
+                        : CloseTarget == CashSessionCloseTarget.Server
+                            ? "Close Server Session"
+                            : "Close Local Session")
                 </button>
             </div>
         </div>
@@ -283,163 +443,266 @@
 }
 
 @code {
-    // ── Local display state ──────────────────────────────────────────────────
-    // CHANGE 1: ActiveSession is now a local mirror of State.ActiveCashSession,
-    // not the authoritative source. The cache owns the truth; this page reflects it.
-    CashSessionResult? ActiveSession;
-    List<CashSessionResult> RecentSessions = new();
+    private LocalCashSession? ActiveSession;
+    private List<LocalCashSession> RecentSessions = new();
 
-    bool ShowCreateModal;
-    bool ShowCloseModal;
-    bool IsLoading;
+    private CashSessionReconciliationResult? ReconciliationResult;
 
-    decimal OpeningBalance;
-    string OpeningNotes = "";
-    string ClosingNotes = "";
+    private CashSessionCloseTarget CloseTarget =
+        CashSessionCloseTarget.Local;
 
-    decimal Difference =>
-        ActiveSession == null
-            ? 0
-            : ActualCashCalculated - ActiveSession.ClosingAmountExpected;
+    private bool ShowCreateModal;
+    private bool ShowCloseModal;
+    private bool IsLoading;
+    private bool IsLoadingData;
 
-    bool HasAnyCashEntered => RouleauxTotal > 0 || CoinsTotal > 0 || NotesTotal > 0;
+    private string? ErrorMessage;
+    private string? SuccessMessage;
 
-    // Rouleaux
-    int R001; int R002; int R005; int R010;
-    int R020; int R050; int R1; int R2;
+    private decimal OpeningBalance;
+    private string OpeningNotes = string.Empty;
+    private string ClosingNotes = string.Empty;
 
-    decimal RouleauxTotal =>
-        R001 * 25 * 0.01m + R002 * 25 * 0.02m +
-        R005 * 25 * 0.05m + R010 * 25 * 0.10m +
-        R020 * 25 * 0.20m + R050 * 25 * 0.50m +
-        R1 * 25 * 1m + R2 * 25 * 2m;
+    private CashSessionResult? ServerActiveSession =>
+        ReconciliationResult?.ServerSession;
 
-    // Coins
-    int C001; int C002; int C005; int C010;
-    int C020; int C050; int C1; int C2;
+    private decimal CloseExpectedAmount =>
+        CloseTarget == CashSessionCloseTarget.Server
+            ? ServerActiveSession?.ClosingAmountExpected ?? 0m
+            : ActiveSession?.ClosingAmountExpected ?? 0m;
 
-    decimal CoinsTotal =>
-        C001 * 0.01m + C002 * 0.02m + C005 * 0.05m + C010 * 0.10m +
-        C020 * 0.20m + C050 * 0.50m + C1 * 1m + C2 * 2m;
+    private bool CanDisplayCloseDifference =>
+        CloseTarget == CashSessionCloseTarget.Server
+            ? ServerActiveSession != null
+            : ActiveSession != null;
 
-    // Billets
-    int B5; int B10; int B20; int B50; int B100; int B200; int B500;
+    private decimal Difference =>
+        ActualCashCalculated -
+        CloseExpectedAmount;
 
-    decimal NotesTotal =>
-        B5 * 5m + B10 * 10m + B20 * 20m + B50 * 50m +
-        B100 * 100m + B200 * 200m + B500 * 500m;
+    private bool HasAnyCashEntered =>
+        RouleauxTotal > 0 || CoinsTotal > 0 || NotesTotal > 0;
 
-    decimal ActualCashCalculated => RouleauxTotal + CoinsTotal + NotesTotal;
+    private int R001;
+    private int R002;
+    private int R005;
+    private int R010;
+    private int R020;
+    private int R050;
+    private int R1;
+    private int R2;
 
-    // ── Lifecycle ────────────────────────────────────────────────────────────
+    private decimal RouleauxTotal =>
+        R001 * 25 * 0.01m +
+        R002 * 25 * 0.02m +
+        R005 * 25 * 0.05m +
+        R010 * 25 * 0.10m +
+        R020 * 25 * 0.20m +
+        R050 * 25 * 0.50m +
+        R1 * 25 * 1m +
+        R2 * 25 * 2m;
 
-    // CHANGE 2: Subscribe to OnChange so that if another page (e.g. POS after a sale)
-    // calls State.SetCashSessionAsync(), this page re-renders automatically to
-    // show the updated expected cash total without a manual reload.
-    protected override void OnInitialized()
-    {
-        State.OnChange += HandleStateChange;
-    }
+    private int C001;
+    private int C002;
+    private int C005;
+    private int C010;
+    private int C020;
+    private int C050;
+    private int C1;
+    private int C2;
+
+    private decimal CoinsTotal =>
+        C001 * 0.01m +
+        C002 * 0.02m +
+        C005 * 0.05m +
+        C010 * 0.10m +
+        C020 * 0.20m +
+        C050 * 0.50m +
+        C1 * 1m +
+        C2 * 2m;
+
+    private int B5;
+    private int B10;
+    private int B20;
+    private int B50;
+    private int B100;
+    private int B200;
+    private int B500;
+
+    private decimal NotesTotal =>
+        B5 * 5m +
+        B10 * 10m +
+        B20 * 20m +
+        B50 * 50m +
+        B100 * 100m +
+        B200 * 200m +
+        B500 * 500m;
+
+    private decimal ActualCashCalculated =>
+        RouleauxTotal + CoinsTotal + NotesTotal;
 
     protected override async Task OnInitializedAsync()
     {
         await LoadData();
     }
 
-    // CHANGE 3: Unsubscribe on dispose to prevent memory leaks.
-    public void Dispose()
+    private async Task LoadData()
     {
-        State.OnChange -= HandleStateChange;
-    }
+        IsLoadingData = true;
+        ErrorMessage = null;
 
-    private void HandleStateChange()
-    {
-        // Sync the local mirror when the cache updates externally
-        ActiveSession = State.ActiveCashSession;
-        InvokeAsync(StateHasChanged);
-    }
-
-    // ── Data loading ─────────────────────────────────────────────────────────
-
-    async Task LoadData()
-    {
         try
         {
-            // CHANGE 4: Use State.SetCashSessionAsync() instead of writing
-            // directly to State.ActiveCashSession and State.IsCashSessionLoaded
-            // (those properties are now read-only on the new AppState).
-            if (!State.IsCashSessionLoaded)
-            {
-                CashSessionResult? active = null;
-                try
-                {
-                    active = await CashSessionApi.GetActive();
-                }
-                catch
-                {
-                    active = null; // no active session is a valid state
-                }
+            var tenantId =
+                LocalTenantContext.GetRequiredTenantId();
 
-                await State.SetCashSessionAsync(active);
+            var openSession =
+                await LocalCashSessionService
+                    .GetOpenSessionAsync();
+
+            /*
+             * The cash-session screen and the sales screen must use
+             * exactly the same tenant. A service that returns the first
+             * open session globally can display another tenant's session.
+             */
+            if (openSession != null &&
+                openSession.TenantId != tenantId)
+            {
+                ActiveSession =
+                    null;
+
+                ErrorMessage =
+                    "An open local cash session exists, but it belongs " +
+                    "to another tenant. Close/remove that invalid local " +
+                    "session and open a new session for the current tenant.";
+            }
+            else
+            {
+                ActiveSession =
+                    openSession;
             }
 
-            // Mirror the cached value into local state for rendering
-            ActiveSession = State.ActiveCashSession;
-
-            var allSessions = await CashSessionApi.GetAll();
-            RecentSessions = allSessions
-                .Where(s => s.Status == CashSessionStatus.Closed)
-                .OrderByDescending(s => s.OpenedAt)
-                .Take(5)
+            RecentSessions =
+                (await LocalCashSessionService
+                    .GetRecentAsync(5))
+                .Where(session =>
+                    session.TenantId == tenantId)
                 .ToList();
+
+            try
+            {
+                ReconciliationResult =
+                    await CashSessionReconciliation
+                        .InspectAsync();
+
+                if (ReconciliationResult.State ==
+                    CashSessionReconciliationState.MatchingSessionLinked)
+                {
+                    ActiveSession =
+                        await LocalCashSessionService
+                            .GetOpenSessionAsync();
+
+                    RecentSessions =
+                        (await LocalCashSessionService
+                            .GetRecentAsync(5))
+                        .Where(session =>
+                            session.TenantId == tenantId)
+                        .ToList();
+                }
+            }
+            catch (HttpRequestException)
+            {
+                ReconciliationResult =
+                    new CashSessionReconciliationResult
+                    {
+                        State =
+                            CashSessionReconciliationState.Offline,
+
+                        LocalSession =
+                            ActiveSession,
+
+                        Message =
+                            "API unavailable. Local cash-session work " +
+                            "remains available offline."
+                    };
+            }
+            catch (ApiException exception)
+            {
+                ReconciliationResult =
+                    new CashSessionReconciliationResult
+                    {
+                        State =
+                            CashSessionReconciliationState.Offline,
+
+                        LocalSession =
+                            ActiveSession,
+
+                        Message =
+                            exception.Content ??
+                            exception.Message
+                    };
+            }
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error loading cash session data: {ex.Message}");
+            ErrorMessage = $"Error loading cash-session data: {ex.GetBaseException().Message}";
+        }
+        finally
+        {
+            IsLoadingData = false;
         }
     }
 
-    // ── Open session ─────────────────────────────────────────────────────────
-
-    void OpenCreateModal()
+    private void OpenCreateModal()
     {
+        if (ReconciliationResult?.ServerSession != null)
+        {
+            ErrorMessage =
+                "A server cash session is still open. Resolve it before " +
+                "opening a different local session.";
+
+            return;
+        }
+
         OpeningBalance = 0;
-        OpeningNotes = "";
+        OpeningNotes = string.Empty;
+        ErrorMessage = null;
+        SuccessMessage = null;
         ShowCreateModal = true;
     }
 
-    void CloseCreateModal() => ShowCreateModal = false;
-
-    async Task CreateSession()
+    private void CloseCreateModal()
     {
-        if (OpeningBalance < 0) return;
+        ShowCreateModal = false;
+    }
+
+    private async Task CreateSession()
+    {
+        if (OpeningBalance < 0)
+        {
+            ErrorMessage = "Opening balance cannot be negative.";
+            return;
+        }
 
         IsLoading = true;
+        ErrorMessage = null;
+        SuccessMessage = null;
+
         try
         {
-            var request = new CreateCashSessionRequest
-            {
-                OpeningAmount = OpeningBalance,
-                OpeningNotes = OpeningNotes
-            };
+            ActiveSession = await LocalCashSessionService.OpenAsync(
+                openingAmount: OpeningBalance,
+                openedByUserId: null,
+                openingNotes: OpeningNotes);
 
-            var created = await CashSessionApi.Create(request);
-
-            // CHANGE 5: Write through the proper async setter so the lock is
-            // respected and OnChange fires — any other subscribed component
-            // (e.g. a nav badge showing session status) updates automatically.
-            await State.SetCashSessionAsync(created);
-
-            // Mirror to local
-            ActiveSession = State.ActiveCashSession;
-
+            SuccessMessage = $"Cash session {ActiveSession.SessionNumber} opened locally.";
             CloseCreateModal();
 
-            // Recent sessions list doesn't include open sessions, no insert needed
+            await LoadData();
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error creating session: {ex.Message}");
+            ErrorMessage = $"Error opening local cash session: {ex.GetBaseException().Message}";
         }
         finally
         {
@@ -447,87 +710,228 @@
         }
     }
 
-    // ── Close session ─────────────────────────────────────────────────────────
-
-    void OpenCloseModal()
+    private void OpenCloseModal()
     {
+        CloseTarget =
+            CashSessionCloseTarget.Local;
+
         ResetCashCounters();
-        ClosingNotes = "";
+        ClosingNotes = string.Empty;
+        ErrorMessage = null;
+        SuccessMessage = null;
         ShowCloseModal = true;
     }
 
-    void ResetCashCounters()
+    private void CloseCloseModal()
     {
-        R001 = R002 = R005 = R010 = R020 = R050 = R1 = R2 = 0;
-        C001 = C002 = C005 = C010 = C020 = C050 = C1 = C2 = 0;
-        B5 = B10 = B20 = B50 = B100 = B200 = B500 = 0;
+        ShowCloseModal = false;
     }
 
-    void CloseCloseModal() => ShowCloseModal = false;
-
-    async Task CloseSession()
+    private void OpenServerCloseModal()
     {
-        if (ActiveSession == null || !HasAnyCashEntered) return;
+        if (ServerActiveSession == null)
+        {
+            ErrorMessage =
+                "No active server cash session was found.";
 
-        IsLoading = true;
+            return;
+        }
+
+        CloseTarget =
+            CashSessionCloseTarget.Server;
+
+        ResetCashCounters();
+
+        ClosingNotes =
+            "Closed during offline cash-session conflict resolution.";
+
+        ErrorMessage =
+            null;
+
+        SuccessMessage =
+            null;
+
+        ShowCloseModal =
+            true;
+    }
+
+    private async Task CloseSelectedSession()
+    {
+        if (!HasAnyCashEntered)
+        {
+            ErrorMessage =
+                "Enter counted cash before closing the session.";
+
+            return;
+        }
+
+        IsLoading =
+            true;
+
+        ErrorMessage =
+            null;
+
+        SuccessMessage =
+            null;
+
         try
         {
-            Console.WriteLine(
-                $"CashClose | Rouleaux={RouleauxTotal} | Coins={CoinsTotal} | Notes={NotesTotal} | Total={ActualCashCalculated} | Expected={ActiveSession.ClosingAmountExpected}"
-            );
-
-            var request = new CloseCashSessionRequest
+            if (CloseTarget ==
+                CashSessionCloseTarget.Server)
             {
-                ActualCash = ActualCashCalculated,
-                ClosingNotes = ClosingNotes
-            };
+                if (ServerActiveSession == null)
+                {
+                    throw new InvalidOperationException(
+                        "No active server cash session was found.");
+                }
 
-            await CashSessionApi.Close(ActiveSession.Id, request);
+                var closedServerSession =
+                    await CashSessionReconciliation
+                        .CloseServerSessionAsync(
+                            ServerActiveSession.Id,
+                            ActualCashCalculated,
+                            ClosingNotes);
 
-            // CHANGE 6: Clear the session through the proper setter (null = no active session).
-            await State.SetCashSessionAsync(null);
+                SuccessMessage =
+                    $"Server cash session " +
+                    $"{closedServerSession.SessionNumber} was closed.";
 
-            // Optimistic update of recent sessions list — avoids a full reload round-trip
-            var closedSession = ActiveSession;
-            closedSession.Status = CashSessionStatus.Closed;
-            closedSession.ClosedAt = DateTime.UtcNow;
+                CloseCloseModal();
 
-            RecentSessions.Insert(0, closedSession);
-            RecentSessions = RecentSessions.Take(5).ToList();
+                var syncResult =
+                    await LocalSyncUploader
+                        .SyncPendingAsync();
 
-            // Mirror cleared state
-            ActiveSession = State.ActiveCashSession; // null after SetCashSessionAsync(null)
+                if (syncResult.Failed > 0)
+                {
+                    ErrorMessage =
+                        string.Join(
+                            Environment.NewLine,
+                            syncResult.Messages);
+                }
+                else if (syncResult.Messages.Count > 0)
+                {
+                    SuccessMessage +=
+                        " " +
+                        string.Join(
+                            " ",
+                            syncResult.Messages);
+                }
+
+                await LoadData();
+
+                return;
+            }
+
+            if (ActiveSession == null)
+            {
+                throw new InvalidOperationException(
+                    "No active local cash session was found.");
+            }
+
+            var closedLocalSession =
+                await LocalCashSessionService.CloseAsync(
+                    localCashSessionId:
+                        ActiveSession.Id,
+
+                    countedAmount:
+                        ActualCashCalculated,
+
+                    closedByUserId:
+                        null,
+
+                    closingNotes:
+                        ClosingNotes);
+
+            SuccessMessage =
+                $"Cash session " +
+                $"{closedLocalSession.SessionNumber} closed locally.";
 
             CloseCloseModal();
+
+            await LoadData();
         }
-        catch (Exception ex)
+        catch (Exception exception)
         {
-            Console.WriteLine($"Error closing session: {ex.Message}");
+            ErrorMessage =
+                $"Error closing cash session: " +
+                $"{exception.GetBaseException().Message}";
         }
         finally
         {
-            IsLoading = false;
+            IsLoading =
+                false;
         }
     }
 
-    // ── Helpers ──────────────────────────────────────────────────────────────
-
-    string GetSessionDuration(DateTime openedAt)
+    private async Task ReloadAndReconcile()
     {
-        var duration = DateTime.UtcNow - openedAt;
+        await LoadData();
+    }
 
-        if (duration.TotalHours < 1) return $"{(int)duration.TotalMinutes} min";
-        if (duration.TotalDays < 1) return $"{(int)duration.TotalHours}h {duration.Minutes}min";
+    private void ResetCashCounters()
+    {
+        R001 = 0;
+        R002 = 0;
+        R005 = 0;
+        R010 = 0;
+        R020 = 0;
+        R050 = 0;
+        R1 = 0;
+        R2 = 0;
+
+        C001 = 0;
+        C002 = 0;
+        C005 = 0;
+        C010 = 0;
+        C020 = 0;
+        C050 = 0;
+        C1 = 0;
+        C2 = 0;
+
+        B5 = 0;
+        B10 = 0;
+        B20 = 0;
+        B50 = 0;
+        B100 = 0;
+        B200 = 0;
+        B500 = 0;
+    }
+
+    private static string GetSessionDuration(DateTime openedAtUtc)
+    {
+        var duration = DateTime.UtcNow - openedAtUtc;
+
+        if (duration.TotalHours < 1)
+            return $"{(int)duration.TotalMinutes} min";
+
+        if (duration.TotalDays < 1)
+            return $"{(int)duration.TotalHours}h {duration.Minutes}min";
 
         return $"{(int)duration.TotalDays}d {duration.Hours}h";
     }
 
-    string GetDifferenceClass(decimal difference)
+    private static string GetDifferenceClass(decimal difference)
     {
-        if (difference == 0) return "neutral";
+        if (difference == 0)
+            return "neutral";
+
         return difference > 0 ? "success" : "danger";
     }
 
-    void NavigateToSales() => Navigation.NavigateTo("/sales");
-    void ViewHistory() => Navigation.NavigateTo("/cashmovements");
+    private void NavigateToSales()
+    {
+        Navigation.NavigateTo("/sales");
+    }
+
+    private void ViewHistory()
+    {
+        Navigation.NavigateTo("/cashmovements");
+    }
+
+    private enum CashSessionCloseTarget
+    {
+        Local,
+        Server
+    }
 }

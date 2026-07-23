@@ -5,114 +5,289 @@ using Inventory.Services.Context;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 
-namespace Inventory.Services.Features.Analytics.Profit
+namespace Inventory.Services.Features.Analytics.Profit;
+
+public sealed class GetProfitAnalyticsHandler
+    : IRequestHandler<
+        GetProfitAnalyticsQuery,
+        ProfitAnalyticsResult>
 {
-    public class GetProfitAnalyticsHandler
-    : IRequestHandler<GetProfitAnalyticsQuery, ProfitAnalyticsResult>
+    private readonly InventoryDbContext _db;
+    private readonly ITenantContext _tenant;
+
+    public GetProfitAnalyticsHandler(
+        InventoryDbContext db,
+        ITenantContext tenant)
     {
-        private readonly InventoryDbContext _db;
-        private readonly ITenantContext _tenant;
+        _db =
+            db;
 
-        public GetProfitAnalyticsHandler(InventoryDbContext db, ITenantContext tenant)
-        {
-            _db = db;
-            _tenant = tenant;
-        }
-
-        public async Task<ProfitAnalyticsResult> Handle(
-     GetProfitAnalyticsQuery request,
-     CancellationToken ct)
-        {
-            var from = request.From ?? DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-30));
-            var to = request.To ?? DateOnly.FromDateTime(DateTime.UtcNow);
-
-            var fromUtc = DateTime.SpecifyKind(from.ToDateTime(TimeOnly.MinValue), DateTimeKind.Utc);
-            var toUtc = DateTime.SpecifyKind(to.ToDateTime(TimeOnly.MaxValue), DateTimeKind.Utc);
-
-            // PAYMENTS → source de vérité
-            var payments = await _db.Payments
-                .Where(p =>
-                    p.TenantId == _tenant.TenantId &&
-                    !p.IsDeleted &&
-                    p.PaidAt >= fromUtc &&
-                    p.PaidAt <= toUtc)
-                .ToListAsync(ct);
-
-            var cashRevenue = await _db.Payments
-                .Where(p =>
-                    p.TenantId == _tenant.TenantId &&
-                    !p.IsDeleted &&
-                    p.PaidAt >= fromUtc &&
-                    p.PaidAt <= toUtc &&
-                    p.Method != PaymentMethod.Credit)
-                .SumAsync(p => p.Amount, ct);
-
-            var creditRevenue = await _db.Payments
-                .Where(p =>
-                    p.TenantId == _tenant.TenantId &&
-                    !p.IsDeleted &&
-                    p.PaidAt >= fromUtc &&
-                    p.PaidAt <= toUtc &&
-                    p.Method == PaymentMethod.Credit)
-                .SumAsync(p => p.Amount, ct);
-
-            // REFUNDS (cash uniquement)
-            var refunds = await _db.Returns
-                .Where(r =>
-                    r.TenantId == _tenant.TenantId &&
-                    !r.IsDeleted &&
-                    r.ReturnDate >= fromUtc &&
-                    r.ReturnDate <= toUtc &&
-                    r.RefundMethod != RefundMethod.Credit)
-                .SumAsync(r => r.TotalAmount, ct);
-
-            // DAMAGES (perte stock réelle)
-            var damages = await _db.StockMovements
-                .Where(sm =>
-                    sm.TenantId == _tenant.TenantId &&
-                    !sm.IsDeleted &&
-                    sm.Type == StockMovementType.Damage &&
-                    sm.MovementDate >= fromUtc &&
-                    sm.MovementDate <= toUtc)
-                .SumAsync(sm => Math.Abs(sm.QuantityChange) * sm.UnitCost, ct);
-
-            // COST (COGS)
-            var cost = await _db.SaleLines
-                .Where(sl =>
-                    sl.TenantId == _tenant.TenantId &&
-                    !sl.IsDeleted &&
-                    sl.Sale != null &&
-                    !sl.Sale.IsDeleted &&
-                    sl.Sale.SaleDate >= fromUtc &&
-                    sl.Sale.SaleDate <= toUtc &&
-                    sl.Sale.Status == SaleStatus.Completed)
-                .SumAsync(sl =>
-                    sl.UnitCostPrice *
-                    (sl.UnitQuantity > 0 ? sl.UnitQuantity : sl.Quantity), ct);
-
-            // CALCULS
-            var netRevenue = cashRevenue - refunds - damages;
-            var profit = netRevenue - cost;
-
-            return new ProfitAnalyticsResult
-            {
-                From = from,
-                To = to,
-
-                TotalRevenue = cashRevenue,
-                CreditRevenue = creditRevenue,
-
-                TotalRefunds = refunds,
-                TotalDamages = damages,
-                TotalCost = cost,
-
-                GrossProfit = profit,
-                ProfitMargin = netRevenue == 0
-                    ? 0
-                    : profit / netRevenue * 100
-            };
-        }
-
+        _tenant =
+            tenant;
     }
 
+    public async Task<ProfitAnalyticsResult> Handle(
+        GetProfitAnalyticsQuery request,
+        CancellationToken cancellationToken)
+    {
+        var businessTimeZone =
+            GetBusinessTimeZone();
+
+        var businessToday =
+            DateOnly.FromDateTime(
+                TimeZoneInfo.ConvertTimeFromUtc(
+                    DateTime.UtcNow,
+                    businessTimeZone));
+
+        var from =
+            request.From ??
+            businessToday.AddDays(-30);
+
+        var to =
+            request.To ??
+            businessToday;
+
+        if (to < from)
+        {
+            throw new ArgumentException(
+                "The analytics end date cannot be earlier " +
+                "than the start date.");
+        }
+
+        var (
+            fromUtc,
+            toExclusiveUtc) =
+            BuildUtcRange(
+                from,
+                to,
+                businessTimeZone);
+
+        var tenantId =
+            _tenant.TenantId;
+
+        /*
+         * Total revenue:
+         * includes Cash, Card, Credit and other payment methods.
+         */
+        var totalRevenue =
+            await _db.Payments
+                .AsNoTracking()
+                .Where(payment =>
+                    payment.TenantId == tenantId &&
+                    !payment.IsDeleted &&
+                    payment.PaidAt >= fromUtc &&
+                    payment.PaidAt < toExclusiveUtc)
+                .SumAsync(
+                    payment =>
+                        payment.Amount,
+                    cancellationToken);
+
+        /*
+         * Credit is included in TotalRevenue but is also returned
+         * separately for the Credit KPI.
+         */
+        var creditRevenue =
+            await _db.Payments
+                .AsNoTracking()
+                .Where(payment =>
+                    payment.TenantId == tenantId &&
+                    !payment.IsDeleted &&
+                    payment.PaidAt >= fromUtc &&
+                    payment.PaidAt < toExclusiveUtc &&
+                    payment.Method == PaymentMethod.Credit)
+                .SumAsync(
+                    payment =>
+                        payment.Amount,
+                    cancellationToken);
+
+        /*
+         * Refunds paid through non-credit methods.
+         */
+        var refunds =
+            await _db.Returns
+                .AsNoTracking()
+                .Where(item =>
+                    item.TenantId == tenantId &&
+                    !item.IsDeleted &&
+                    item.ReturnDate >= fromUtc &&
+                    item.ReturnDate < toExclusiveUtc &&
+                    item.RefundMethod != RefundMethod.Credit)
+                .SumAsync(
+                    item =>
+                        item.TotalAmount,
+                    cancellationToken);
+
+        /*
+         * Real inventory losses.
+         */
+        var damages =
+            await _db.StockMovements
+                .AsNoTracking()
+                .Where(movement =>
+                    movement.TenantId == tenantId &&
+                    !movement.IsDeleted &&
+                    movement.Type ==
+                        StockMovementType.Damage &&
+                    movement.MovementDate >= fromUtc &&
+                    movement.MovementDate < toExclusiveUtc)
+                .SumAsync(
+                    movement =>
+                        Math.Abs(
+                            movement.QuantityChange) *
+                        movement.UnitCost,
+                    cancellationToken);
+
+        /*
+         * Cost of goods sold.
+         *
+         * The date filter is based on the sale business date,
+         * not SaleLine.CreatedAt.
+         */
+        var totalCost =
+            await _db.SaleLines
+                .AsNoTracking()
+                .Where(line =>
+                    line.TenantId == tenantId &&
+                    !line.IsDeleted &&
+                    line.Sale != null &&
+                    !line.Sale.IsDeleted &&
+                    line.Sale.Status ==
+                        SaleStatus.Completed &&
+                    line.Sale.SaleDate >= fromUtc &&
+                    line.Sale.SaleDate < toExclusiveUtc)
+                .SumAsync(
+                    line =>
+                        line.UnitCostPrice *
+                        (
+                            line.UnitQuantity > 0m
+                                ? line.UnitQuantity
+                                : line.Quantity
+                        ),
+                    cancellationToken);
+
+        var netRevenue =
+            totalRevenue -
+            refunds -
+            damages;
+
+        var grossProfit =
+            netRevenue -
+            totalCost;
+
+        var profitMargin =
+            netRevenue == 0m
+                ? 0m
+                : grossProfit /
+                  netRevenue *
+                  100m;
+
+        return new ProfitAnalyticsResult
+        {
+            From =
+                from,
+
+            To =
+                to,
+
+            TotalRevenue =
+                RoundMoney(
+                    totalRevenue),
+
+            CreditRevenue =
+                RoundMoney(
+                    creditRevenue),
+
+            TotalRefunds =
+                RoundMoney(
+                    refunds),
+
+            TotalDamages =
+                RoundMoney(
+                    damages),
+
+            TotalCost =
+                RoundMoney(
+                    totalCost),
+
+            GrossProfit =
+                RoundMoney(
+                    grossProfit),
+
+            ProfitMargin =
+                Math.Round(
+                    profitMargin,
+                    2,
+                    MidpointRounding.AwayFromZero)
+        };
+    }
+
+    private static (
+        DateTime FromUtc,
+        DateTime ToExclusiveUtc)
+        BuildUtcRange(
+            DateOnly from,
+            DateOnly to,
+            TimeZoneInfo businessTimeZone)
+    {
+        var localFrom =
+            DateTime.SpecifyKind(
+                from.ToDateTime(
+                    TimeOnly.MinValue),
+                DateTimeKind.Unspecified);
+
+        /*
+         * Borne supérieure exclusive :
+         * le jour suivant à 00:00.
+         */
+        var localToExclusive =
+            DateTime.SpecifyKind(
+                to
+                    .AddDays(1)
+                    .ToDateTime(
+                        TimeOnly.MinValue),
+                DateTimeKind.Unspecified);
+
+        var fromUtc =
+            TimeZoneInfo.ConvertTimeToUtc(
+                localFrom,
+                businessTimeZone);
+
+        var toExclusiveUtc =
+            TimeZoneInfo.ConvertTimeToUtc(
+                localToExclusive,
+                businessTimeZone);
+
+        return (
+            fromUtc,
+            toExclusiveUtc);
+    }
+
+    private static TimeZoneInfo GetBusinessTimeZone()
+    {
+        /*
+         * Linux, Android, macOS and most containers.
+         */
+        try
+        {
+            return TimeZoneInfo.FindSystemTimeZoneById(
+                "Europe/Brussels");
+        }
+        catch (TimeZoneNotFoundException)
+        {
+            /*
+             * Windows fallback.
+             */
+            return TimeZoneInfo.FindSystemTimeZoneById(
+                "Romance Standard Time");
+        }
+    }
+
+    private static decimal RoundMoney(
+        decimal value)
+    {
+        return Math.Round(
+            value,
+            2,
+            MidpointRounding.AwayFromZero);
+    }
 }

@@ -6,5 +6,6 @@
         public const string Card = "Card";
         public const string Credit = "Credit";
         public const string Exchange = "Exchange";
+        public const string Original = "Original";
     }
 }

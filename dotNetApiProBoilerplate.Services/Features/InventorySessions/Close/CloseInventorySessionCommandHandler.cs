@@ -1,22 +1,25 @@
 ﻿using MediatR;
 
-namespace Inventory.Services.Features.InventorySessions.Close
+namespace Inventory.Services.Features.InventorySessions.Close;
+
+public sealed class CloseInventorySessionCommandHandler
+    : IRequestHandler<CloseInventorySessionCommand, bool>
 {
-    public class CloseInventorySessionCommandHandler
-        : IRequestHandler<CloseInventorySessionCommand, bool>
+    private readonly InventorySessionService _service;
+
+    public CloseInventorySessionCommandHandler(
+        InventorySessionService service)
     {
-        private readonly InventorySessionService _service;
+        _service =
+            service;
+    }
 
-        public CloseInventorySessionCommandHandler(InventorySessionService service)
-        {
-            _service = service;
-        }
-
-        public async Task<bool> Handle(
-            CloseInventorySessionCommand request,
-            CancellationToken cancellationToken)
-        {
-            return await _service.CloseAsync(request.Id);
-        }
+    public Task<bool> Handle(
+        CloseInventorySessionCommand request,
+        CancellationToken cancellationToken)
+    {
+        return _service.CloseAsync(
+            request.Id,
+            cancellationToken);
     }
 }

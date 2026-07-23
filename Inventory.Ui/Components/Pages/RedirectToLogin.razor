@@ -1,30 +1,33 @@
 ﻿@using Microsoft.AspNetCore.Components.Authorization
-@using Inventory.Ui.Authentification
+@using Inventory.LocalDB.Services.Interfaces
+
 @inject NavigationManager Nav
 @inject AuthenticationStateProvider AuthStateProvider
+@inject ILocalUserSessionService LocalUserSessionService
 
-@if (_checking)
-{
-    @* Render nothing (or a spinner) while we verify — prevents premature redirect *@
-    <div style="display:flex;justify-content:center;align-items:center;height:100vh;">
-        <span>Loading...</span>
-    </div>
-}
+<div style="display:flex;justify-content:center;align-items:center;height:100vh;">
+    <span>Loading...</span>
+</div>
 
 @code {
-    private bool _checking = true;
-
     protected override async Task OnInitializedAsync()
     {
-        // Wait for the real auth state — cached on 2nd call, slow only once
         var state = await AuthStateProvider.GetAuthenticationStateAsync();
 
-        if (state.User.Identity?.IsAuthenticated != true)
+        if (state.User.Identity?.IsAuthenticated == true)
         {
-            Nav.NavigateTo("/login", replace: true);
+            Nav.NavigateTo("/", replace: true);
+            return;
         }
-        // If authenticated, _checking stays true momentarily then
-        // the router will re-render the correct authorized content
-        _checking = false;
+
+        var localUser = await LocalUserSessionService.GetCurrentAsync();
+
+        if (localUser != null)
+        {
+            Nav.NavigateTo("/", replace: true);
+            return;
+        }
+
+        Nav.NavigateTo("/login", replace: true);
     }
 }

@@ -11,9 +11,11 @@ namespace Inventory.Domain.Entities
         [Key]
         public Guid Id { get; set; }
 
+        [Required]
         [MaxLength(200)]
-        public string Name { get; set; } = null!;
+        public string Name { get; set; } = string.Empty;
 
+        [EmailAddress]
         [MaxLength(100)]
         public string? Email { get; set; }
 
@@ -29,19 +31,27 @@ namespace Inventory.Domain.Entities
         [Column(TypeName = "decimal(18,2)")]
         public decimal CreditLimit { get; set; }
 
+        /*
+         * Authoritative customer account balance:
+         *   positive => customer owes the store
+         *   negative => store owes the customer
+         *   zero     => settled
+         */
         [Column(TypeName = "decimal(18,2)")]
         public decimal CurrentBalance { get; set; }
 
-        public bool IsActive { get; set; }
+        public bool IsActive { get; set; } = true;
 
         [MaxLength(1000)]
         public string? Notes { get; set; }
 
+        public ICollection<Sale> Sales { get; set; } =
+            new List<Sale>();
 
+        public ICollection<LoyaltyCard> LoyaltyCards { get; set; } =
+            new List<LoyaltyCard>();
 
-        // Navigation properties
-        public ICollection<Sale> Sales { get; set; } = new List<Sale>();
-        public ICollection<LoyaltyCard> LoyaltyCards { get; set; } = new List<LoyaltyCard>();
-        public ICollection<CustomerTransaction> Transactions { get; set; } = new List<CustomerTransaction>();
+        public ICollection<CustomerTransaction> Transactions { get; set; } =
+            new List<CustomerTransaction>();
     }
 }

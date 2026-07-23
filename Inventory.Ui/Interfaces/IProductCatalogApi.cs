@@ -36,6 +36,11 @@ namespace Inventory.Ui.Interfaces
         [Get("/api/v1/productcatalogs/search")]
         Task<PagedResult<ProductCatalogResult>> Search(
             [Query] ProductCatalogQuery query);
+
+        [Get("/api/productcatalogs")]
+        Task<PagedResult<ProductCatalogResult>> Search(
+    [Query] ProductCatalogQuery query,
+    CancellationToken cancellationToken = default);
     }
 
 }

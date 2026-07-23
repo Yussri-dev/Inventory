@@ -1,0 +1,349 @@
+﻿@page "/local-pos-test"
+
+@using Inventory.LocalDB.Context
+@using Inventory.LocalDB.Models
+@using Inventory.LocalDB.Services.Interfaces
+@using Microsoft.EntityFrameworkCore
+
+@inject PosLocalDbContext Db
+@inject ILocalProductService LocalProductService
+@inject ILocalSaleService LocalSaleService
+@inject NavigationManager Nav
+
+<div style="padding:24px;max-width:900px;margin:auto;">
+
+    <h2>Offline POS Test</h2>
+
+    @if (!string.IsNullOrWhiteSpace(Message))
+    {
+        <div style="padding:12px;margin-bottom:16px;background:#d1fae5;color:#065f46;border-radius:8px;">
+            @Message
+        </div>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(Error))
+    {
+        <div style="padding:12px;margin-bottom:16px;background:#fee2e2;color:#991b1b;border-radius:8px;">
+            @Error
+        </div>
+    }
+
+    <div style="display:flex;gap:12px;margin-bottom:20px;">
+      @*   <button @onclick="SeedProduct" style="padding:12px 18px;">
+            1. Seed Test Product
+        </button> *@
+
+        <button @onclick="ScanProduct" style="padding:12px 18px;">
+            2. Scan Product
+        </button>
+
+        <button @onclick="CreateOfflineSale" style="padding:12px 18px;">
+            3. Create Offline Sale
+        </button>
+
+        <button @onclick="GoCashSession" style="padding:12px 18px;">
+            Cash Session
+        </button>
+    </div>
+
+    <hr />
+
+    <h3>Test Barcode</h3>
+    <input value="@Barcode"
+           @oninput="e => Barcode = e.Value?.ToString() ?? string.Empty"
+           style="padding:10px;width:300px;" />
+
+    <h3>Scanned Product</h3>
+
+    @if (ScanResult != null)
+    {
+        <div style="border:1px solid #ddd;padding:16px;border-radius:8px;">
+            <p><strong>Name:</strong> @ScanResult.ProductName</p>
+            <p><strong>Barcode:</strong> @ScanResult.ProductBarcode</p>
+            <p><strong>Price:</strong> €@ScanResult.UnitPrice.ToString("F2")</p>
+            <p><strong>VAT:</strong> @ScanResult.VatRate.ToString("F2")%</p>
+            <p><strong>Is Pack:</strong> @ScanResult.IsPack</p>
+            <p><strong>Stock Quantity To Remove:</strong> @ScanResult.UnitQuantity</p>
+        </div>
+    }
+    else
+    {
+        <p>No product scanned yet.</p>
+    }
+
+    <h3>Local Stock</h3>
+
+    @if (Stock != null)
+    {
+        <div style="border:1px solid #ddd;padding:16px;border-radius:8px;">
+            <p><strong>Product:</strong> @Stock.ProductName</p>
+            <p><strong>Quantity:</strong> @Stock.Quantity</p>
+            <p><strong>Reserved:</strong> @Stock.ReservedQuantity</p>
+            <p><strong>Available:</strong> @Stock.AvailableQuantity</p>
+        </div>
+    }
+    else
+    {
+        <p>No stock loaded.</p>
+    }
+
+    <h3>Last Sale</h3>
+
+    @if (LastSale != null)
+    {
+        <div style="border:1px solid #ddd;padding:16px;border-radius:8px;">
+            <p><strong>Invoice:</strong> @LastSale.LocalInvoiceNumber</p>
+            <p><strong>Total:</strong> €@LastSale.TotalAmount.ToString("F2")</p>
+            <p><strong>Paid:</strong> €@LastSale.PaidAmount.ToString("F2")</p>
+            <p><strong>Change:</strong> €@LastSale.ChangeAmount.ToString("F2")</p>
+            <p><strong>Payment Status:</strong> @LastSale.PaymentStatus</p>
+            <p><strong>Sync Status:</strong> @LastSale.SyncStatus</p>
+        </div>
+    }
+    else
+    {
+        <p>No sale created yet.</p>
+    }
+
+</div>
+
+@code {
+    private string Barcode = "TEST-001";
+
+    private string? Message;
+
+    private string? Error;
+
+    private LocalProductScanResult? ScanResult;
+
+    private LocalStock? Stock;
+
+    private LocalSale? LastSale;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadStock();
+    }
+
+    // private async Task SeedProduct()
+    // {
+    //     ClearMessages();
+
+    //     try
+    //     {
+    //         var existingProduct = await Db.Products
+    //             .FirstOrDefaultAsync(x => x.Barcode == Barcode);
+
+    //         Guid? productServerId = null;
+
+    //         if (existingProduct == null)
+    //         {
+    //             productServerId = Guid.NewGuid();
+
+    //             var product = new LocalProduct
+    //             {
+    //                 Id = Guid.NewGuid(),
+    //                 ServerId = productServerId,
+    //                 Name = "TEST PRODUCT OFFLINE",
+    //                 Sku = "TEST-001",
+    //                 Barcode = Barcode,
+    //                 Category = "Test",
+    //                 Brand = "Local",
+    //                 SalePrice = 10.00m,
+    //                 SalePrice2 = 10.00m,
+    //                 SalePrice3 = 10.00m,
+    //                 PurchasePrice = 6.00m,
+    //                 VatRate = 21m,
+    //                 Unit = "pcs",
+    //                 IsActive = true,
+    //                 IsTracked = true,
+    //                 LocalStockQuantity = 100,
+    //                 IsPack = false,
+    //                 UnitProductServerId = null,
+    //                 UnitsPerPack = 1,
+    //                 LastSyncedAtUtc = DateTime.UtcNow,
+    //                 IsDeletedLocally = false
+    //             };
+
+    //             Db.Products.Add(product);
+    //             existingProduct = product;
+    //         }
+    //         else
+    //         {
+    //             productServerId = existingProduct.ServerId;
+    //             existingProduct.IsActive = true;
+    //             existingProduct.IsDeletedLocally = false;
+    //         }
+
+    //         var existingStock = await Db.Stocks
+    //             .FirstOrDefaultAsync(x => x.ProductLocalId == existingProduct.Id);
+
+    //         if (existingStock == null)
+    //         {
+    //             existingStock = new LocalStock
+    //             {
+    //                 Id = Guid.NewGuid(),
+    //                 ProductLocalId = existingProduct.Id,
+    //                 ProductServerId = productServerId,
+    //                 ProductName = existingProduct.Name,
+    //                 ProductBarcode = existingProduct.Barcode,
+    //                 Quantity = 100,
+    //                 ReservedQuantity = 0,
+    //                 LastUpdatedUtc = DateTime.UtcNow
+    //             };
+
+    //             Db.Stocks.Add(existingStock);
+    //         }
+    //         else
+    //         {
+    //             existingStock.Quantity = 100;
+    //             existingStock.ReservedQuantity = 0;
+    //             existingStock.LastUpdatedUtc = DateTime.UtcNow;
+    //         }
+
+    //         await Db.SaveChangesAsync();
+
+    //         Message = "Test product and stock seeded locally.";
+    //         await LoadStock();
+    //     }
+    //     catch (Exception ex)
+    //     {
+    //         Error = ex.Message;
+    //     }
+    // }
+
+    private async Task ScanProduct()
+    {
+        ClearMessages();
+
+        try
+        {
+            ScanResult = await LocalProductService.ResolveBarcodeAsync(Barcode);
+
+            if (ScanResult == null)
+            {
+                Error = $"No local product found for barcode '{Barcode}'. Click Seed Test Product first.";
+                return;
+            }
+
+            Message = $"Product scanned locally: {ScanResult.ProductName}";
+            await LoadStock();
+        }
+        catch (Exception ex)
+        {
+            Error = ex.Message;
+        }
+    }
+
+    private async Task CreateOfflineSale()
+    {
+        ClearMessages();
+
+        try
+        {
+            if (ScanResult == null)
+            {
+                await ScanProduct();
+
+                if (ScanResult == null)
+                    return;
+            }
+
+            var openSession = await Db.CashSessions
+                .AsNoTracking()
+                .FirstOrDefaultAsync(x => x.Status == LocalCashSessionStatus.Open);
+
+            if (openSession == null)
+            {
+                Error = "No open local cash session. Open a cash session first.";
+                return;
+            }
+
+            var sale = new LocalSale
+            {
+                Id = Guid.NewGuid(),
+                ClientOperationId = Guid.NewGuid(),
+                LocalInvoiceNumber = string.Empty,
+                LocalCashSessionId = openSession.Id,
+                CashSessionServerId = openSession.ServerId,
+                SaleDateUtc = DateTime.UtcNow,
+                Status = LocalSaleStatus.Completed,
+                PaymentStatus = LocalPaymentStatus.Paid,
+                SyncStatus = SyncQueueStatus.Pending,
+                Notes = "Offline test sale",
+
+                Lines = new List<LocalSaleLine>
+                {
+                    new LocalSaleLine
+                    {
+                        Id = Guid.NewGuid(),
+
+                        ProductLocalId = ScanResult.ProductLocalId,
+                        ProductServerId = ScanResult.ProductServerId,
+
+                        ProductName = ScanResult.ProductName,
+                        ProductBarcode = ScanResult.ProductBarcode,
+
+                        UnitProductLocalId = ScanResult.UnitProductLocalId,
+                        UnitProductServerId = ScanResult.UnitProductServerId ?? Guid.Empty,
+
+                        Quantity = 1,
+                        UnitQuantity = ScanResult.UnitQuantity,
+
+                        IsPack = ScanResult.IsPack,
+                        UnitsPerPack = ScanResult.UnitQuantity,
+
+                        UnitPrice = ScanResult.UnitPrice,
+                        VatRate = ScanResult.VatRate,
+                        DiscountPercent = 0,
+                        DiscountAmount = 0,
+                        UnitCostPrice = ScanResult.PurchasePrice,
+
+                        Notes = "Offline test line"
+                    }
+                },
+
+                Payments = new List<LocalPayment>
+                {
+                    new LocalPayment
+                    {
+                        Id = Guid.NewGuid(),
+                        Method = "Cash",
+                        Amount = ScanResult.UnitPrice,
+                        PaidAtUtc = DateTime.UtcNow,
+                        Notes = "Offline test cash payment",
+                        SyncStatus = SyncQueueStatus.Pending
+                    }
+                }
+            };
+
+            LastSale = await LocalSaleService.CreateAsync(sale);
+
+            Message = $"Offline sale created: {LastSale.LocalInvoiceNumber}";
+
+            await LoadStock();
+        }
+        catch (Exception ex)
+        {
+            Error = ex.Message;
+        }
+    }
+
+    private async Task LoadStock()
+    {
+        Stock = await Db.Stocks
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x => x.ProductBarcode == Barcode);
+    }
+
+    private void GoCashSession()
+    {
+        Nav.NavigateTo("/cashSessions");
+    }
+
+    private void ClearMessages()
+    {
+        Error = null;
+        Message = null;
+    }
+}

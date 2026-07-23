@@ -105,7 +105,7 @@ namespace Inventory.Services
             sale.Id = Guid.NewGuid();
             sale.TenantId = tenantId;
             sale.InvoiceNumber = await _documentNumberService.GenerateAsync("191125");
-            sale.SaleDate = request.SaleDate == default ? DateTime.UtcNow : request.SaleDate;
+            sale.SaleDate = EnsureUtc(request.SaleDate == default ? DateTime.UtcNow : request.SaleDate);
             sale.TotalAmount = request.TotalAmount;
             sale.CreatedAt = DateTime.UtcNow;
             sale.ModifiedAt = DateTime.UtcNow;
@@ -119,6 +119,17 @@ namespace Inventory.Services
             return _mapper.Map<SaleResult>(sale);
         }
 
+
+        private static DateTime EnsureUtc(DateTime value)
+        {
+            if (value.Kind == DateTimeKind.Utc)
+                return value;
+
+            if (value.Kind == DateTimeKind.Local)
+                return value.ToUniversalTime();
+
+            return DateTime.SpecifyKind(value, DateTimeKind.Utc);
+        }
 
         public async Task<SaleResult> CreateCompleteAsync(CreateCompleteSaleRequest request)
         {

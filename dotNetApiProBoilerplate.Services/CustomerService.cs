@@ -1,4 +1,5 @@
 ﻿using AutoMapper;
+using AutoMapper.QueryableExtensions;
 using Inventory.Domain.Entities;
 using Inventory.Dto.Customers.Requests;
 using Inventory.Dto.Customers.Results;
@@ -7,6 +8,7 @@ using Inventory.Dto.Queries;
 using Inventory.Infrastructure.Repositories;
 using Inventory.Services.Context;
 using Inventory.Services.Exceptions;
+using Microsoft.EntityFrameworkCore;
 
 namespace Inventory.Services
 {
@@ -164,68 +166,123 @@ namespace Inventory.Services
         }
 
         // Pagination + filtering + sorting
-        public async Task<PagedResult<CustomerResult>> QueryAsync(CustomerQuery query)
+        public async Task<PagedResult<CustomerResult>> QueryAsync(
+    CustomerQuery query,
+    CancellationToken cancellationToken = default)
         {
-            var tenantId = _tenantContext.TenantId;
+            ArgumentNullException.ThrowIfNull(query);
+
+            var tenantId =
+                _tenantContext.TenantId;
 
             if (query.Page < 1)
             {
-                var errors = new Dictionary<string, string[]>
+                throw new ValidationException(
+                    new Dictionary<string, string[]>
+                    {
                 {
-                    { "Page", new[] { "Page must be greater than or equal to 1." } }
-                };
-                throw new ValidationException(errors);
+                    nameof(query.Page),
+                    new[]
+                    {
+                        "Page must be greater than or equal to 1."
+                    }
+                }
+                    });
             }
 
-            if (query.PageSize < 1 || query.PageSize > 100)
+            if (query.PageSize < 1 ||
+                query.PageSize > 100)
             {
-                var errors = new Dictionary<string, string[]>
+                throw new ValidationException(
+                    new Dictionary<string, string[]>
+                    {
                 {
-                    { "PageSize", new[] { "PageSize must be between 1 and 100." } }
-                };
-                throw new ValidationException(errors);
+                    nameof(query.PageSize),
+                    new[]
+                    {
+                        "PageSize must be between 1 and 100."
+                    }
+                }
+                    });
             }
 
-            var all = await _repository.GetAllAsync();
+            var customers =
+                _repository.Query()
+                    .AsNoTracking()
+                    .Where(customer =>
+                        customer.TenantId == tenantId &&
+                        !customer.IsDeleted);
 
-            // Filter: only current tenant, not deleted
-            var filtered = all
-                .Where(p => !p.IsDeleted && p.TenantId == tenantId)
-                .AsQueryable();
-
-            // Search filter
             if (!string.IsNullOrWhiteSpace(query.Search))
             {
-                filtered = filtered.Where(p =>
-                    p.Name.Contains(query.Search, StringComparison.OrdinalIgnoreCase));
+                var search =
+                    query.Search.Trim();
+
+                customers =
+                    customers.Where(customer =>
+                        EF.Functions.ILike(
+                            customer.Name,
+                            $"%{search}%") ||
+
+                        customer.Email != null &&
+                        EF.Functions.ILike(
+                            customer.Email,
+                            $"%{search}%") ||
+
+                        customer.Phone != null &&
+                        EF.Functions.ILike(
+                            customer.Phone,
+                            $"%{search}%"));
             }
 
-            // Sorting
-            filtered = query.SortBy?.ToLower() switch
-            {
-                "name" => query.Desc
-                    ? filtered.OrderByDescending(p => p.Name)
-                    : filtered.OrderBy(p => p.Name),
+            customers =
+                query.SortBy?
+                    .Trim()
+                    .ToLowerInvariant() switch
+                {
+                    "name" =>
+                        query.Desc
+                            ? customers.OrderByDescending(
+                                customer => customer.Name)
+                            : customers.OrderBy(
+                                customer => customer.Name),
 
-                "currentbalance" => query.Desc
-                    ? filtered.OrderByDescending(p => p.CurrentBalance)
-                    : filtered.OrderBy(p => p.CurrentBalance),
+                    "currentbalance" =>
+                        query.Desc
+                            ? customers.OrderByDescending(
+                                customer =>
+                                    customer.CurrentBalance)
+                            : customers.OrderBy(
+                                customer =>
+                                    customer.CurrentBalance),
 
-                _ => query.Desc
-                    ? filtered.OrderByDescending(p => p.CreatedAt)
-                    : filtered.OrderBy(p => p.CreatedAt)
-            };
+                    _ =>
+                        query.Desc
+                            ? customers.OrderByDescending(
+                                customer =>
+                                    customer.CreatedAt)
+                            : customers.OrderBy(
+                                customer =>
+                                    customer.CreatedAt)
+                };
 
-            var total = filtered.Count();
+            var total =
+                await customers.CountAsync(
+                    cancellationToken);
 
-            var items = filtered
-                .Skip((query.Page - 1) * query.PageSize)
-                .Take(query.PageSize)
-                .ToList();
+            var items =
+                await customers
+                    .Skip(
+                        (query.Page - 1) *
+                        query.PageSize)
+                    .Take(query.PageSize)
+                    .ProjectTo<CustomerResult>(
+                        _mapper.ConfigurationProvider)
+                    .ToListAsync(cancellationToken);
 
             return new PagedResult<CustomerResult>
             {
-                Items = _mapper.Map<List<CustomerResult>>(items),
+                Items = items,
                 TotalCount = total,
                 Page = query.Page,
                 PageSize = query.PageSize

@@ -1,5 +1,6 @@
 ﻿using Inventory.LocalDB.Models;
 using Microsoft.EntityFrameworkCore;
+using System.Reflection.Emit;
 
 namespace Inventory.LocalDB.Context
 {
@@ -32,7 +33,10 @@ namespace Inventory.LocalDB.Context
         }
 
         public DbSet<LocalProduct> Products => Set<LocalProduct>();
+        public DbSet<LocalProductCatalog> ProductCatalogs => Set<LocalProductCatalog>();
+        public DbSet<LocalProductCategory> ProductCategories => Set<LocalProductCategory>();
         public DbSet<LocalCustomer> Customers => Set<LocalCustomer>();
+        public DbSet<LocalSupplier> Suppliers => Set<LocalSupplier>();
         public DbSet<LocalSale> Sales => Set<LocalSale>();
         public DbSet<LocalSaleLine> SaleLines => Set<LocalSaleLine>();
         public DbSet<LocalPayment> Payments => Set<LocalPayment>();
@@ -49,13 +53,23 @@ namespace Inventory.LocalDB.Context
         public DbSet<LocalReturnLine> ReturnLines => Set<LocalReturnLine>();
         public DbSet<LocalCashCorrection> CashCorrections => Set<LocalCashCorrection>();
         public DbSet<LocalCashReport> CashReports => Set<LocalCashReport>();
+        public DbSet<LocalUserSession> UserSessions => Set<LocalUserSession>();
+        public DbSet<LocalPackComponent> PackComponents => Set<LocalPackComponent>();
+        public DbSet<LocalDamage> Damages => Set<LocalDamage>();
+        public DbSet<LocalReceipt> Receipts => Set<LocalReceipt>();
 
+        public DbSet<LocalReceiptPrintLog> ReceiptPrintLogs => Set<LocalReceiptPrintLog>();
+        public DbSet<LocalCustomerTransaction> CustomerTransactions =>
+            Set<LocalCustomerTransaction>();
         protected override void OnModelCreating(ModelBuilder builder)
         {
             base.OnModelCreating(builder);
 
             ConfigureLocalProduct(builder);
+            ConfigureLocalProductCatalog(builder);
+            ConfigureLocalProductCategory(builder);
             ConfigureLocalCustomer(builder);
+            ConfigureLocalSupplier(builder);
             ConfigureLocalSale(builder);
             ConfigureLocalSaleLine(builder);
             ConfigureLocalPayment(builder);
@@ -72,20 +86,283 @@ namespace Inventory.LocalDB.Context
             ConfigureLocalReturnLine(builder);
             ConfigureLocalCashCorrection(builder);
             ConfigureLocalCashReport(builder);
+            ConfigureLocalUserSession(builder);
+            ConfigureLocalPackComponent(builder);
+            ConfigureLocalDamage(builder);
+            ConfigureLocalCustomerTransaction(builder);
+            ConfigureLocalReceipt(builder);
+            ConfigureLocalReceiptPrintLog(builder);
         }
 
-        private static void ConfigureLocalProduct(ModelBuilder builder)
+        private static void ConfigureLocalReceipt(
+    ModelBuilder modelBuilder)
+        {
+            var entity =
+                modelBuilder.Entity<LocalReceipt>();
+
+            entity.ToTable(
+                "Receipts");
+
+            entity.HasKey(
+                receipt =>
+                    receipt.Id);
+
+            entity.Property(
+                    receipt =>
+                        receipt.Id)
+                .ValueGeneratedNever();
+
+            entity.Property(
+                    receipt =>
+                        receipt.InvoiceNumber)
+                .IsRequired()
+                .HasMaxLength(
+                    100);
+
+            entity.Property(
+                    receipt =>
+                        receipt.SnapshotJson)
+                .IsRequired();
+
+            entity.Property(
+                    receipt =>
+                        receipt.SnapshotHash)
+                .HasMaxLength(
+                    128);
+
+            entity.Property(
+                    receipt =>
+                        receipt.SyncStatus)
+                .IsRequired()
+                .HasMaxLength(
+                    30);
+
+            /*
+             * Une seule archive de ticket par vente locale.
+             */
+            entity.HasIndex(
+                    receipt =>
+                        new
+                        {
+                            receipt.TenantId,
+                            receipt.LocalSaleId
+                        })
+                .IsUnique();
+
+            entity.HasIndex(
+                receipt =>
+                    new
+                    {
+                        receipt.TenantId,
+                        receipt.InvoiceNumber
+                    });
+        }
+
+        private static void ConfigureLocalReceiptPrintLog(
+            ModelBuilder modelBuilder)
+        {
+            var entity =
+                modelBuilder.Entity<LocalReceiptPrintLog>();
+
+            entity.ToTable("ReceiptPrintLogs");
+
+            entity.HasKey(log => log.Id);
+
+            entity.Property(log => log.Id).ValueGeneratedNever();
+
+            entity.Property(log => log.PrintType)
+                .IsRequired()
+                .HasMaxLength(
+                    30);
+
+            entity.Property(
+                    log =>
+                        log.DeviceName)
+                .HasMaxLength(
+                    150);
+
+            entity.Property(
+                    log =>
+                        log.Reason)
+                .HasMaxLength(
+                    250);
+
+            entity.Property(
+                    log =>
+                        log.ErrorMessage)
+                .HasMaxLength(
+                    1000);
+
+            entity.HasIndex(
+                log =>
+                    new
+                    {
+                        log.TenantId,
+                        log.LocalReceiptId,
+                        log.PrintedAtUtc
+                    });
+        }
+
+        private static void ConfigureLocalCustomerTransaction(ModelBuilder builder)
+        {
+            builder.Entity<LocalCustomerTransaction>(entity =>
+            {
+                entity.HasKey(item => item.Id);
+
+                entity.HasIndex(item => item.TenantId);
+
+                entity.HasIndex(item => new
+                {
+                    item.TenantId,
+                    item.ServerId
+                })
+                .IsUnique()
+                .HasFilter("ServerId IS NOT NULL");
+
+                entity.HasIndex(item => new
+                {
+                    item.TenantId,
+                    item.ClientOperationId
+                })
+                .IsUnique();
+
+                entity.HasIndex(item => new
+                {
+                    item.TenantId,
+                    item.CustomerLocalId,
+                    item.TransactionDateUtc
+                });
+
+                entity.HasIndex(item => new
+                {
+                    item.TenantId,
+                    item.SyncStatus
+                });
+
+                entity.HasIndex(item => new
+                {
+                    item.TenantId,
+                    item.Origin,
+                    item.SaleLocalId
+                });
+
+                entity.Property(item => item.Type)
+                    .HasMaxLength(50)
+                    .IsRequired();
+
+                entity.Property(item => item.Origin)
+                    .HasMaxLength(50)
+                    .IsRequired();
+
+                entity.Property(item => item.SyncStatus)
+                    .HasMaxLength(50)
+                    .IsRequired();
+
+                entity.Property(item => item.Description)
+                    .HasMaxLength(500);
+
+                entity.Property(item => item.Amount)
+                    .HasPrecision(18, 2);
+
+                entity.Property(item => item.BalanceBefore)
+                    .HasPrecision(18, 2);
+
+                entity.Property(item => item.BalanceAfter)
+                    .HasPrecision(18, 2);
+
+                entity.HasOne(item => item.Customer)
+                    .WithMany()
+                    .HasForeignKey(item => item.CustomerLocalId)
+                    .OnDelete(DeleteBehavior.Restrict);
+            });
+        }
+
+
+        private static void ConfigureLocalDamage(
+    ModelBuilder modelBuilder)
+        {
+            var entity =
+                modelBuilder.Entity<LocalDamage>();
+
+            entity.HasKey(x => x.Id);
+
+            entity.Property(x => x.Quantity)
+                .HasPrecision(18, 3);
+
+            entity.Property(x => x.EstimatedValue)
+                .HasPrecision(18, 2);
+
+            entity.HasIndex(x => new
+            {
+                x.TenantId,
+                x.ServerId
+            })
+            .IsUnique()
+            .HasFilter("ServerId IS NOT NULL");
+
+            entity.HasIndex(x => new
+            {
+                x.TenantId,
+                x.DamageNumber
+            })
+            .IsUnique();
+
+            entity.HasIndex(x => new
+            {
+                x.TenantId,
+                x.LocalStatus
+            });
+
+            entity.HasIndex(x => new
+            {
+                x.TenantId,
+                x.ProductLocalId
+            });
+
+            entity.HasOne(x => x.Product)
+                .WithMany()
+                .HasForeignKey(x => x.ProductLocalId)
+                .OnDelete(DeleteBehavior.Restrict);
+        }
+
+        private static void ConfigureLocalProduct(
+     ModelBuilder builder)
         {
             builder.Entity<LocalProduct>(entity =>
             {
                 entity.HasKey(x => x.Id);
 
-                entity.HasIndex(x => x.ServerId)
-                    .IsUnique();
+                entity.HasIndex(x => x.TenantId);
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.ServerId
+                })
+                .IsUnique()
+                .HasFilter("ServerId IS NOT NULL");
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.CatalogProductId
+                })
+                .IsUnique()
+                .HasFilter(
+                    "CatalogProductId IS NOT NULL " +
+                    "AND IsDeletedLocally = 0");
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.IsDeletedLocally
+                });
 
                 entity.HasIndex(x => x.Barcode);
                 entity.HasIndex(x => x.Name);
+                entity.HasIndex(x => x.UnitProductLocalId);
                 entity.HasIndex(x => x.UnitProductServerId);
+                entity.HasIndex(x => x.SyncStatus);
 
                 entity.Property(x => x.Name)
                     .HasMaxLength(200)
@@ -121,11 +398,91 @@ namespace Inventory.LocalDB.Context
                 entity.Property(x => x.VatRate)
                     .HasPrecision(5, 2);
 
+                entity.Property(x => x.MinStockLevel)
+                    .HasPrecision(18, 3);
+
+                entity.Property(x => x.MaxStockLevel)
+                    .HasPrecision(18, 3);
+
                 entity.Property(x => x.LocalStockQuantity)
                     .HasPrecision(18, 3);
 
                 entity.Property(x => x.UnitsPerPack)
                     .HasPrecision(18, 3);
+
+                entity.Property(x => x.SyncStatus)
+                    .HasMaxLength(50)
+                    .IsRequired();
+
+                entity.Property(x => x.Status)
+                    .HasConversion<string>();
+
+                entity.HasOne<LocalProductCatalog>()
+                    .WithMany()
+                    .HasForeignKey(x => x.CatalogProductId)
+                    .OnDelete(DeleteBehavior.Restrict);
+            });
+        }
+
+        private static void ConfigureLocalProductCatalog(ModelBuilder builder)
+        {
+            builder.Entity<LocalProductCatalog>(entity =>
+            {
+                entity.HasKey(x => x.Id);
+
+                entity.HasIndex(x => x.Barcode);
+                entity.HasIndex(x => x.InternalCode);
+                entity.HasIndex(x => x.Name);
+                entity.HasIndex(x => x.CategoryId);
+                entity.HasIndex(x => x.IsDeleted);
+
+                entity.Property(x => x.Barcode)
+                    .HasMaxLength(100);
+
+                entity.Property(x => x.InternalCode)
+                    .HasMaxLength(50)
+                    .IsRequired();
+
+                entity.Property(x => x.Name)
+                    .HasMaxLength(200)
+                    .IsRequired();
+
+                entity.Property(x => x.Brand)
+                    .HasMaxLength(100);
+
+                entity.Property(x => x.Manufacturer)
+                    .HasMaxLength(100);
+
+                entity.Property(x => x.Description)
+                    .HasMaxLength(1000);
+
+                entity.Property(x => x.UnitOfMeasure)
+                    .HasMaxLength(20)
+                    .IsRequired();
+            });
+        }
+
+        private static void ConfigureLocalProductCategory(ModelBuilder builder)
+        {
+            builder.Entity<LocalProductCategory>(entity =>
+            {
+                entity.HasKey(x => x.Id);
+
+                entity.HasIndex(x => x.Name);
+                entity.HasIndex(x => x.DisplayOrder);
+                entity.HasIndex(x => x.IsDeleted);
+                entity.HasIndex(x => x.LastSyncedAtUtc);
+
+                entity.Property(x => x.Name)
+                    .HasMaxLength(100)
+                    .UseCollation("NOCASE")
+                    .IsRequired();
+
+                entity.Property(x => x.Color)
+                    .HasMaxLength(50);
+
+                entity.Property(x => x.Icon)
+                    .HasMaxLength(100);
             });
         }
 
@@ -134,14 +491,96 @@ namespace Inventory.LocalDB.Context
             builder.Entity<LocalCustomer>(entity =>
             {
                 entity.HasKey(x => x.Id);
-
+                entity.HasIndex(x => x.TenantId);
                 entity.HasIndex(x => x.ServerId);
                 entity.HasIndex(x => x.Name);
-                entity.HasIndex(x => x.Phone);
+                entity.HasIndex(x => x.Email);
+                entity.HasIndex(x => x.IsDeleted);
+                entity.HasIndex(x => x.SyncStatus);
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.ServerId
+                }).IsUnique()
+                .HasFilter("ServerId IS NOT NULL");
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.IsDeleted
+                });
 
                 entity.Property(x => x.Name)
                     .HasMaxLength(200)
                     .IsRequired();
+
+                entity.Property(x => x.Email)
+                    .HasMaxLength(200);
+
+                entity.Property(x => x.Phone)
+                    .HasMaxLength(50);
+
+                entity.Property(x => x.Address)
+                    .HasMaxLength(500);
+
+                entity.Property(x => x.TaxNumber)
+                    .HasMaxLength(100);
+
+                entity.Property(x => x.Notes)
+                    .HasMaxLength(1000);
+
+                entity.Property(x => x.SyncStatus)
+                    .HasMaxLength(50)
+                    .IsRequired();
+
+                entity.Property(x => x.CreditLimit)
+                    .HasColumnType("decimal(18,2)");
+
+                entity.Property(x => x.CurrentBalance)
+                    .HasColumnType("decimal(18,2)");
+            });
+        }
+
+        private static void ConfigureLocalSupplier(ModelBuilder builder)
+        {
+            builder.Entity<LocalSupplier>(entity =>
+            {
+                entity.HasKey(x => x.Id);
+
+                entity.HasIndex(x => x.TenantId);
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.ServerId
+                })
+                .IsUnique()
+                .HasFilter("ServerId IS NOT NULL");
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.Name
+                });
+
+                entity.HasIndex(x => x.Email);
+                entity.HasIndex(x => x.Phone);
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.IsDeleted
+                });
+
+                entity.HasIndex(x => x.SyncStatus);
+
+                entity.Property(x => x.Name)
+                    .HasMaxLength(200)
+                    .IsRequired();
+
+                entity.Property(x => x.ContactPerson)
+                    .HasMaxLength(100);
 
                 entity.Property(x => x.Email)
                     .HasMaxLength(100);
@@ -152,36 +591,67 @@ namespace Inventory.LocalDB.Context
                 entity.Property(x => x.Address)
                     .HasMaxLength(500);
 
+                entity.Property(x => x.City)
+                    .HasMaxLength(100);
+
+                entity.Property(x => x.PostalCode)
+                    .HasMaxLength(20);
+
+                entity.Property(x => x.Country)
+                    .HasMaxLength(100);
+
                 entity.Property(x => x.TaxNumber)
+                    .HasMaxLength(50);
+
+                entity.Property(x => x.BankAccount)
                     .HasMaxLength(50);
 
                 entity.Property(x => x.Notes)
                     .HasMaxLength(1000);
 
-                entity.Property(x => x.CreditLimit)
-                    .HasPrecision(18, 2);
+                entity.Property(x => x.SyncStatus)
+                    .HasMaxLength(50)
+                    .IsRequired();
 
                 entity.Property(x => x.CurrentBalance)
-                    .HasPrecision(18, 2);
+                    .HasColumnType("decimal(18,2)");
             });
         }
 
-        private static void ConfigureLocalSale(ModelBuilder builder)
+        private static void ConfigureLocalSale(
+            ModelBuilder builder)
         {
             builder.Entity<LocalSale>(entity =>
             {
                 entity.HasKey(x => x.Id);
 
-                entity.HasIndex(x => x.ServerId);
+                entity.HasIndex(x => x.TenantId);
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.ServerId
+                })
+                .IsUnique()
+                .HasFilter("ServerId IS NOT NULL");
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.LocalInvoiceNumber
+                })
+                .IsUnique();
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.SyncStatus,
+                    x.SaleDateUtc
+                });
 
                 entity.HasIndex(x => x.ClientOperationId)
                     .IsUnique();
 
-                entity.HasIndex(x => x.LocalInvoiceNumber)
-                    .IsUnique();
-
-                entity.HasIndex(x => x.SyncStatus);
-                entity.HasIndex(x => x.SaleDateUtc);
                 entity.HasIndex(x => x.LocalCashSessionId);
                 entity.HasIndex(x => x.CashSessionServerId);
                 entity.HasIndex(x => x.CustomerLocalId);
@@ -234,16 +704,40 @@ namespace Inventory.LocalDB.Context
             });
         }
 
-        private static void ConfigureLocalSaleLine(ModelBuilder builder)
+        private static void ConfigureLocalSaleLine(
+    ModelBuilder builder)
         {
             builder.Entity<LocalSaleLine>(entity =>
             {
                 entity.HasKey(x => x.Id);
 
-                entity.HasIndex(x => x.LocalSaleId);
-                entity.HasIndex(x => x.ProductLocalId);
-                entity.HasIndex(x => x.ProductServerId);
-                entity.HasIndex(x => x.UnitProductServerId);
+                entity.Property(x => x.Id).ValueGeneratedNever();
+
+                entity.HasIndex(x => x.TenantId);
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.LocalSaleId
+                });
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.ProductLocalId
+                });
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.ProductServerId
+                });
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.UnitProductServerId
+                });
 
                 entity.Property(x => x.ProductName)
                     .HasMaxLength(200)
@@ -286,17 +780,48 @@ namespace Inventory.LocalDB.Context
             });
         }
 
-        private static void ConfigureLocalPayment(ModelBuilder builder)
+        private static void ConfigureLocalPayment(
+    ModelBuilder builder)
         {
             builder.Entity<LocalPayment>(entity =>
             {
                 entity.HasKey(x => x.Id);
 
-                entity.HasIndex(x => x.LocalSaleId);
-                entity.HasIndex(x => x.ServerId);
-                entity.HasIndex(x => x.ServerSaleId);
-                entity.HasIndex(x => x.Method);
-                entity.HasIndex(x => x.SyncStatus);
+                entity.Property(x => x.Id).ValueGeneratedNever();
+
+                entity.HasIndex(x => x.TenantId);
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.ServerId
+                })
+                .IsUnique()
+                .HasFilter("ServerId IS NOT NULL");
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.LocalSaleId
+                });
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.ServerSaleId
+                });
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.Method
+                });
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.SyncStatus
+                });
 
                 entity.Property(x => x.Method)
                     .HasMaxLength(50)
@@ -325,22 +850,44 @@ namespace Inventory.LocalDB.Context
             });
         }
 
-        private static void ConfigureLocalCashSession(ModelBuilder builder)
+        private static void ConfigureLocalCashSession(
+    ModelBuilder builder)
         {
             builder.Entity<LocalCashSession>(entity =>
             {
                 entity.HasKey(x => x.Id);
 
-                entity.HasIndex(x => x.ServerId);
+                entity.HasIndex(x => x.TenantId);
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.ServerId
+                })
+                .IsUnique()
+                .HasFilter("ServerId IS NOT NULL");
 
                 entity.HasIndex(x => x.ClientOperationId)
                     .IsUnique();
 
-                entity.HasIndex(x => x.SessionNumber)
-                    .IsUnique();
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.SessionNumber
+                })
+                .IsUnique();
 
-                entity.HasIndex(x => x.Status);
-                entity.HasIndex(x => x.SyncStatus);
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.Status
+                });
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.SyncStatus
+                });
 
                 entity.Property(x => x.SessionNumber)
                     .HasMaxLength(100)
@@ -374,20 +921,43 @@ namespace Inventory.LocalDB.Context
             });
         }
 
-        private static void ConfigureLocalCashMovement(ModelBuilder builder)
+        private static void ConfigureLocalCashMovement(
+    ModelBuilder builder)
         {
             builder.Entity<LocalCashMovement>(entity =>
             {
                 entity.HasKey(x => x.Id);
 
-                entity.HasIndex(x => x.ServerId);
+                entity.HasIndex(x => x.TenantId);
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.ServerId
+                })
+                .IsUnique()
+                .HasFilter("ServerId IS NOT NULL");
 
                 entity.HasIndex(x => x.ClientOperationId)
                     .IsUnique();
 
-                entity.HasIndex(x => x.LocalCashSessionId);
-                entity.HasIndex(x => x.Type);
-                entity.HasIndex(x => x.SyncStatus);
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.LocalCashSessionId
+                });
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.Type
+                });
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.SyncStatus
+                });
 
                 entity.Property(x => x.Type)
                     .HasMaxLength(50)
@@ -413,54 +983,104 @@ namespace Inventory.LocalDB.Context
             });
         }
 
-        private static void ConfigureLocalStock(ModelBuilder builder)
+        private static void ConfigureLocalStock(
+    ModelBuilder modelBuilder)
         {
-            builder.Entity<LocalStock>(entity =>
+            var entity =
+                modelBuilder.Entity<LocalStock>();
+
+            entity.HasKey(stock =>
+                stock.Id);
+
+            entity.Property(stock =>
+                    stock.ProductLocalId)
+                .IsRequired();
+
+            entity.Property(stock =>
+                    stock.Quantity)
+                .HasPrecision(18, 3);
+
+            entity.Property(stock =>
+                    stock.ReservedQuantity)
+                .HasPrecision(18, 3);
+
+            entity.HasIndex(stock => new
             {
-                entity.HasKey(x => x.Id);
+                stock.TenantId,
+                stock.ServerId
+            })
+            .IsUnique()
+            .HasFilter("ServerId IS NOT NULL");
 
-                entity.HasIndex(x => x.ServerId);
+            entity.HasIndex(stock => new
+            {
+                stock.TenantId,
+                stock.ProductLocalId
+            })
+            .IsUnique();
 
-                entity.HasIndex(x => x.ProductLocalId)
-                    .IsUnique();
-
-                entity.HasIndex(x => x.ProductServerId)
-                    .IsUnique();
-
-                entity.HasIndex(x => x.ProductBarcode);
-
-                entity.Property(x => x.ProductName)
-                    .HasMaxLength(200)
-                    .IsRequired();
-
-                entity.Property(x => x.ProductBarcode)
-                    .HasMaxLength(100);
-
-                entity.Property(x => x.Quantity)
-                    .HasPrecision(18, 3);
-
-                entity.Property(x => x.ReservedQuantity)
-                    .HasPrecision(18, 3);
+            entity.HasIndex(stock => new
+            {
+                stock.TenantId,
+                stock.ProductServerId
             });
         }
 
-        private static void ConfigureLocalStockMovement(ModelBuilder builder)
+        private static void ConfigureLocalStockMovement(
+    ModelBuilder builder)
         {
             builder.Entity<LocalStockMovement>(entity =>
             {
                 entity.HasKey(x => x.Id);
 
-                entity.HasIndex(x => x.ServerId);
+                entity.HasIndex(x => x.TenantId);
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.ServerId
+                })
+                .IsUnique()
+                .HasFilter("ServerId IS NOT NULL");
 
                 entity.HasIndex(x => x.ClientOperationId)
                     .IsUnique();
 
-                entity.HasIndex(x => x.ProductLocalId);
-                entity.HasIndex(x => x.ProductServerId);
-                entity.HasIndex(x => x.Type);
-                entity.HasIndex(x => x.SyncStatus);
-                entity.HasIndex(x => x.LocalReferenceId);
-                entity.HasIndex(x => x.ServerReferenceId);
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.ProductLocalId
+                });
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.ProductServerId
+                });
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.Type
+                });
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.SyncStatus
+                });
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.LocalReferenceId
+                });
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.ServerReferenceId
+                });
 
                 entity.Property(x => x.ProductName)
                     .HasMaxLength(200)
@@ -497,11 +1117,28 @@ namespace Inventory.LocalDB.Context
             });
         }
 
-        private static void ConfigureSyncQueueItem(ModelBuilder builder)
+        private static void ConfigureSyncQueueItem(
+    ModelBuilder builder)
         {
             builder.Entity<SyncQueueItem>(entity =>
             {
                 entity.HasKey(x => x.Id);
+
+                entity.HasIndex(x => x.TenantId);
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.Status,
+                    x.CreatedAtUtc
+                });
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.EntityName,
+                    x.LocalEntityId
+                });
 
                 entity.HasIndex(x => x.Status);
                 entity.HasIndex(x => x.EntityName);
@@ -522,19 +1159,33 @@ namespace Inventory.LocalDB.Context
                     .HasMaxLength(50)
                     .IsRequired();
 
+                entity.Property(x => x.ErrorMessage)
+                    .HasMaxLength(2000);
+
                 entity.Property(x => x.PayloadJson)
-                    .IsRequired();
+                    .IsRequired(false);
             });
         }
 
-        private static void ConfigureSyncTableStateLocal(ModelBuilder builder)
+        private static void ConfigureSyncTableStateLocal(
+    ModelBuilder builder)
         {
             builder.Entity<SyncTableStateLocal>(entity =>
             {
                 entity.HasKey(x => x.Id);
 
-                entity.HasIndex(x => x.EntityName)
-                    .IsUnique();
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.EntityName
+                })
+                .IsUnique();
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.InitialSyncCompleted
+                });
 
                 entity.Property(x => x.EntityName)
                     .HasMaxLength(100)
@@ -543,28 +1194,72 @@ namespace Inventory.LocalDB.Context
                 entity.Property(x => x.Syncmode)
                     .HasMaxLength(50)
                     .IsRequired();
+
+                entity.Property(x => x.ContinuationToken)
+                    .HasMaxLength(1000);
+
+                entity.Property(x => x.LastError)
+                    .HasMaxLength(2000);
             });
         }
-        private static void ConfigureLocalPurchase(ModelBuilder builder)
+
+        private static void ConfigureLocalPurchase(
+     ModelBuilder builder)
         {
             builder.Entity<LocalPurchase>(entity =>
             {
                 entity.HasKey(x => x.Id);
 
-                entity.HasIndex(x => x.ServerId);
+                entity.HasIndex(x => x.TenantId);
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.ServerId
+                })
+                .IsUnique()
+                .HasFilter("ServerId IS NOT NULL");
 
                 entity.HasIndex(x => x.ClientOperationId)
                     .IsUnique();
 
-                entity.HasIndex(x => x.LocalPurchaseNumber)
-                    .IsUnique();
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.LocalPurchaseNumber
+                })
+                .IsUnique();
 
-                entity.HasIndex(x => x.ServerPurchaseNumber);
-                entity.HasIndex(x => x.SupplierLocalId);
-                entity.HasIndex(x => x.SupplierServerId);
-                entity.HasIndex(x => x.Status);
-                entity.HasIndex(x => x.SyncStatus);
-                entity.HasIndex(x => x.PurchaseDateUtc);
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.ServerPurchaseNumber
+                });
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.SupplierLocalId
+                });
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.SupplierServerId
+                });
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.Status
+                });
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.SyncStatus,
+                    x.PurchaseDateUtc
+                });
 
                 entity.Property(x => x.LocalPurchaseNumber)
                     .HasMaxLength(100)
@@ -597,17 +1292,38 @@ namespace Inventory.LocalDB.Context
                     .HasPrecision(18, 2);
             });
         }
-
-        private static void ConfigureLocalPurchaseLine(ModelBuilder builder)
+        private static void ConfigureLocalPurchaseLine(
+    ModelBuilder builder)
         {
             builder.Entity<LocalPurchaseLine>(entity =>
             {
                 entity.HasKey(x => x.Id);
 
-                entity.HasIndex(x => x.LocalPurchaseId);
-                entity.HasIndex(x => x.ProductLocalId);
-                entity.HasIndex(x => x.ProductServerId);
-                entity.HasIndex(x => x.ProductBarcode);
+                entity.HasIndex(x => x.TenantId);
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.LocalPurchaseId
+                });
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.ProductLocalId
+                });
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.ProductServerId
+                });
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.ProductBarcode
+                });
 
                 entity.Property(x => x.ProductName)
                     .HasMaxLength(200)
@@ -635,18 +1351,47 @@ namespace Inventory.LocalDB.Context
             });
         }
 
-        private static void ConfigureLocalPurchasePayment(ModelBuilder builder)
+        private static void ConfigureLocalPurchasePayment(
+    ModelBuilder builder)
         {
             builder.Entity<LocalPurchasePayment>(entity =>
             {
                 entity.HasKey(x => x.Id);
 
-                entity.HasIndex(x => x.ServerId);
-                entity.HasIndex(x => x.LocalPurchaseId);
-                entity.HasIndex(x => x.ServerPurchaseId);
-                entity.HasIndex(x => x.Method);
-                entity.HasIndex(x => x.SyncStatus);
-                entity.HasIndex(x => x.PaymentDateUtc);
+                entity.HasIndex(x => x.TenantId);
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.ServerId
+                })
+                .IsUnique()
+                .HasFilter("ServerId IS NOT NULL");
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.LocalPurchaseId
+                });
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.ServerPurchaseId
+                });
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.Method
+                });
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.SyncStatus,
+                    x.PaymentDateUtc
+                });
 
                 entity.Property(x => x.Method)
                     .HasMaxLength(50)
@@ -672,32 +1417,90 @@ namespace Inventory.LocalDB.Context
             });
         }
 
-        private static void ConfigureLocalReturn(ModelBuilder builder)
+        // Replace only ConfigureLocalReturn and ConfigureLocalReturnLine
+        // in PosLocalDbContext with these methods.
+
+        private static void ConfigureLocalReturn(
+            ModelBuilder builder)
         {
             builder.Entity<LocalReturn>(entity =>
             {
                 entity.HasKey(x => x.Id);
 
-                entity.HasIndex(x => x.ServerId);
+                entity.HasIndex(x => x.TenantId);
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.ServerId
+                })
+                .IsUnique()
+                .HasFilter("ServerId IS NOT NULL");
 
                 entity.HasIndex(x => x.ClientOperationId)
                     .IsUnique();
 
-                entity.HasIndex(x => x.LocalReturnNumber)
-                    .IsUnique();
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.LocalReturnNumber
+                })
+                .IsUnique();
 
-                entity.HasIndex(x => x.ServerReturnNumber);
-                entity.HasIndex(x => x.LocalSaleId);
-                entity.HasIndex(x => x.ServerSaleId);
-                entity.HasIndex(x => x.RefundMethod);
-                entity.HasIndex(x => x.SyncStatus);
-                entity.HasIndex(x => x.ReturnDateUtc);
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.ServerReturnNumber
+                });
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.LocalSaleId
+                });
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.ServerSaleId
+                });
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.LocalCashSessionId
+                });
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.CustomerLocalId
+                });
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.RefundMethod
+                });
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.SyncStatus,
+                    x.ReturnDateUtc
+                });
 
                 entity.Property(x => x.LocalReturnNumber)
                     .HasMaxLength(100)
                     .IsRequired();
 
                 entity.Property(x => x.ServerReturnNumber)
+                    .HasMaxLength(100);
+
+                entity.Property(x => x.OriginalLocalInvoiceNumber)
+                    .HasMaxLength(100);
+
+                entity.Property(x => x.OriginalServerInvoiceNumber)
                     .HasMaxLength(100);
 
                 entity.Property(x => x.RefundMethod)
@@ -716,16 +1519,56 @@ namespace Inventory.LocalDB.Context
             });
         }
 
-        private static void ConfigureLocalReturnLine(ModelBuilder builder)
+        private static void ConfigureLocalReturnLine(
+            ModelBuilder builder)
         {
             builder.Entity<LocalReturnLine>(entity =>
             {
                 entity.HasKey(x => x.Id);
 
-                entity.HasIndex(x => x.LocalReturnId);
-                entity.HasIndex(x => x.ProductLocalId);
-                entity.HasIndex(x => x.ProductServerId);
-                entity.HasIndex(x => x.ProductBarcode);
+                entity.HasIndex(x => x.TenantId);
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.LocalReturnId
+                });
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.LocalSaleLineId
+                });
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.ProductLocalId
+                });
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.ProductServerId
+                });
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.UnitProductLocalId
+                });
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.UnitProductServerId
+                });
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.ProductBarcode
+                });
 
                 entity.Property(x => x.ProductName)
                     .HasMaxLength(200)
@@ -740,11 +1583,20 @@ namespace Inventory.LocalDB.Context
                 entity.Property(x => x.Quantity)
                     .HasPrecision(18, 3);
 
+                entity.Property(x => x.UnitQuantity)
+                    .HasPrecision(18, 3);
+
+                entity.Property(x => x.UnitsPerPack)
+                    .HasPrecision(18, 3);
+
                 entity.Property(x => x.UnitPrice)
                     .HasPrecision(18, 2);
 
                 entity.Property(x => x.VatRate)
                     .HasPrecision(5, 2);
+
+                entity.Property(x => x.UnitCostPrice)
+                    .HasPrecision(18, 2);
 
                 entity.HasOne(x => x.LocalReturn)
                     .WithMany(x => x.Lines)
@@ -753,21 +1605,45 @@ namespace Inventory.LocalDB.Context
             });
         }
 
-        private static void ConfigureLocalCashCorrection(ModelBuilder builder)
+
+        private static void ConfigureLocalCashCorrection(
+     ModelBuilder builder)
         {
             builder.Entity<LocalCashCorrection>(entity =>
             {
                 entity.HasKey(x => x.Id);
 
-                entity.HasIndex(x => x.ServerId);
+                entity.HasIndex(x => x.TenantId);
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.ServerId
+                })
+                .IsUnique()
+                .HasFilter("ServerId IS NOT NULL");
 
                 entity.HasIndex(x => x.ClientOperationId)
                     .IsUnique();
 
-                entity.HasIndex(x => x.OriginalLocalCashSessionId);
-                entity.HasIndex(x => x.OriginalServerCashSessionId);
-                entity.HasIndex(x => x.SyncStatus);
-                entity.HasIndex(x => x.CorrectedAtUtc);
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.OriginalLocalCashSessionId
+                });
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.OriginalServerCashSessionId
+                });
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.SyncStatus,
+                    x.CorrectedAtUtc
+                });
 
                 entity.Property(x => x.Reason)
                     .HasMaxLength(1000)
@@ -790,18 +1666,47 @@ namespace Inventory.LocalDB.Context
             });
         }
 
-        private static void ConfigureLocalCashReport(ModelBuilder builder)
+        private static void ConfigureLocalCashReport(
+    ModelBuilder builder)
         {
             builder.Entity<LocalCashReport>(entity =>
             {
                 entity.HasKey(x => x.Id);
 
-                entity.HasIndex(x => x.ServerId);
-                entity.HasIndex(x => x.LocalCashSessionId);
-                entity.HasIndex(x => x.ServerCashSessionId);
-                entity.HasIndex(x => x.Type);
-                entity.HasIndex(x => x.SyncStatus);
-                entity.HasIndex(x => x.GeneratedAtUtc);
+                entity.HasIndex(x => x.TenantId);
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.ServerId
+                })
+                .IsUnique()
+                .HasFilter("ServerId IS NOT NULL");
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.LocalCashSessionId
+                });
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.ServerCashSessionId
+                });
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.Type
+                });
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.SyncStatus,
+                    x.GeneratedAtUtc
+                });
 
                 entity.Property(x => x.Type)
                     .HasMaxLength(50)
@@ -835,6 +1740,58 @@ namespace Inventory.LocalDB.Context
                 entity.HasOne(x => x.LocalCashSession)
                     .WithMany()
                     .HasForeignKey(x => x.LocalCashSessionId)
+                    .OnDelete(DeleteBehavior.Cascade);
+            });
+        }
+
+        private static void ConfigureLocalUserSession(ModelBuilder builder)
+        {
+            builder.Entity<LocalUserSession>(entity =>
+            {
+                entity.HasKey(x => x.Id);
+
+                entity.HasIndex(x => x.UserId)
+                    .IsUnique();
+
+                entity.HasIndex(x => x.Email);
+                entity.HasIndex(x => x.TenantId);
+                entity.HasIndex(x => x.IsActive);
+
+                entity.Property(x => x.Email)
+                    .HasMaxLength(200)
+                    .IsRequired();
+
+                entity.Property(x => x.FullName)
+                    .HasMaxLength(200);
+
+                entity.Property(x => x.Role)
+                    .HasMaxLength(100)
+                    .IsRequired();
+            });
+        }
+
+        private static void ConfigureLocalPackComponent(ModelBuilder builder)
+        {
+            builder.Entity<LocalPackComponent>(entity =>
+            {
+                entity.HasKey(x => new
+                {
+                    x.ProductCatalogId,
+                    x.ComponentCatalogId
+                });
+
+                entity.HasIndex(x => x.ComponentCatalogId);
+
+                entity.Property(x => x.ComponentName)
+                    .HasMaxLength(200)
+                    .IsRequired();
+
+                entity.Property(x => x.Quantity)
+                    .HasPrecision(18, 3);
+
+                entity.HasOne(x => x.ProductCatalog)
+                    .WithMany(x => x.PackComponents)
+                    .HasForeignKey(x => x.ProductCatalogId)
                     .OnDelete(DeleteBehavior.Cascade);
             });
         }

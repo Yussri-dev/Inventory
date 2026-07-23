@@ -299,79 +299,139 @@ namespace Inventory.Services
         //    };
         //}
 
-        public async Task<PagedResult<ProductResult>> QueryAsync(ProductQuery query)
+        public async Task<PagedResult<ProductResult>> QueryAsync(
+            ProductQuery query,
+            CancellationToken cancellationToken = default)
         {
-            var tenantId = _tenantContext.TenantId;
+            ArgumentNullException.ThrowIfNull(query);
+
+            var tenantId =
+                _tenantContext.TenantId;
+
+            if (tenantId == Guid.Empty)
+            {
+                throw new UnauthorizedAccessException(
+                    "No tenant is associated with the current session.");
+            }
 
             if (query.Page < 1)
             {
-                throw new ValidationException(new Dictionary<string, string[]>
+                throw new ValidationException(
+                    new Dictionary<string, string[]>
                     {
-                        { "Page", new[] { "Page must be greater than or equal to 1." } }
+                {
+                    nameof(query.Page),
+                    new[]
+                    {
+                        "Page must be greater than or equal to 1."
+                    }
+                }
                     });
             }
 
-            if (query.PageSize < 1 || query.PageSize > 100)
+            if (query.PageSize < 1 ||
+                query.PageSize > 100)
             {
-                throw new ValidationException(new Dictionary<string, string[]>
+                throw new ValidationException(
+                    new Dictionary<string, string[]>
                     {
-                        { "PageSize", new[] { "PageSize must be between 1 and 100." } }
+                {
+                    nameof(query.PageSize),
+                    new[]
+                    {
+                        "PageSize must be between 1 and 100."
+                    }
+                }
                     });
             }
 
-            var productsQuery = _repository.Query()
-                .AsNoTracking()
-                .Where(p => !p.IsDeleted && p.TenantId == tenantId)
-                .Include(p => p.CatalogProduct)
-                    .ThenInclude(c => c.PackComponents)
-                        .ThenInclude(pc => pc.ComponentCatalog)
-                .AsQueryable();
+            var productsQuery =
+                _repository.Query()
+                    .AsNoTracking()
+                    .Where(product =>
+                        !product.IsDeleted &&
+                        product.TenantId == tenantId);
 
-            // SEARCH
             if (!string.IsNullOrWhiteSpace(query.Search))
             {
-                var search = query.Search.ToLower();
+                var search =
+                    query.Search.Trim();
 
-                productsQuery = productsQuery.Where(p =>
-                 EF.Functions.ILike(p.CatalogProduct.Name, $"%{search}%") ||
-                 EF.Functions.ILike(p.CatalogProduct.Barcode, $"%{search}%") ||
-                 EF.Functions.ILike(p.CatalogProduct.Brand, $"%{search}%")
-             );
+                productsQuery =
+                    productsQuery.Where(product =>
+                        EF.Functions.ILike(
+                            product.CatalogProduct.Name,
+                            $"%{search}%") ||
 
+                        EF.Functions.ILike(
+                            product.CatalogProduct.Barcode,
+                            $"%{search}%") ||
 
+                        EF.Functions.ILike(
+                            product.CatalogProduct.Brand,
+                            $"%{search}%"));
             }
 
-            //// STATUS
-            //if (query.Status.HasValue)
-            //    productsQuery = productsQuery.Where(p => p.IsActive == query.Status);
+            var sortBy =
+                query.SortBy?
+                    .Trim()
+                    .ToLowerInvariant()
+                ?? "createdat";
 
-            // SORT
-            productsQuery = query.SortBy.ToLower() switch
-            {
-                "name" => query.Desc
-                    ? productsQuery.OrderByDescending(p => p.CatalogProduct.Name)
-                    : productsQuery.OrderBy(p => p.CatalogProduct.Name),
+            productsQuery =
+                sortBy switch
+                {
+                    "name" =>
+                        query.Desc
+                            ? productsQuery.OrderByDescending(
+                                product =>
+                                    product.CatalogProduct.Name)
+                            : productsQuery.OrderBy(
+                                product =>
+                                    product.CatalogProduct.Name),
 
-                "barcode" => query.Desc
-                ? productsQuery.OrderByDescending(p => p.CatalogProduct.Barcode)
-                : productsQuery.OrderBy(p => p.CatalogProduct.Barcode),
+                    "barcode" =>
+                        query.Desc
+                            ? productsQuery.OrderByDescending(
+                                product =>
+                                    product.CatalogProduct.Barcode)
+                            : productsQuery.OrderBy(
+                                product =>
+                                    product.CatalogProduct.Barcode),
 
-                "saleprice" => query.Desc
-                    ? productsQuery.OrderByDescending(p => p.SalePrice)
-                    : productsQuery.OrderBy(p => p.SalePrice),
+                    "saleprice" =>
+                        query.Desc
+                            ? productsQuery.OrderByDescending(
+                                product =>
+                                    product.SalePrice)
+                            : productsQuery.OrderBy(
+                                product =>
+                                    product.SalePrice),
 
-                _ => query.Desc
-                    ? productsQuery.OrderByDescending(p => p.CreatedAt)
-                    : productsQuery.OrderBy(p => p.CreatedAt)
-            };
+                    _ =>
+                        query.Desc
+                            ? productsQuery.OrderByDescending(
+                                product =>
+                                    product.CreatedAt)
+                            : productsQuery.OrderBy(
+                                product =>
+                                    product.CreatedAt)
+                };
 
-            var total = await productsQuery.CountAsync();
+            var total =
+                await productsQuery.CountAsync(
+                    cancellationToken);
 
-            var items = await productsQuery
-                .Skip((query.Page - 1) * query.PageSize)
-                .Take(query.PageSize)
-                .ProjectTo<ProductResult>(_mapper.ConfigurationProvider)
-                .ToListAsync();
+            var items =
+                await productsQuery
+                    .Skip(
+                        (query.Page - 1) *
+                        query.PageSize)
+                    .Take(query.PageSize)
+                    .ProjectTo<ProductResult>(
+                        _mapper.ConfigurationProvider)
+                    .ToListAsync(
+                        cancellationToken);
 
             return new PagedResult<ProductResult>
             {

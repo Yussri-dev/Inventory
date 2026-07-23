@@ -3,11 +3,11 @@
 @using Inventory.Dto.Customers.Results
 @using Inventory.Ui.Services
 
-@inject ICustomerApi Api
+@using Inventory.LocalDB.Services.Interfaces
+@inject ILocalCustomerService LocalCustomerService
+
 @inject NavigationManager Nav
-@inject ICashSessionApi CashSessionApi
 @inject AppState State
-@inject PosBootstrapService Bootstrap
 @implements IDisposable
 
 <h3>Customers</h3>
@@ -326,25 +326,56 @@
         });
     }
 
+    // private async Task LoadData()
+    // {
+    //     try
+    //     {
+    //         if (!State.IsCashSessionLoaded)
+    //         {
+    //             try
+    //             {
+    //                 var active = await CashSessionApi.GetActive();
+    //                 await State.SetCashSessionAsync(active);
+    //             }
+    //             catch
+    //             {
+    //                 await ShowError("No active cash session.");
+    //                 Nav.NavigateTo("/cashsessions");
+    //                 return;
+    //             }
+    //         }
+
+    //         isLoadingData = true;
+    //         errorMessage = null;
+
+    //         var query = new CustomerQuery
+    //         {
+    //             Page = Page,
+    //             PageSize = PageSize,
+    //             Search = isSearching ? searchTerm : null
+    //         };
+
+    //         var response = await Api.Search(query);
+
+    //         items = response.Items?.ToList() ?? new List<CustomerResult>();
+    //         TotalCount = response.TotalCount;
+    //     }
+    //     catch (Exception ex)
+    //     {
+    //         errorMessage = $"Failed to load Customers : {ex.Message}";
+    //         items = new List<CustomerResult>();
+    //         throw;
+    //     }
+    //     finally
+    //     {
+    //         isLoadingData = false;
+    //     }
+    // }
+
     private async Task LoadData()
     {
         try
         {
-            if (!State.IsCashSessionLoaded)
-            {
-                try
-                {
-                    var active = await CashSessionApi.GetActive();
-                    await State.SetCashSessionAsync(active);
-                }
-                catch
-                {
-                    await ShowError("No active cash session.");
-                    Nav.NavigateTo("/cashsessions");
-                    return;
-                }
-            }
-
             isLoadingData = true;
             errorMessage = null;
 
@@ -355,16 +386,15 @@
                 Search = isSearching ? searchTerm : null
             };
 
-            var response = await Api.Search(query);
+            var response = await LocalCustomerService.QueryAsync(query);
 
             items = response.Items?.ToList() ?? new List<CustomerResult>();
             TotalCount = response.TotalCount;
         }
         catch (Exception ex)
         {
-            errorMessage = $"Failed to load Customers : {ex.Message}";
+            errorMessage = $"Failed to load local customers: {ex.Message}";
             items = new List<CustomerResult>();
-            throw;
         }
         finally
         {
@@ -372,20 +402,54 @@
         }
     }
 
+    // private async Task HandleSubmit()
+    // {
+    //     if (editingId == null)
+    //         await Api.Create(form.ToCreate());
+    //     else
+    //         await Api.Update(editingId.Value, form.ToUpdate(editingId.Value));
+
+    //     // Invalide le cache customers pour que Sales/POS voient les nouveaux clients
+    //     State.InvalidateCustomers();
+    //     _ = Bootstrap.EnsureLoadedAsync();
+
+    //     Reset();
+    //     ShowCustomer = false;
+    //     await LoadData();
+    // }
+
     private async Task HandleSubmit()
     {
-        if (editingId == null)
-            await Api.Create(form.ToCreate());
-        else
-            await Api.Update(editingId.Value, form.ToUpdate(editingId.Value));
+        try
+        {
+            isLoading = true;
+            errorMessage = null;
 
-        // Invalide le cache customers pour que Sales/POS voient les nouveaux clients
-        State.InvalidateCustomers();
-        _ = Bootstrap.EnsureLoadedAsync();
+            if (editingId == null)
+            {
+                await LocalCustomerService.CreateAsync(form.ToCreate());
+                await ShowSuccess("Customer created locally.");
+            }
+            else
+            {
+                await LocalCustomerService.UpdateAsync(editingId.Value, form.ToUpdate(editingId.Value));
+                await ShowSuccess("Customer updated locally.");
+            }
 
-        Reset();
-        ShowCustomer = false;
-        await LoadData();
+            State.InvalidateCustomers();
+
+            Reset();
+            ShowCustomer = false;
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            await ShowError(ex.Message);
+        }
+        finally
+        {
+            isLoading = false;
+        }
     }
 
     private void StartEdit(CustomerResult c)
@@ -400,15 +464,38 @@
         showDelete = true;
     }
 
+    // private async Task ConfirmDelete()
+    // {
+    //     await Api.Delete(customerToDelete!.Id);
+    //     showDelete = false;
+
+    //     State.InvalidateCustomers();
+    //     _ = Bootstrap.EnsureLoadedAsync();
+
+    //     await LoadData();
+    // }
+
     private async Task ConfirmDelete()
     {
-        await Api.Delete(customerToDelete!.Id);
-        showDelete = false;
+        if (customerToDelete == null)
+            return;
 
-        State.InvalidateCustomers();
-        _ = Bootstrap.EnsureLoadedAsync();
+        try
+        {
+            await LocalCustomerService.DeleteAsync(customerToDelete.Id);
 
-        await LoadData();
+            showDelete = false;
+            customerToDelete = null;
+
+            State.InvalidateCustomers();
+
+            await ShowSuccess("Customer deleted locally.");
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            await ShowError(ex.Message);
+        }
     }
 
     private async Task OnSearchKeyUp(KeyboardEventArgs e)

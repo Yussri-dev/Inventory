@@ -3,16 +3,19 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Inventory.LocalDB.Models
 {
-    public class LocalReturn
+    public class LocalReturn : ILocalTenantEntity
     {
         [Key]
         public Guid Id { get; set; } = Guid.NewGuid();
+
+        public Guid TenantId { get; set; }
 
         public Guid? ServerId { get; set; }
 
         public Guid ClientOperationId { get; set; } = Guid.NewGuid();
 
-        [Required, MaxLength(100)]
+        [Required]
+        [MaxLength(100)]
         public string LocalReturnNumber { get; set; } = string.Empty;
 
         [MaxLength(100)]
@@ -23,10 +26,25 @@ namespace Inventory.LocalDB.Models
 
         public Guid? ServerSaleId { get; set; }
 
+        public Guid? LocalCashSessionId { get; set; }
+
+        public Guid? CashSessionServerId { get; set; }
+
+        public Guid? CustomerLocalId { get; set; }
+
+        public Guid? CustomerServerId { get; set; }
+
+        [MaxLength(100)]
+        public string? OriginalLocalInvoiceNumber { get; set; }
+
+        [MaxLength(100)]
+        public string? OriginalServerInvoiceNumber { get; set; }
+
         [Column(TypeName = "decimal(18,2)")]
         public decimal TotalAmount { get; set; }
 
-        [Required, MaxLength(50)]
+        [Required]
+        [MaxLength(50)]
         public string RefundMethod { get; set; } = string.Empty;
 
         [MaxLength(1000)]
@@ -38,13 +56,15 @@ namespace Inventory.LocalDB.Models
 
         public DateTime? ProcessedAtUtc { get; set; }
 
-        [Required, MaxLength(50)]
+        [Required]
+        [MaxLength(50)]
         public string SyncStatus { get; set; } = SyncQueueStatus.Pending;
 
         public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
 
         public DateTime? LastSyncedAtUtc { get; set; }
 
-        public ICollection<LocalReturnLine> Lines { get; set; } = new List<LocalReturnLine>();
+        public ICollection<LocalReturnLine> Lines { get; set; } =
+            new List<LocalReturnLine>();
     }
 }

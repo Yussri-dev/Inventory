@@ -18,6 +18,7 @@ namespace Inventory.Domain.Entities
         [Required]
         public Guid ProductId { get; set; }
 
+
         [ForeignKey(nameof(ProductId))]
         public Product Product { get; set; } = null!;
 
@@ -39,5 +40,10 @@ namespace Inventory.Domain.Entities
         public string? Reason { get; set; }
 
         public bool RestockItem { get; set; }
+
+        public Guid? SaleLineId { get; set; }
+
+        [ForeignKey(nameof(SaleLineId))]
+        public SaleLine? SaleLine { get; set; }
     }
 }

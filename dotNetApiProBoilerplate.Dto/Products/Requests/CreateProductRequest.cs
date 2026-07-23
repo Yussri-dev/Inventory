@@ -2,38 +2,58 @@
 using System.ComponentModel.DataAnnotations;
 using System.Text.Json.Serialization;
 
-namespace Inventory.Dto.Products.Requests
+namespace Inventory.Dto.Products.Requests;
+
+public sealed class CreateProductRequest
 {
-    public class CreateProductRequest
-    {
-        [Required]
-        public Guid CatalogProductId { get; set; }
+    [Required]
+    public Guid CatalogProductId { get; set; }
 
-        [Range(0, double.MaxValue)]
-        public decimal SalePrice { get; set; }
+    [Range(
+        0,
+        double.MaxValue,
+        ErrorMessage = "Sale price cannot be negative.")]
+    public decimal SalePrice { get; set; }
 
-        [Range(0, double.MaxValue)]
-        public decimal SalePrice2 { get; set; }
+    [Range(
+        0,
+        double.MaxValue,
+        ErrorMessage = "Sale price 2 cannot be negative.")]
+    public decimal SalePrice2 { get; set; }
 
-        [Range(0, double.MaxValue)]
-        public decimal SalePrice3 { get; set; }
+    [Range(
+        0,
+        double.MaxValue,
+        ErrorMessage = "Sale price 3 cannot be negative.")]
+    public decimal SalePrice3 { get; set; }
 
-        [Range(0, double.MaxValue)]
-        public decimal PurchasePrice { get; set; }
+    [Range(
+        0,
+        double.MaxValue,
+        ErrorMessage = "Purchase price cannot be negative.")]
+    public decimal PurchasePrice { get; set; }
 
-        [Range(0, 100)]
-        public decimal VatRate { get; set; }
+    [Range(
+        0,
+        100,
+        ErrorMessage = "VAT rate must be between 0 and 100.")]
+    public decimal VatRate { get; set; }
 
-        [Range(0, double.MaxValue)]
-        public decimal MinStockLevel { get; set; }
+    [Range(
+        0,
+        double.MaxValue,
+        ErrorMessage = "Minimum stock cannot be negative.")]
+    public decimal MinStockLevel { get; set; }
 
-        [Range(0, double.MaxValue)]
-        public decimal MaxStockLevel { get; set; }
+    [Range(
+        0,
+        double.MaxValue,
+        ErrorMessage = "Maximum stock cannot be negative.")]
+    public decimal MaxStockLevel { get; set; }
 
-        public bool IsTracked { get; set; } = true;
+    public bool IsTracked { get; set; } = true;
 
-        [JsonConverter(typeof(JsonStringEnumConverter))]
-        public ProductStatus IsActive { get; set; } = ProductStatus.Active;
-    }
-
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public ProductStatus IsActive { get; set; } =
+        ProductStatus.Active;
 }
