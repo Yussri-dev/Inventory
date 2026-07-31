@@ -23,7 +23,9 @@ namespace Inventory.Dto.Customers.Requests
 
         [Column(TypeName = "decimal(18,2)")]
         public decimal CreditLimit { get; set; }
+        public bool AllowCredit { get; set; }
 
+        public bool HasUnlimitedCredit { get; set; }
         [Column(TypeName = "decimal(18,2)")]
         public decimal CurrentBalance { get; set; }
 

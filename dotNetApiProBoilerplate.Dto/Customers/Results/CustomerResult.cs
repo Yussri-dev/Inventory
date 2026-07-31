@@ -16,6 +16,10 @@
 
         public decimal CreditLimit { get; set; }
 
+        public bool AllowCredit { get; set; }
+
+        public bool HasUnlimitedCredit { get; set; }
+
         public decimal CurrentBalance { get; set; }
 
         public bool IsActive { get; set; }

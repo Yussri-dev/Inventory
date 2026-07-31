@@ -73,11 +73,22 @@
         <PackageReference Include="MudBlazor" Version="9.3.0" />
         <PackageReference Include="Refit" Version="9.0.2" />
         <PackageReference Include="Refit.HttpClientFactory" Version="9.0.2" />
+        <PackageReference Include="System.Drawing.Common" Version="6.0.0" />
     </ItemGroup>
 
     <ItemGroup>
       <ProjectReference Include="..\dotNetApiProBoilerplate.Dto\Inventory.Dto.csproj" />
       <ProjectReference Include="..\Inventory.LocalDB\Inventory.LocalDB.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <Folder Include="Pages\" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <MauiXaml Update="CustomerDisplayPage.xaml">
+        <Generator>MSBuild:Compile</Generator>
+      </MauiXaml>
     </ItemGroup>
 
 </Project>

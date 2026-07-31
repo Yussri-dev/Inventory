@@ -31,6 +31,10 @@ namespace Inventory.LocalDB.Models
 
         public Guid? SaleServerId { get; set; }
 
+        public Guid? ReturnLocalId { get; set; }
+
+        public Guid? ReturnServerId { get; set; }
+
         [Required]
         [MaxLength(50)]
         public string Type { get; set; } = string.Empty;

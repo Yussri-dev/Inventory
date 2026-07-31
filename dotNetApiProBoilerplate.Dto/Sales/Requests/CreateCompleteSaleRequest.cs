@@ -12,7 +12,7 @@ namespace Inventory.Dto.Sales.Requests
         /// Optional customer ID for the sale
         /// </summary>
         public Guid? CustomerId { get; set; }
-
+        public Guid ClientOperationId { get; set; }
         public Guid? PendingSaleId { get; set; }
 
         /// <summary>
@@ -24,7 +24,7 @@ namespace Inventory.Dto.Sales.Requests
         /// Cash session ID where this sale is recorded
         /// </summary>
         [Required]
-        public Guid CashSessionId { get; set; }
+        public Guid? CashSessionId { get; set; }
 
         /// <summary>
         /// Date of the sale (defaults to current UTC time if not provided)

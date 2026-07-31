@@ -283,16 +283,18 @@ public sealed class LocalCustomerCreditService
         }
 
         await RecordAuthoritativeBalanceChangeAsync(
-            customerLocalId,
-            amount,
-            LocalCustomerTransactionType.Credit,
-            LocalCustomerTransactionOrigin.Sale,
-            saleLocalId,
-            saleServerId,
-            transactionDateUtc,
-            description ??
-            "Customer credit created by local sale.",
-            cancellationToken);
+    customerLocalId,
+    amount,
+    LocalCustomerTransactionType.Credit,
+    LocalCustomerTransactionOrigin.Sale,
+    saleLocalId,
+    saleServerId,
+    null,
+    null,
+    transactionDateUtc,
+    description ??
+        "Customer credit created by local sale.",
+    cancellationToken);
     }
 
     public async Task RecordReturnCreditAsync(
@@ -315,16 +317,18 @@ public sealed class LocalCustomerCreditService
          * create a negative balance (store owes the customer).
          */
         await RecordAuthoritativeBalanceChangeAsync(
-            customerLocalId,
-            -amount,
-            LocalCustomerTransactionType.Credit,
-            LocalCustomerTransactionOrigin.Return,
-            returnLocalId,
-            null,
-            transactionDateUtc,
-            description ??
-            "Customer credit created by local return.",
-            cancellationToken);
+    customerLocalId,
+    -amount,
+    LocalCustomerTransactionType.Credit,
+    LocalCustomerTransactionOrigin.Return,
+    null,
+    null,
+    returnLocalId,
+    null,
+    transactionDateUtc,
+    description ??
+        "Customer credit created by local return.",
+    cancellationToken);
     }
 
     private async Task<LocalCustomerTransactionResult>
@@ -578,15 +582,17 @@ public sealed class LocalCustomerCreditService
     }
 
     private async Task RecordAuthoritativeBalanceChangeAsync(
-        Guid customerLocalId,
-        decimal signedAmount,
-        string type,
-        string origin,
-        Guid sourceLocalId,
-        Guid? sourceServerId,
-        DateTime transactionDateUtc,
-        string? description,
-        CancellationToken cancellationToken)
+    Guid customerLocalId,
+    decimal signedAmount,
+    string type,
+    string origin,
+    Guid? saleLocalId,
+    Guid? saleServerId,
+    Guid? returnLocalId,
+    Guid? returnServerId,
+    DateTime transactionDateUtc,
+    string? description,
+    CancellationToken cancellationToken)
     {
         if (customerLocalId == Guid.Empty)
         {
@@ -616,8 +622,18 @@ public sealed class LocalCustomerCreditService
                         transaction.CustomerLocalId ==
                             customerLocalId &&
                         transaction.Origin == origin &&
-                        transaction.SaleLocalId ==
-                            sourceLocalId,
+                       (
+                            origin ==
+                                LocalCustomerTransactionOrigin.Sale &&
+                            transaction.SaleLocalId ==
+                                saleLocalId
+                        ) ||
+                        (
+                            origin ==
+                                LocalCustomerTransactionOrigin.Return &&
+                            transaction.ReturnLocalId ==
+                                returnLocalId
+                        ),
                     cancellationToken);
 
         if (exists)
@@ -669,11 +685,13 @@ public sealed class LocalCustomerCreditService
                 CustomerServerId =
                     customer.ServerId,
 
-                SaleLocalId =
-                    sourceLocalId,
+                SaleLocalId = saleLocalId,
 
-                SaleServerId =
-                    sourceServerId,
+                SaleServerId = saleServerId,
+
+                ReturnLocalId = returnLocalId,
+
+                ReturnServerId = returnServerId,
 
                 Type =
                     type,

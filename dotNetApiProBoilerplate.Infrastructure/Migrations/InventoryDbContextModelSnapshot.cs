@@ -333,6 +333,9 @@ namespace Inventory.Infrastructure.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
 
+                    b.Property<bool>("AllowCredit")
+                        .HasColumnType("boolean");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -354,6 +357,9 @@ namespace Inventory.Infrastructure.Migrations
                     b.Property<string>("Email")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
+
+                    b.Property<bool>("HasUnlimitedCredit")
+                        .HasColumnType("boolean");
 
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
@@ -1150,6 +1156,9 @@ namespace Inventory.Infrastructure.Migrations
                     b.Property<decimal>("ChangeAmount")
                         .HasColumnType("decimal(18,2)");
 
+                    b.Property<Guid>("ClientOperationId")
+                        .HasColumnType("uuid");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -1219,6 +1228,9 @@ namespace Inventory.Infrastructure.Migrations
                     b.HasIndex("SaleDate");
 
                     b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "ClientOperationId")
+                        .IsUnique();
 
                     b.ToTable("Sales");
                 });

@@ -35,7 +35,9 @@ public sealed class LocalCustomer : ILocalTenantEntity
 
     public bool IsActive { get; set; } =
         true;
+    public bool AllowCredit { get; set; }
 
+    public bool HasUnlimitedCredit { get; set; }
     public bool IsDeleted { get; set; }
 
     [MaxLength(1000)]

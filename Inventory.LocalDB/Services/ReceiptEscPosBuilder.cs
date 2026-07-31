@@ -1,4 +1,5 @@
 ﻿using Inventory.LocalDB.Models;
+using SkiaSharp;
 using System.Globalization;
 using System.Text;
 
@@ -7,25 +8,21 @@ namespace Inventory.LocalDB.Services
     public static class ReceiptEscPosBuilder
     {
         private static readonly CultureInfo ReceiptCulture =
-            CultureInfo.GetCultureInfo(
-                "fr-BE");
+            CultureInfo.GetCultureInfo("fr-BE");
 
         public static byte[] Build(
             ReceiptPrintDocument document,
             ReceiptPrinterOptions options)
         {
-            ArgumentNullException.ThrowIfNull(
-                document);
-
-            ArgumentNullException.ThrowIfNull(
-                options);
+            ArgumentNullException.ThrowIfNull(document);
+            ArgumentNullException.ThrowIfNull(options);
+            ArgumentNullException.ThrowIfNull(document.Snapshot);
 
             Encoding.RegisterProvider(
                 CodePagesEncodingProvider.Instance);
 
             var encoding =
-                ResolveEncoding(
-                    options.CodePage);
+                ResolveEncoding(options.CodePage);
 
             var width =
                 Math.Clamp(
@@ -46,21 +43,11 @@ namespace Inventory.LocalDB.Services
                 document.Snapshot;
 
             writer.Initialize();
-
-            /*
-             * Certaines imprimantes utilisent ESC t n pour sélectionner
-             * la table de caractères.
-             *
-             * La valeur exacte dépend de l'imprimante. Le texte reste
-             * néanmoins encodé avec la code page configurée.
-             */
-            writer.SetCodePage(
-                options.CodePage);
+            writer.SetCodePage(options.CodePage);
 
             PrintHeader(
                 writer,
-                document,
-                options);
+                document);
 
             PrintSaleInformation(
                 writer,
@@ -79,6 +66,10 @@ namespace Inventory.LocalDB.Services
                 snapshot);
 
             PrintPayments(
+                writer,
+                snapshot);
+
+            PrintBarcodeSection(
                 writer,
                 snapshot);
 
@@ -101,21 +92,30 @@ namespace Inventory.LocalDB.Services
 
         private static void PrintHeader(
             EscPosWriter writer,
-            ReceiptPrintDocument document,
-            ReceiptPrinterOptions options)
+            ReceiptPrintDocument document)
         {
             var snapshot =
                 document.Snapshot;
 
             writer.AlignCenter();
+
+            TryPrintLogo(
+                writer,
+                snapshot);
+
             writer.BoldOn();
             writer.DoubleSizeOn();
-
             writer.WriteWrappedLine(
                 snapshot.CompanyName);
-
             writer.DoubleSizeOff();
             writer.BoldOff();
+
+            if (!string.IsNullOrWhiteSpace(
+                    snapshot.HeaderTagLine))
+            {
+                writer.WriteWrappedLine(
+                    snapshot.HeaderTagLine);
+            }
 
             if (!string.IsNullOrWhiteSpace(
                     snapshot.CompanyAddress))
@@ -125,10 +125,17 @@ namespace Inventory.LocalDB.Services
             }
 
             if (!string.IsNullOrWhiteSpace(
+                    snapshot.ExtraAddressLine))
+            {
+                writer.WriteWrappedLine(
+                    snapshot.ExtraAddressLine);
+            }
+
+            if (!string.IsNullOrWhiteSpace(
                     snapshot.CompanyPhone))
             {
                 writer.WriteWrappedLine(
-                    $"Tél. {snapshot.CompanyPhone}");
+                    $"NUMBER : {snapshot.CompanyPhone}");
             }
 
             if (!string.IsNullOrWhiteSpace(
@@ -139,230 +146,233 @@ namespace Inventory.LocalDB.Services
             }
 
             if (!string.IsNullOrWhiteSpace(
+                    snapshot.SocialLine))
+            {
+                writer.WriteWrappedLine(
+                    snapshot.SocialLine);
+            }
+
+            if (!string.IsNullOrWhiteSpace(
                     snapshot.CompanyTaxNumber))
             {
                 writer.WriteWrappedLine(
                     $"TVA : {snapshot.CompanyTaxNumber}");
             }
 
-            writer.WriteLine();
-
-            writer.BoldOn();
-
-            writer.WriteWrappedLine(
-                options.ReceiptTitle);
-
-            writer.BoldOff();
-
             if (document.IsDuplicate)
             {
                 writer.WriteLine();
-
                 writer.BoldOn();
                 writer.DoubleSizeOn();
-
-                writer.WriteLine(
-                    "DUPLICATA");
-
+                writer.WriteWrappedLine("DUPLICATA");
                 writer.DoubleSizeOff();
                 writer.BoldOff();
 
                 writer.WriteWrappedLine(
-                    $"Copie n° {document.CopyNumber}");
+                    $"COPIE N° {document.CopyNumber}");
 
                 writer.WriteWrappedLine(
-                    $"Réimprimé le " +
+                    $"RÉIMPRIMÉ LE " +
                     $"{ToLocal(document.PrintedAtUtc):dd/MM/yyyy HH:mm}");
 
                 if (!string.IsNullOrWhiteSpace(
                         document.Reason))
                 {
                     writer.WriteWrappedLine(
-                        $"Motif : {document.Reason}");
+                        $"MOTIF : {document.Reason}");
                 }
-            }
-            else
-            {
-                writer.WriteWrappedLine(
-                    "ORIGINAL");
             }
 
             writer.WriteLine();
             writer.AlignLeft();
-            writer.WriteSeparator();
         }
 
         private static void PrintSaleInformation(
             EscPosWriter writer,
             ReceiptSnapshot snapshot)
         {
-            writer.WriteTwoColumns(
-                "Ticket",
+            var localDate =
+                ToLocal(snapshot.SaleDateUtc);
+
+            writer.WriteLabelValue(
+                "N° TICKET",
                 snapshot.InvoiceNumber);
 
-            writer.WriteTwoColumns(
-                "Date",
-                ToLocal(
-                    snapshot.SaleDateUtc)
-                    .ToString(
-                        "dd/MM/yyyy HH:mm",
-                        ReceiptCulture));
+            writer.WriteLabelValue(
+                "CUSTOMER",
+                string.IsNullOrWhiteSpace(
+                    snapshot.CustomerName)
+                        ? "CLIENT PASSAGER"
+                        : snapshot.CustomerName);
 
             if (!string.IsNullOrWhiteSpace(
                     snapshot.CashierName))
             {
-                writer.WriteTwoColumns(
-                    "Caissier",
+                writer.WriteLabelValue(
+                    "CASHIER",
                     snapshot.CashierName);
             }
 
             writer.WriteTwoColumns(
-                "Client",
-                string.IsNullOrWhiteSpace(
-                    snapshot.CustomerName)
-                        ? "Client comptoir"
-                        : snapshot.CustomerName);
+                "DATE",
+                localDate.ToString(
+                    "dd/MM/yyyy HH:mm",
+                    ReceiptCulture));
 
-            writer.WriteSeparator();
+            writer.WriteLine();
         }
 
         private static void PrintLines(
             EscPosWriter writer,
             ReceiptSnapshot snapshot)
         {
+            writer.BoldOn();
+            writer.WriteItemTableHeader();
+            writer.BoldOff();
+
             foreach (var line in snapshot.Lines)
             {
-                writer.BoldOn();
-
-                writer.WriteWrappedLine(
-                    line.ProductName);
-
-                writer.BoldOff();
+                writer.WriteItemLine(
+                    line.ProductName,
+                    FormatQuantity(line.Quantity),
+                    FormatAmountNoSymbol(line.UnitPrice),
+                    FormatAmountNoSymbol(line.TotalInclVat));
 
                 if (!string.IsNullOrWhiteSpace(
                         line.Barcode))
                 {
                     writer.WriteWrappedLine(
-                        $"  Code : {line.Barcode}");
+                        $"  CODE : {line.Barcode}");
                 }
-
-                var quantity =
-                    FormatQuantity(
-                        line.Quantity);
-
-                var unitPrice =
-                    FormatMoney(
-                        line.UnitPrice);
-
-                var lineTotal =
-                    FormatMoney(
-                        line.TotalInclVat);
-
-                writer.WriteTwoColumns(
-                    $"  {quantity} x {unitPrice}",
-                    lineTotal);
 
                 if (line.DiscountPercent > 0m)
                 {
                     writer.WriteTwoColumns(
-                        $"  Réduction {line.DiscountPercent:0.##} %",
-                        $"-{FormatMoney(line.TotalDiscount)}");
+                        $"  REDUCTION {line.DiscountPercent:0.##}%",
+                        $"-{FormatAmountNoSymbol(line.TotalDiscount)}");
                 }
                 else if (line.DiscountAmount > 0m)
                 {
                     writer.WriteTwoColumns(
-                        "  Réduction",
-                        $"-{FormatMoney(line.TotalDiscount)}");
+                        "  REDUCTION",
+                        $"-{FormatAmountNoSymbol(line.TotalDiscount)}");
                 }
 
-                writer.WriteTwoColumns(
-                    $"  TVA {line.VatRate:0.##} %",
-                    FormatMoney(
-                        line.VatAmount));
+                writer.WriteLine();
             }
 
-            writer.WriteSeparator();
+            writer.WriteTwoColumns(
+                $"ROW NUMBER : {snapshot.Lines.Count}",
+                $"TOTAL QTY : " +
+                snapshot.Lines
+                    .Sum(item => item.Quantity)
+                    .ToString(
+                        "0.###",
+                        ReceiptCulture));
         }
 
         private static void PrintTotals(
             EscPosWriter writer,
             ReceiptSnapshot snapshot)
         {
-            writer.WriteTwoColumns(
-                "Total HT",
-                FormatMoney(
-                    snapshot.SubtotalExclVat));
+            var currencyCode =
+                NormalizeCurrencyCode(
+                    snapshot.CurrencyCode);
 
-            writer.WriteTwoColumns(
-                "TVA",
-                FormatMoney(
-                    snapshot.TotalVat));
+            var receivedAmount =
+                snapshot.TotalReceived > 0m
+                    ? snapshot.TotalReceived
+                    : RoundMoney(
+                        snapshot.Payments?.Sum(
+                            payment => payment.Amount) ?? 0m);
 
             writer.WriteLine();
-
             writer.BoldOn();
-            writer.DoubleSizeOn();
+            writer.DoubleHeightOn();
 
             writer.WriteTwoColumns(
                 "TOTAL",
-                FormatMoney(
-                    snapshot.TotalAmount));
+                $"{FormatAmountNoSymbol(snapshot.TotalAmount)} " +
+                currencyCode);
 
             writer.DoubleSizeOff();
             writer.BoldOff();
 
-            writer.WriteSeparator();
+            writer.WriteLine();
+
+            writer.WriteTwoColumns(
+                "TOTAL HT",
+                $"{FormatAmountNoSymbol(snapshot.SubtotalExclVat)} " +
+                currencyCode);
+
+            writer.WriteTwoColumns(
+                "TVA",
+                $"{FormatAmountNoSymbol(snapshot.TotalVat)} " +
+                currencyCode);
+
+            writer.WriteLine();
+
+            writer.WriteTwoColumns(
+                "REÇU",
+                $"{FormatAmountNoSymbol(receivedAmount)} " +
+                currencyCode);
+
+            writer.WriteTwoColumns(
+                "MONNAIE",
+                $"{FormatAmountNoSymbol(snapshot.ChangeAmount)} " +
+                currencyCode);
         }
 
         private static void PrintVatSummary(
             EscPosWriter writer,
             ReceiptSnapshot snapshot)
         {
-            if (snapshot.VatSummary.Count == 0)
+            if (snapshot.VatSummary == null ||
+                snapshot.VatSummary.Count == 0)
             {
                 return;
             }
 
+            var currencyCode =
+                NormalizeCurrencyCode(
+                    snapshot.CurrencyCode);
+
+            writer.WriteLine();
             writer.BoldOn();
-
-            writer.WriteLine(
-                "DÉTAIL TVA");
-
+            writer.WriteLine("DÉTAIL TVA");
             writer.BoldOff();
 
             foreach (var vat in snapshot.VatSummary)
             {
-                writer.WriteWrappedLine(
-                    $"TVA {vat.VatRate:0.##}%");
+                writer.WriteTwoColumns(
+                    $"TVA {vat.VatRate:0.##}%",
+                    $"{FormatAmountNoSymbol(vat.VatAmount)} " +
+                    currencyCode);
 
                 writer.WriteTwoColumns(
-                    "  Base HT",
-                    FormatMoney(
-                        vat.AmountExclVat));
-
-                writer.WriteTwoColumns(
-                    "  TVA",
-                    FormatMoney(
-                        vat.VatAmount));
-
-                writer.WriteTwoColumns(
-                    "  TTC",
-                    FormatMoney(
-                        vat.AmountInclVat));
+                    "  BASE HT",
+                    $"{FormatAmountNoSymbol(vat.AmountExclVat)} " +
+                    currencyCode);
             }
-
-            writer.WriteSeparator();
         }
 
         private static void PrintPayments(
             EscPosWriter writer,
             ReceiptSnapshot snapshot)
         {
+            if (snapshot.Payments == null ||
+                snapshot.Payments.Count == 0)
+            {
+                return;
+            }
+
+            var currencyCode =
+                NormalizeCurrencyCode(
+                    snapshot.CurrencyCode);
+
+            writer.WriteLine();
             writer.BoldOn();
-
-            writer.WriteLine(
-                "PAIEMENTS");
-
+            writer.WriteLine("PAIEMENTS");
             writer.BoldOff();
 
             foreach (var payment in snapshot.Payments)
@@ -370,46 +380,106 @@ namespace Inventory.LocalDB.Services
                 writer.WriteTwoColumns(
                     TranslatePaymentMethod(
                         payment.Method),
-                    FormatMoney(
-                        payment.Amount));
+                    $"{FormatAmountNoSymbol(payment.Amount)} " +
+                    currencyCode);
             }
+        }
 
-            if (snapshot.ChangeAmount > 0m)
+        private static void PrintBarcodeSection(
+            EscPosWriter writer,
+            ReceiptSnapshot snapshot)
+        {
+            if (string.IsNullOrWhiteSpace(
+                    snapshot.BarcodeValue))
             {
-                writer.BoldOn();
-
-                writer.WriteTwoColumns(
-                    "MONNAIE",
-                    FormatMoney(
-                        snapshot.ChangeAmount));
-
-                writer.BoldOff();
+                return;
             }
 
-            writer.WriteSeparator();
+            writer.WriteLine();
+            writer.AlignCenter();
+
+            writer.WriteCode128(
+                snapshot.BarcodeValue);
+
+            writer.WriteWrappedLine(
+                snapshot.BarcodeValue);
         }
 
         private static void PrintFooter(
             EscPosWriter writer,
             ReceiptSnapshot snapshot)
         {
+            var localDate =
+                ToLocal(snapshot.SaleDateUtc);
+
+            writer.WriteLine();
             writer.AlignCenter();
 
             if (!string.IsNullOrWhiteSpace(
                     snapshot.FooterText))
             {
-                writer.WriteLine();
-
                 writer.WriteWrappedLine(
                     snapshot.FooterText);
+
+                writer.WriteLine();
             }
 
-            writer.WriteLine();
+            writer.AlignLeft();
+            writer.WriteTwoColumns(
+                localDate.ToString(
+                    "dd/MM/yyyy",
+                    ReceiptCulture),
+                localDate.ToString(
+                    "HH:mm:ss",
+                    ReceiptCulture));
 
-            writer.WriteWrappedLine(
-                "Merci pour votre achat.");
+            writer.WriteLine();
+            writer.AlignCenter();
+
+            if (!string.IsNullOrWhiteSpace(
+                    snapshot.SocialLine))
+            {
+                writer.BoldOn();
+                writer.WriteWrappedLine("JOIN US TODAY");
+                writer.BoldOff();
+                writer.WriteWrappedLine(
+                    snapshot.SocialLine);
+            }
+            else
+            {
+                writer.BoldOn();
+                writer.WriteWrappedLine("MERCI POUR VOTRE ACHAT");
+                writer.BoldOff();
+            }
 
             writer.AlignLeft();
+        }
+
+        private static void TryPrintLogo(
+            EscPosWriter writer,
+            ReceiptSnapshot snapshot)
+        {
+            if (snapshot.LogoBytes == null ||
+                snapshot.LogoBytes.Length == 0)
+            {
+                return;
+            }
+
+            try
+            {
+                writer.WriteRasterImage(
+                    snapshot.LogoBytes,
+                    maxWidth: 256);
+
+                writer.WriteLine();
+            }
+            catch
+            {
+                /*
+                 * Un logo invalide ne doit pas empêcher l'impression
+                 * du ticket. Le nom du magasin reste affiché en texte.
+                 */
+            }
         }
 
         private static Encoding ResolveEncoding(
@@ -434,31 +504,19 @@ namespace Inventory.LocalDB.Services
         private static string TranslatePaymentMethod(
             string? method)
         {
-            if (string.IsNullOrWhiteSpace(
-                    method))
+            if (string.IsNullOrWhiteSpace(method))
             {
-                return "Paiement";
+                return "PAIEMENT";
             }
 
             return method.Trim().ToLowerInvariant() switch
             {
-                "cash" =>
-                    "Espèces",
-
-                "card" =>
-                    "Carte",
-
-                "credit" =>
-                    "Crédit",
-
-                "banktransfer" =>
-                    "Virement",
-
-                "bank transfer" =>
-                    "Virement",
-
-                _ =>
-                    method
+                "cash" => "ESPÈCES",
+                "card" => "CARTE",
+                "credit" => "CRÉDIT",
+                "banktransfer" => "VIREMENT",
+                "bank transfer" => "VIREMENT",
+                _ => method.Trim().ToUpperInvariant()
             };
         }
 
@@ -475,16 +533,10 @@ namespace Inventory.LocalDB.Services
 
                 _ =>
                     DateTime.SpecifyKind(
-                        value,
-                        DateTimeKind.Utc)
+                            value,
+                            DateTimeKind.Utc)
                         .ToLocalTime()
             };
-        }
-
-        private static string FormatMoney(
-            decimal amount)
-        {
-            return $"€{amount.ToString("N2", ReceiptCulture)}";
         }
 
         private static string FormatQuantity(
@@ -493,6 +545,31 @@ namespace Inventory.LocalDB.Services
             return quantity.ToString(
                 "0.###",
                 ReceiptCulture);
+        }
+
+        private static string FormatAmountNoSymbol(
+            decimal amount)
+        {
+            return amount.ToString(
+                "0.00",
+                ReceiptCulture);
+        }
+
+        private static string NormalizeCurrencyCode(
+            string? currencyCode)
+        {
+            return string.IsNullOrWhiteSpace(currencyCode)
+                ? "EUR"
+                : currencyCode.Trim().ToUpperInvariant();
+        }
+
+        private static decimal RoundMoney(
+            decimal amount)
+        {
+            return Math.Round(
+                amount,
+                2,
+                MidpointRounding.AwayFromZero);
         }
 
         private sealed class EscPosWriter
@@ -526,12 +603,6 @@ namespace Inventory.LocalDB.Services
             public void SetCodePage(
                 int codePage)
             {
-                /*
-                 * ESC/POS utilise un index interne et non toujours le
-                 * numéro Windows de la code page.
-                 *
-                 * CP858 correspond souvent à l'index 19 sur Epson.
-                 */
                 var escPosIndex =
                     codePage switch
                     {
@@ -587,6 +658,14 @@ namespace Inventory.LocalDB.Services
                     0x11);
             }
 
+            public void DoubleHeightOn()
+            {
+                WriteBytes(
+                    0x1D,
+                    0x21,
+                    0x01);
+            }
+
             public void DoubleSizeOff()
             {
                 WriteBytes(
@@ -598,22 +677,18 @@ namespace Inventory.LocalDB.Services
             public void WriteLine(
                 string? value = null)
             {
-                if (!string.IsNullOrEmpty(
-                        value))
+                if (!string.IsNullOrEmpty(value))
                 {
-                    WriteText(
-                        value);
+                    WriteText(value);
                 }
 
-                WriteBytes(
-                    0x0A);
+                WriteBytes(0x0A);
             }
 
             public void WriteWrappedLine(
                 string? value)
             {
-                if (string.IsNullOrWhiteSpace(
-                        value))
+                if (string.IsNullOrWhiteSpace(value))
                 {
                     return;
                 }
@@ -622,9 +697,28 @@ namespace Inventory.LocalDB.Services
                              Clean(value),
                              _width))
                 {
-                    WriteLine(
-                        line);
+                    WriteLine(line);
                 }
+            }
+
+            public void WriteLabelValue(
+                string label,
+                string? value)
+            {
+                var cleanLabel =
+                    Clean(label);
+
+                var cleanValue =
+                    Clean(value);
+
+                if (string.IsNullOrWhiteSpace(cleanValue))
+                {
+                    WriteLine($"{cleanLabel} :");
+                    return;
+                }
+
+                WriteWrappedLine(
+                    $"{cleanLabel} : {cleanValue}");
             }
 
             public void WriteTwoColumns(
@@ -632,54 +726,41 @@ namespace Inventory.LocalDB.Services
                 string? right)
             {
                 var cleanLeft =
-                    Clean(
-                        left);
+                    Clean(left);
 
                 var cleanRight =
-                    Clean(
-                        right);
+                    Clean(right);
 
-                if (string.IsNullOrEmpty(
-                        cleanRight))
+                if (string.IsNullOrEmpty(cleanRight))
                 {
-                    WriteWrappedLine(
-                        cleanLeft);
-
+                    WriteWrappedLine(cleanLeft);
                     return;
                 }
-
-                var minimumSpaces =
-                    1;
 
                 var availableForLeft =
                     _width -
                     cleanRight.Length -
-                    minimumSpaces;
+                    1;
 
                 if (availableForLeft <= 0)
                 {
-                    WriteWrappedLine(
-                        cleanLeft);
-
+                    WriteWrappedLine(cleanLeft);
                     WriteLine(
-                        cleanRight.PadLeft(
-                            Math.Min(
-                                _width,
-                                cleanRight.Length)));
-
+                        cleanRight.Length <= _width
+                            ? cleanRight.PadLeft(_width)
+                            : cleanRight);
                     return;
                 }
 
                 var wrappedLeft =
                     Wrap(
-                        cleanLeft,
-                        availableForLeft)
+                            cleanLeft,
+                            availableForLeft)
                         .ToList();
 
                 if (wrappedLeft.Count == 0)
                 {
-                    wrappedLeft.Add(
-                        string.Empty);
+                    wrappedLeft.Add(string.Empty);
                 }
 
                 for (var index = 0;
@@ -695,25 +776,299 @@ namespace Inventory.LocalDB.Services
 
                 var spaces =
                     Math.Max(
-                        minimumSpaces,
+                        1,
                         _width -
                         lastLeft.Length -
                         cleanRight.Length);
 
                 WriteLine(
                     lastLeft +
-                    new string(
-                        ' ',
-                        spaces) +
+                    new string(' ', spaces) +
                     cleanRight);
             }
 
-            public void WriteSeparator()
+            public void WriteItemTableHeader()
             {
+                var quantityWidth =
+                    _width >= 42
+                        ? 5
+                        : 4;
+
+                var priceWidth =
+                    _width >= 42
+                        ? 9
+                        : 7;
+
+                var amountWidth =
+                    _width >= 42
+                        ? 10
+                        : 8;
+
+                var designationWidth =
+                    Math.Max(
+                        8,
+                        _width -
+                        quantityWidth -
+                        priceWidth -
+                        amountWidth -
+                        3);
+
                 WriteLine(
-                    new string(
-                        '-',
-                        _width));
+                    "DESIGNATION".PadRight(designationWidth) +
+                    " " +
+                    "QTE".PadLeft(quantityWidth) +
+                    " " +
+                    "PRICE".PadLeft(priceWidth) +
+                    " " +
+                    "AMOUNT".PadLeft(amountWidth));
+            }
+
+            public void WriteItemLine(
+                string? designation,
+                string quantity,
+                string price,
+                string amount)
+            {
+                var quantityWidth =
+                    _width >= 42
+                        ? 5
+                        : 4;
+
+                var priceWidth =
+                    _width >= 42
+                        ? 9
+                        : 7;
+
+                var amountWidth =
+                    _width >= 42
+                        ? 10
+                        : 8;
+
+                var designationWidth =
+                    Math.Max(
+                        8,
+                        _width -
+                        quantityWidth -
+                        priceWidth -
+                        amountWidth -
+                        3);
+
+                var designationLines =
+                    Wrap(
+                            Clean(designation),
+                            designationWidth)
+                        .ToList();
+
+                if (designationLines.Count == 0)
+                {
+                    designationLines.Add(string.Empty);
+                }
+
+                for (var index = 0;
+                     index < designationLines.Count;
+                     index++)
+                {
+                    var currentDesignation =
+                        designationLines[index]
+                            .PadRight(designationWidth);
+
+                    if (index == designationLines.Count - 1)
+                    {
+                        WriteLine(
+                            currentDesignation +
+                            " " +
+                            TrimToWidth(quantity, quantityWidth)
+                                .PadLeft(quantityWidth) +
+                            " " +
+                            TrimToWidth(price, priceWidth)
+                                .PadLeft(priceWidth) +
+                            " " +
+                            TrimToWidth(amount, amountWidth)
+                                .PadLeft(amountWidth));
+                    }
+                    else
+                    {
+                        WriteLine(currentDesignation);
+                    }
+                }
+            }
+
+            public void WriteCode128(
+                string value)
+            {
+                var cleanValue =
+                    Clean(value);
+
+                if (string.IsNullOrWhiteSpace(cleanValue))
+                {
+                    return;
+                }
+
+                var payload =
+                    BuildCode128Payload(cleanValue);
+
+                if (payload.Length == 0 ||
+                    payload.Length > byte.MaxValue)
+                {
+                    throw new InvalidOperationException(
+                        "The receipt barcode is too long for ESC/POS CODE128.");
+                }
+
+                /* HRI désactivé : la valeur est imprimée juste en dessous. */
+                WriteBytes(
+                    0x1D,
+                    0x48,
+                    0x00);
+
+                WriteBytes(
+                    0x1D,
+                    0x68,
+                    70);
+
+                WriteBytes(
+                    0x1D,
+                    0x77,
+                    0x02);
+
+                WriteBytes(
+                    0x1D,
+                    0x6B,
+                    73,
+                    (byte)payload.Length);
+
+                WriteRaw(payload);
+                WriteLine();
+            }
+
+            [Obsolete]
+            public void WriteRasterImage(
+                byte[] imageBytes,
+                int maxWidth = 256)
+            {
+                ArgumentNullException.ThrowIfNull(
+                    imageBytes);
+
+                if (imageBytes.Length == 0)
+                {
+                    return;
+                }
+
+                using var original =
+                    SKBitmap.Decode(imageBytes)
+                    ?? throw new InvalidOperationException(
+                        "The receipt logo could not be decoded.");
+
+                var targetWidth =
+                    Math.Clamp(
+                        Math.Min(maxWidth, original.Width),
+                        1,
+                        maxWidth);
+
+                var targetHeight =
+                    Math.Max(
+                        1,
+                        (int)Math.Round(
+                            original.Height *
+                            (targetWidth / (double)original.Width)));
+
+                using var resized =
+                    new SKBitmap(
+                        new SKImageInfo(
+                            targetWidth,
+                            targetHeight,
+                            SKColorType.Bgra8888,
+                            SKAlphaType.Premul));
+
+                using (var canvas =
+                       new SKCanvas(resized))
+                using (var paint =
+                       new SKPaint
+                       {
+                           IsAntialias = true,
+                           //FilterQuality = SKFilterQuality.High
+                       })
+                {
+                    canvas.Clear(SKColors.White);
+
+                    canvas.DrawBitmap(
+                        original,
+                        new SKRect(
+                            0,
+                            0,
+                            targetWidth,
+                            targetHeight),
+                        paint);
+                }
+
+                var widthBytes =
+                    (targetWidth + 7) / 8;
+
+                var raster =
+                    new byte[
+                        widthBytes *
+                        targetHeight];
+
+                for (var y = 0;
+                     y < targetHeight;
+                     y++)
+                {
+                    for (var x = 0;
+                         x < targetWidth;
+                         x++)
+                    {
+                        var color =
+                            resized.GetPixel(x, y);
+
+                        var alpha =
+                            color.Alpha / 255d;
+
+                        var luminance =
+                            (
+                                0.299d * color.Red +
+                                0.587d * color.Green +
+                                0.114d * color.Blue
+                            ) * alpha +
+                            255d * (1d - alpha);
+
+                        if (luminance >= 170d)
+                        {
+                            continue;
+                        }
+
+                        var byteIndex =
+                            y * widthBytes +
+                            x / 8;
+
+                        raster[byteIndex] |=
+                            (byte)(0x80 >> (x % 8));
+                    }
+                }
+
+                var xLow =
+                    (byte)(widthBytes & 0xFF);
+
+                var xHigh =
+                    (byte)((widthBytes >> 8) & 0xFF);
+
+                var yLow =
+                    (byte)(targetHeight & 0xFF);
+
+                var yHigh =
+                    (byte)((targetHeight >> 8) & 0xFF);
+
+                /* GS v 0 : image raster noir et blanc. */
+                WriteBytes(
+                    0x1D,
+                    0x76,
+                    0x30,
+                    0x00,
+                    xLow,
+                    xHigh,
+                    yLow,
+                    yHigh);
+
+                WriteRaw(raster);
+                WriteLine();
             }
 
             public void FeedLines(
@@ -729,9 +1084,6 @@ namespace Inventory.LocalDB.Services
 
             public void CutPaper()
             {
-                /*
-                 * GS V 66 0 : coupe partielle.
-                 */
                 WriteBytes(
                     0x1D,
                     0x56,
@@ -739,13 +1091,85 @@ namespace Inventory.LocalDB.Services
                     0x00);
             }
 
+            private byte[] BuildCode128Payload(
+                string value)
+            {
+                using var payload =
+                    new MemoryStream();
+
+                if (value.All(char.IsDigit) &&
+                    value.Length >= 2)
+                {
+                    WriteAscii(payload, "{C");
+
+                    var evenLength =
+                        value.Length -
+                        value.Length % 2;
+
+                    WriteAscii(
+                        payload,
+                        value[..evenLength]);
+
+                    if (evenLength < value.Length)
+                    {
+                        WriteAscii(payload, "{B");
+                        WriteAscii(
+                            payload,
+                            value[evenLength..]);
+                    }
+
+                    return payload.ToArray();
+                }
+
+                WriteAscii(payload, "{B");
+
+                foreach (var character in value)
+                {
+                    if (character == '{')
+                    {
+                        WriteAscii(payload, "{{");
+                    }
+                    else
+                    {
+                        var bytes =
+                            _encoding.GetBytes(
+                                character.ToString());
+
+                        payload.Write(
+                            bytes,
+                            0,
+                            bytes.Length);
+                    }
+                }
+
+                return payload.ToArray();
+            }
+
+            private static void WriteAscii(
+                Stream destination,
+                string value)
+            {
+                var bytes =
+                    Encoding.ASCII.GetBytes(value);
+
+                destination.Write(
+                    bytes,
+                    0,
+                    bytes.Length);
+            }
+
             private void WriteText(
                 string value)
             {
                 var bytes =
-                    _encoding.GetBytes(
-                        value);
+                    _encoding.GetBytes(value);
 
+                WriteRaw(bytes);
+            }
+
+            private void WriteRaw(
+                byte[] bytes)
+            {
                 _stream.Write(
                     bytes,
                     0,
@@ -755,25 +1179,30 @@ namespace Inventory.LocalDB.Services
             private void WriteBytes(
                 params byte[] bytes)
             {
-                _stream.Write(
-                    bytes,
-                    0,
-                    bytes.Length);
+                WriteRaw(bytes);
+            }
+
+            private static string TrimToWidth(
+                string value,
+                int width)
+            {
+                if (string.IsNullOrEmpty(value) ||
+                    value.Length <= width)
+                {
+                    return value;
+                }
+
+                return value[^width..];
             }
 
             private static string Clean(
                 string? value)
             {
-                return string.IsNullOrWhiteSpace(
-                        value)
+                return string.IsNullOrWhiteSpace(value)
                     ? string.Empty
                     : value
-                        .Replace(
-                            "\r",
-                            " ")
-                        .Replace(
-                            "\n",
-                            " ")
+                        .Replace("\r", " ")
+                        .Replace("\n", " ")
                         .Trim();
             }
 
@@ -781,8 +1210,7 @@ namespace Inventory.LocalDB.Services
                 string value,
                 int width)
             {
-                if (string.IsNullOrEmpty(
-                        value))
+                if (string.IsNullOrEmpty(value))
                 {
                     yield return string.Empty;
                     yield break;
@@ -791,8 +1219,7 @@ namespace Inventory.LocalDB.Services
                 var remaining =
                     value;
 
-                while (remaining.Length >
-                       width)
+                while (remaining.Length > width)
                 {
                     var breakIndex =
                         remaining.LastIndexOf(

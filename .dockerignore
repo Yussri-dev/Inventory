@@ -1,0 +1,96 @@
+# ============================================================
+# .NET build outputs
+# ============================================================
+**/bin/
+**/obj/
+**/out/
+**/publish/
+
+# ============================================================
+# Visual Studio / Rider / VS Code
+# ============================================================
+.vs/
+.idea/
+.vscode/
+
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.rsuser
+
+# ============================================================
+# Git
+# ============================================================
+.git/
+.gitignore
+.gitattributes
+
+# ============================================================
+# Docker files not needed inside the build context
+# ============================================================
+docker-compose*.yml
+docker-compose*.yaml
+
+# Ne pas exclure le Dockerfile utilisé par le build.
+# Docker l'envoie automatiquement lorsque nécessaire.
+
+# ============================================================
+# Logs and temporary files
+# ============================================================
+**/logs/
+**/Logs/
+*.log
+*.tmp
+*.temp
+
+# ============================================================
+# Local databases
+# ============================================================
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# ============================================================
+# Test results and coverage
+# ============================================================
+**/TestResults/
+**/coverage/
+**/coverage-results/
+*.coverage
+*.coveragexml
+
+# ============================================================
+# NuGet packages and caches
+# ============================================================
+**/packages/
+*.nupkg
+*.snupkg
+
+# ============================================================
+# Operating system files
+# ============================================================
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ============================================================
+# MAUI generated files
+# ============================================================
+**/Platforms/Android/bin/
+**/Platforms/Android/obj/
+**/Platforms/iOS/bin/
+**/Platforms/iOS/obj/
+**/Platforms/Windows/bin/
+**/Platforms/Windows/obj/
+
+# ============================================================
+# Secrets and local configuration
+# ============================================================
+**/appsettings.Local.json
+**/appsettings.*.local.json
+**/secrets.json
+.env
+.env.*

@@ -1,0 +1,67 @@
+name: inventory
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: inventory-postgres
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+
+    ports:
+      - "55432:5432"
+
+    volumes:
+      - inventory-postgres17-data:/var/lib/postgresql/data
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    image: inventory-api:dev
+    container_name: inventory-api
+    restart: unless-stopped
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_HTTP_PORTS: 8080
+      UseHttpsRedirection: "false"
+
+      ConnectionStrings__DefaultConnection: >-
+        Host=postgres; Port=5432; Database=${POSTGRES_DB}; Username=${POSTGRES_USER}; Password=${POSTGRES_PASSWORD}; Timeout=10; SslMode=Disable
+
+      Jwt__Issuer: ${JWT_ISSUER}
+      Jwt__Audience: ${JWT_AUDIENCE}
+      Jwt__Key: ${JWT_KEY}
+
+    ports:
+      - "8080:8080"
+
+    volumes:
+      - inventory-dataprotection:/root/.aspnet/DataProtection-Keys
+
+volumes:
+  inventory-postgres17-data:
+    name: inventory-postgres17-data
+
+  inventory-dataprotection:
+    name: inventory-dataprotection

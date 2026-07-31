@@ -1,0 +1,917 @@
+﻿@page "/configuration/receipt"
+
+@using System.ComponentModel.DataAnnotations
+@using Inventory.LocalDB.Models
+@using Inventory.LocalDB.Services.Interfaces
+@using Inventory.LocalDB.Services.Requests
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.Extensions.Options
+@using Microsoft.Maui.Storage
+
+@inject ILocalStoreProfileService StoreProfileService
+@inject IOptions<ReceiptSettings> ReceiptOptions
+@inject ILogger<ReceiptConfiguration> Logger
+@inject NavigationManager Navigation
+
+<PageTitle>Configuration du ticket</PageTitle>
+
+<div class="receipt-config-page">
+
+    <div class="page-header">
+        <div>
+            <span class="page-eyebrow">Configuration</span>
+            <h1>Ticket de caisse</h1>
+            <p>
+                Personnalisez le logo et les textes du ticket
+                pour l’entreprise connectée.
+            </p>
+        </div>
+
+        <button type="button"
+                class="btn-secondary"
+                disabled="@isSaving"
+                @onclick="GoBack">
+            Retour
+        </button>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(successMessage))
+    {
+        <div class="alert alert-success">
+            <span>@successMessage</span>
+
+            <button type="button"
+                    class="alert-close"
+                    @onclick="ClearSuccess">
+                ×
+            </button>
+        </div>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(errorMessage))
+    {
+        <div class="alert alert-error">
+            <span>@errorMessage</span>
+
+            <button type="button"
+                    class="alert-close"
+                    @onclick="ClearError">
+                ×
+            </button>
+        </div>
+    }
+
+    @if (isLoading)
+    {
+        <div class="configuration-card">
+            Chargement de la configuration...
+        </div>
+    }
+    else if (storeProfile == null)
+    {
+        <div class="configuration-card">
+            <h2>Profil magasin introuvable</h2>
+
+            <p>
+                Synchronisez le profil du tenant avant de configurer
+                son ticket.
+            </p>
+        </div>
+    }
+    else
+    {
+        <EditForm Model="form"
+                  OnValidSubmit="SaveAsync">
+
+            <DataAnnotationsValidator />
+
+            <div class="configuration-layout">
+
+                <section class="configuration-card">
+
+                    <div class="card-header">
+                        <div>
+                            <span class="page-eyebrow">Entreprise</span>
+                            <h2>@StoreDisplayName</h2>
+                        </div>
+
+                        <span class="tenant-id">
+                            @storeProfile.TenantId
+                        </span>
+                    </div>
+
+                    <div class="form-section">
+                        <h3>Logo du ticket</h3>
+
+                        <div class="logo-editor">
+
+                            <div class="logo-preview">
+                                @if (!string.IsNullOrWhiteSpace(LogoPreviewUrl))
+                                {
+                                    <img src="@LogoPreviewUrl"
+                                         alt="Logo du ticket" />
+                                }
+                                else
+                                {
+                                    <div class="logo-placeholder">
+                                        Aucun logo
+                                    </div>
+                                }
+                            </div>
+
+                            <div class="logo-actions">
+                                <button type="button"
+                                        class="btn-secondary"
+                                        disabled="@isSaving"
+                                        @onclick="SelectLogoAsync">
+                                    Choisir une image
+                                </button>
+
+                                @if (!string.IsNullOrWhiteSpace(LogoPreviewUrl))
+                                {
+                                    <button type="button"
+                                            class="btn-danger"
+                                            disabled="@isSaving"
+                                            @onclick="RemoveLogo">
+                                        Supprimer le logo
+                                    </button>
+                                }
+
+                                <p class="help-text">
+                                    Formats acceptés : PNG, JPEG et WebP.
+                                    Taille maximale :
+                                    @FormatFileSize(MaximumLogoSizeBytes).
+                                </p>
+
+                                @if (!string.IsNullOrWhiteSpace(CurrentLogoFileName))
+                                {
+                                    <p class="help-text">
+                                        Fichier : @CurrentLogoFileName
+                                    </p>
+                                }
+                            </div>
+
+                        </div>
+                    </div>
+
+                    <div class="form-section">
+                        <h3>Textes et devise</h3>
+
+                        <div class="form-grid">
+
+                            <div class="form-group">
+                                <label for="currencyCode">
+                                    Devise
+                                </label>
+
+                                <InputSelect id="currencyCode"
+                                             class="form-control currency-select"
+                                             disabled="@isSaving"
+                                             @bind-Value="form.CurrencyCode">
+
+                                    @foreach (var currency in CurrencyOptions)
+                                    {
+                                        <option value="@currency.Code">
+                                            @currency.Label
+                                        </option>
+                                    }
+
+                                </InputSelect>
+
+                                <ValidationMessage For="@(() => form.CurrencyCode)" />
+                            </div>
+
+                            <div class="form-group">
+                                <label for="cashierName">
+                                    Caissier par défaut
+                                </label>
+
+                                <InputText id="cashierName"
+                                           class="form-control"
+                                           maxlength="100"
+                                           disabled="@isSaving"
+                                           placeholder="POS"
+                                           @bind-Value="form.DefaultCashierName" />
+
+                                <ValidationMessage For="@(() => form.DefaultCashierName)" />
+                            </div>
+
+                            <div class="form-group form-group-full">
+                                <label for="headerTagLine">
+                                    Slogan
+                                </label>
+
+                                <InputText id="headerTagLine"
+                                           class="form-control"
+                                           maxlength="200"
+                                           disabled="@isSaving"
+                                           placeholder="SAVE MONEY · LIVE BETTER"
+                                           @bind-Value="form.HeaderTagLine" />
+
+                                <ValidationMessage For="@(() => form.HeaderTagLine)" />
+                            </div>
+
+                            <div class="form-group form-group-full">
+                                <label for="receiptHeader">
+                                    Texte d’en-tête
+                                </label>
+
+                                <InputTextArea id="receiptHeader"
+                                               class="form-control"
+                                               rows="3"
+                                               maxlength="2000"
+                                               disabled="@isSaving"
+                                               @bind-Value="form.ReceiptHeader" />
+
+                                <ValidationMessage For="@(() => form.ReceiptHeader)" />
+                            </div>
+
+                            <div class="form-group form-group-full">
+                                <label for="extraAddress">
+                                    Adresse supplémentaire
+                                </label>
+
+                                <InputText id="extraAddress"
+                                           class="form-control"
+                                           maxlength="300"
+                                           disabled="@isSaving"
+                                           @bind-Value="form.ExtraAddressLine" />
+
+                                <ValidationMessage For="@(() => form.ExtraAddressLine)" />
+                            </div>
+
+                            <div class="form-group form-group-full">
+                                <label for="socialLine">
+                                    Réseau social ou site
+                                </label>
+
+                                <InputText id="socialLine"
+                                           class="form-control"
+                                           maxlength="200"
+                                           disabled="@isSaving"
+                                           placeholder="@SocialLinePlaceholder"
+                                           @bind-Value="form.SocialLine" />
+
+                                <ValidationMessage For="@(() => form.SocialLine)" />
+                            </div>
+
+                            <div class="form-group form-group-full">
+                                <label for="receiptFooter">
+                                    Texte de bas de ticket
+                                </label>
+
+                                <InputTextArea id="receiptFooter"
+                                               class="form-control"
+                                               rows="3"
+                                               maxlength="2000"
+                                               disabled="@isSaving"
+                                               @bind-Value="form.ReceiptFooter" />
+
+                                <ValidationMessage For="@(() => form.ReceiptFooter)" />
+                            </div>
+
+                        </div>
+                    </div>
+
+                    <div class="form-actions">
+                        <button type="button"
+                                class="btn-secondary"
+                                disabled="@isSaving"
+                                @onclick="ReloadAsync">
+                            Annuler
+                        </button>
+
+                        <button type="submit"
+                                class="btn-primary"
+                                disabled="@isSaving">
+
+                            @if (isSaving)
+                            {
+                                <span>Enregistrement...</span>
+                            }
+                            else
+                            {
+                                <span>Enregistrer</span>
+                            }
+                        </button>
+                    </div>
+
+                </section>
+
+                <aside class="preview-card">
+                    <h2>Aperçu</h2>
+
+                    <div class="receipt-preview">
+
+                        @if (!string.IsNullOrWhiteSpace(LogoPreviewUrl))
+                        {
+                            <img class="receipt-logo"
+                                 src="@LogoPreviewUrl"
+                                 alt="Logo" />
+                        }
+
+                        <strong class="receipt-company">
+                            @StoreDisplayName
+                        </strong>
+
+                        @if (!string.IsNullOrWhiteSpace(form.HeaderTagLine))
+                        {
+                            <span>-@form.HeaderTagLine-</span>
+                        }
+
+                        @if (!string.IsNullOrWhiteSpace(form.ReceiptHeader))
+                        {
+                            <span class="preserve-lines">
+                                @form.ReceiptHeader
+                            </span>
+                        }
+
+                        @if (!string.IsNullOrWhiteSpace(storeProfile.Address))
+                        {
+                            <span>@storeProfile.Address</span>
+                        }
+
+                        @if (!string.IsNullOrWhiteSpace(form.ExtraAddressLine))
+                        {
+                            <span>@form.ExtraAddressLine</span>
+                        }
+
+                        @if (!string.IsNullOrWhiteSpace(storeProfile.Phone))
+                        {
+                            <span>NUMBER : @storeProfile.Phone</span>
+                        }
+
+                        @if (!string.IsNullOrWhiteSpace(form.SocialLine))
+                        {
+                            <span>@form.SocialLine</span>
+                        }
+
+                        <hr />
+
+                        <strong>TICKET DE CAISSE</strong>
+                        <span>ORIGINAL</span>
+
+                        <hr />
+
+                        <div class="preview-row">
+                            <span>N° TICKET</span>
+                            <span>LOC-EXEMPLE</span>
+                        </div>
+
+                        <div class="preview-row">
+                            <span>CLIENT</span>
+                            <span>CLIENT PASSAGER</span>
+                        </div>
+
+                        <div class="preview-row">
+                            <span>CAISSIER</span>
+                            <span>@CashierPreview</span>
+                        </div>
+
+                        <hr />
+
+                        <div class="preview-table-header">
+                            <span>DESIGNATION</span>
+                            <span>QTE</span>
+                            <span>PRICE</span>
+                            <span>AMOUNT</span>
+                        </div>
+
+                        <div class="preview-table-row">
+                            <span>Produit exemple</span>
+                            <span>1</span>
+                            <span>12,00</span>
+                            <span>12,00</span>
+                        </div>
+
+                        <hr />
+
+                        <div class="preview-row preview-total">
+                            <strong>TOTAL</strong>
+                            <strong>12,00 @CurrencyPreview</strong>
+                        </div>
+
+                        <div class="preview-row">
+                            <span>REÇU</span>
+                            <span>20,00 @CurrencyPreview</span>
+                        </div>
+
+                        <div class="preview-row">
+                            <span>MONNAIE</span>
+                            <span>8,00 @CurrencyPreview</span>
+                        </div>
+
+                        <hr />
+
+                        <div class="preview-row">
+                            <strong>PAIEMENTS</strong>
+                            <span></span>
+                        </div>
+
+                        <div class="preview-row">
+                            <span>Espèces</span>
+                            <span>20,00 @CurrencyPreview</span>
+                        </div>
+
+                        <div class="barcode-placeholder">
+                            <span>|||| ||| || |||| |||</span>
+                            <small>202607271430000000000001</small>
+                        </div>
+
+                        @if (!string.IsNullOrWhiteSpace(form.ReceiptFooter))
+                        {
+                            <span class="preserve-lines">
+                                @form.ReceiptFooter
+                            </span>
+                        }
+
+                    </div>
+                </aside>
+
+            </div>
+
+        </EditForm>
+    }
+
+</div>
+
+@code {
+    private LocalStoreProfile? storeProfile;
+
+    private ReceiptConfigurationForm form =
+        new();
+
+    private byte[]? selectedLogoBytes;
+    private string? selectedLogoFileName;
+    private string? selectedLogoContentType;
+
+    private bool removeLogo;
+    private bool isLoading = true;
+    private bool isSaving;
+
+    private string? successMessage;
+    private string? errorMessage;
+
+    private const string SocialLinePlaceholder =
+        "INSTAGRAM @monmagasin";
+
+    private static readonly CurrencyOption[] CurrencyOptions =
+    [
+        new("EUR", "EUR — Euro (€)"),
+        new("USD", "USD — Dollar américain ($)"),
+        new("GBP", "GBP — Livre sterling (£)"),
+        new("CHF", "CHF — Franc suisse"),
+        new("CAD", "CAD — Dollar canadien"),
+        new("MAD", "MAD — Dirham marocain"),
+        new("DZD", "DZD — Dinar algérien"),
+        new("TND", "TND — Dinar tunisien")
+    ];
+
+    private int MaximumLogoSizeBytes =>
+        ReceiptOptions.Value.MaximumLogoSizeBytes > 0
+            ? ReceiptOptions.Value.MaximumLogoSizeBytes
+            : 1_048_576;
+
+    private string StoreDisplayName =>
+        !string.IsNullOrWhiteSpace(storeProfile?.TradeName)
+            ? storeProfile.TradeName
+            : !string.IsNullOrWhiteSpace(storeProfile?.Name)
+                ? storeProfile.Name
+                : "MAGASIN";
+
+    private string CurrencyPreview =>
+        string.IsNullOrWhiteSpace(form.CurrencyCode)
+            ? "EUR"
+            : form.CurrencyCode.Trim().ToUpperInvariant();
+
+    private string CashierPreview =>
+        string.IsNullOrWhiteSpace(form.DefaultCashierName)
+            ? "POS"
+            : form.DefaultCashierName.Trim();
+
+    private string? CurrentLogoFileName =>
+        selectedLogoFileName ??
+        (removeLogo
+            ? null
+            : storeProfile?.ReceiptLogoFileName);
+
+    private string? LogoPreviewUrl
+    {
+        get
+        {
+            var bytes =
+                selectedLogoBytes ??
+                (removeLogo
+                    ? null
+                    : storeProfile?.ReceiptLogoBytes);
+
+            if (bytes == null ||
+                bytes.Length == 0)
+            {
+                return null;
+            }
+
+            var contentType =
+                selectedLogoContentType ??
+                storeProfile?.ReceiptLogoContentType ??
+                ResolveContentType(CurrentLogoFileName);
+
+            return
+                $"data:{contentType};base64," +
+                Convert.ToBase64String(bytes);
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await ReloadAsync();
+    }
+
+    private async Task ReloadAsync()
+    {
+        try
+        {
+            isLoading = true;
+            successMessage = null;
+            errorMessage = null;
+
+            storeProfile =
+                await StoreProfileService
+                    .GetCurrentAsync();
+
+            if (storeProfile == null)
+            {
+                form =
+                    new ReceiptConfigurationForm();
+
+                return;
+            }
+
+            form =
+                new ReceiptConfigurationForm
+                {
+                    CurrencyCode =
+                        FirstNotEmpty(
+                            storeProfile.ReceiptCurrencyCode,
+                            storeProfile.Currency,
+                            ReceiptOptions.Value.CurrencyCode,
+                            "EUR"),
+
+                    HeaderTagLine =
+                        FirstOptional(
+                            storeProfile.ReceiptHeaderTagLine,
+                            ReceiptOptions.Value.HeaderTagLine),
+
+                    ReceiptHeader =
+                        storeProfile.ReceiptHeader,
+
+                    SocialLine =
+                        FirstOptional(
+                            storeProfile.ReceiptSocialLine,
+                            storeProfile.Website,
+                            ReceiptOptions.Value.SocialLine),
+
+                    ExtraAddressLine =
+                        FirstOptional(
+                            storeProfile.ReceiptExtraAddressLine,
+                            ReceiptOptions.Value.ExtraAddressLine),
+
+                    ReceiptFooter =
+                        FirstOptional(
+                            storeProfile.ReceiptFooter,
+                            ReceiptOptions.Value.FooterText),
+
+                    DefaultCashierName =
+                        FirstOptional(
+                            storeProfile.ReceiptDefaultCashierName,
+                            ReceiptOptions.Value.DefaultCashierName)
+                };
+
+            selectedLogoBytes = null;
+            selectedLogoFileName = null;
+            selectedLogoContentType = null;
+            removeLogo = false;
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(
+                exception,
+                "Failed to load receipt configuration.");
+
+            errorMessage =
+                exception.GetBaseException().Message;
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task SelectLogoAsync()
+    {
+        try
+        {
+            var result =
+                await FilePicker.Default.PickAsync(
+                    new PickOptions
+                    {
+                        PickerTitle =
+                            "Sélectionner le logo du ticket",
+
+                        FileTypes =
+                            FilePickerFileType.Images
+                    });
+
+            if (result == null)
+            {
+                return;
+            }
+
+            await using var input =
+                await result.OpenReadAsync();
+
+            using var memory =
+                new MemoryStream();
+
+            await input.CopyToAsync(memory);
+
+            if (memory.Length == 0)
+            {
+                errorMessage =
+                    "Le fichier sélectionné est vide.";
+
+                return;
+            }
+
+            if (memory.Length > MaximumLogoSizeBytes)
+            {
+                errorMessage =
+                    $"Le logo ne peut pas dépasser " +
+                    $"{FormatFileSize(MaximumLogoSizeBytes)}.";
+
+                return;
+            }
+
+            selectedLogoBytes =
+                memory.ToArray();
+
+            selectedLogoFileName =
+                result.FileName;
+
+            selectedLogoContentType =
+                ResolveContentType(
+                    result.FileName);
+
+            removeLogo = false;
+            successMessage = null;
+            errorMessage = null;
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(
+                exception,
+                "Failed to select receipt logo.");
+
+            errorMessage =
+                exception.GetBaseException().Message;
+        }
+    }
+
+    private void RemoveLogo()
+    {
+        selectedLogoBytes = null;
+        selectedLogoFileName = null;
+        selectedLogoContentType = null;
+        removeLogo = true;
+
+        successMessage = null;
+        errorMessage = null;
+    }
+
+    private async Task SaveAsync()
+    {
+        if (isSaving)
+        {
+            return;
+        }
+
+        try
+        {
+            isSaving = true;
+            successMessage = null;
+            errorMessage = null;
+
+            storeProfile =
+                await StoreProfileService
+                    .UpdateReceiptConfigurationAsync(
+                        new UpdateLocalReceiptConfigurationRequest
+                        {
+                            CurrencyCode =
+                                form.CurrencyCode,
+
+                            HeaderTagLine =
+                                form.HeaderTagLine,
+
+                            ReceiptHeader =
+                                form.ReceiptHeader,
+
+                            SocialLine =
+                                form.SocialLine,
+
+                            ExtraAddressLine =
+                                form.ExtraAddressLine,
+
+                            ReceiptFooter =
+                                form.ReceiptFooter,
+
+                            DefaultCashierName =
+                                form.DefaultCashierName,
+
+                            LogoBytes =
+                                selectedLogoBytes,
+
+                            LogoFileName =
+                                selectedLogoFileName,
+
+                            LogoContentType =
+                                selectedLogoContentType,
+
+                            RemoveLogo =
+                                removeLogo
+                        });
+
+            selectedLogoBytes = null;
+            selectedLogoFileName = null;
+            selectedLogoContentType = null;
+            removeLogo = false;
+
+            form =
+                new ReceiptConfigurationForm
+                {
+                    CurrencyCode =
+                        storeProfile.ReceiptCurrencyCode,
+
+                    HeaderTagLine =
+                        storeProfile.ReceiptHeaderTagLine,
+
+                    ReceiptHeader =
+                        storeProfile.ReceiptHeader,
+
+                    SocialLine =
+                        storeProfile.ReceiptSocialLine,
+
+                    ExtraAddressLine =
+                        storeProfile.ReceiptExtraAddressLine,
+
+                    ReceiptFooter =
+                        storeProfile.ReceiptFooter,
+
+                    DefaultCashierName =
+                        storeProfile.ReceiptDefaultCashierName
+                };
+
+            successMessage =
+                "La configuration du ticket a été enregistrée.";
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(
+                exception,
+                "Failed to save receipt configuration.");
+
+            errorMessage =
+                exception.GetBaseException().Message;
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private void GoBack()
+    {
+        Navigation.NavigateTo(
+            "/configuration");
+    }
+
+    private void ClearSuccess()
+    {
+        successMessage = null;
+    }
+
+    private void ClearError()
+    {
+        errorMessage = null;
+    }
+
+    private static string ResolveContentType(
+        string? fileName)
+    {
+        return Path.GetExtension(
+                fileName ?? string.Empty)
+            .ToLowerInvariant() switch
+        {
+            ".jpg" or ".jpeg" =>
+                "image/jpeg",
+
+            ".webp" =>
+                "image/webp",
+
+            _ =>
+                "image/png"
+        };
+    }
+
+    private static string FormatFileSize(
+        int numberOfBytes)
+    {
+        if (numberOfBytes >= 1_048_576)
+        {
+            return
+                $"{numberOfBytes / 1_048_576d:0.#} MB";
+        }
+
+        return
+            $"{numberOfBytes / 1024d:0.#} KB";
+    }
+
+    private static string FirstNotEmpty(
+        params string?[] values)
+    {
+        foreach (var value in values)
+        {
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                return value.Trim();
+            }
+        }
+
+        return string.Empty;
+    }
+
+    private static string? FirstOptional(
+        params string?[] values)
+    {
+        foreach (var value in values)
+        {
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                return value.Trim();
+            }
+        }
+
+        return null;
+    }
+
+    private sealed record CurrencyOption(
+        string Code,
+        string Label);
+
+    private sealed class ReceiptConfigurationForm
+    {
+        [Required(
+            ErrorMessage = "La devise est obligatoire.")]
+        [MaxLength(
+            10,
+            ErrorMessage =
+                "La devise ne peut pas dépasser 10 caractères.")]
+        public string CurrencyCode { get; set; } =
+            "EUR";
+
+        [MaxLength(
+            200,
+            ErrorMessage =
+                "Le slogan ne peut pas dépasser 200 caractères.")]
+        public string? HeaderTagLine { get; set; }
+
+        [MaxLength(
+            2000,
+            ErrorMessage =
+                "L’en-tête ne peut pas dépasser 2 000 caractères.")]
+        public string? ReceiptHeader { get; set; }
+
+        [MaxLength(
+            200,
+            ErrorMessage =
+                "Le réseau social ne peut pas dépasser 200 caractères.")]
+        public string? SocialLine { get; set; }
+
+        [MaxLength(
+            300,
+            ErrorMessage =
+                "L’adresse supplémentaire ne peut pas dépasser 300 caractères.")]
+        public string? ExtraAddressLine { get; set; }
+
+        [MaxLength(
+            2000,
+            ErrorMessage =
+                "Le pied de ticket ne peut pas dépasser 2 000 caractères.")]
+        public string? ReceiptFooter { get; set; }
+
+        [MaxLength(
+            100,
+            ErrorMessage =
+                "Le nom du caissier ne peut pas dépasser 100 caractères.")]
+        public string? DefaultCashierName { get; set; }
+    }
+}

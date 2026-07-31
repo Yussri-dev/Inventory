@@ -1,27 +1,20 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-
+﻿
 namespace Inventory.LocalDB.Models
 {
     public sealed class ReceiptSettings
     {
-        public string CompanyName { get; set; } =
-            "My Store";
+        public string DefaultCashierName { get; set; } = "POS";
 
-        public string? CompanyAddress { get; set; }
+        public string CurrencyCode { get; set; } = "EUR";
 
-        public string? CompanyPhone { get; set; }
+        public string? HeaderTagLine { get; set; }
 
-        public string? CompanyEmail { get; set; }
+        public string? SocialLine { get; set; }
 
-        public string? CompanyTaxNumber { get; set; }
+        public string? ExtraAddressLine { get; set; }
 
-        public string? DefaultCashierName { get; set; }
+        public string? FooterText { get; set; } = "Merci pour votre achat.";
 
-        public string? FooterText { get; set; } =
-            "Thank you for your purchase.";
+        public int MaximumLogoSizeBytes { get; set; } = 1_048_576;
     }
 }

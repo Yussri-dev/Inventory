@@ -1,759 +1,764 @@
 ﻿@page "/inventory"
-@using Inventory.Dto.Enums
-@using Inventory.Dto.InventoryLines.Requests
-@using Inventory.Dto.InventoryLines.Results
-@using Inventory.Dto.InventorySessions.Requests
-@using Inventory.Dto.InventorySessions.Results
-@using Inventory.Dto.Queries
-@using Inventory.Dto.Stock.Results
+
+@using Inventory.LocalDB.Context
+@using Inventory.LocalDB.Models
+@using Inventory.LocalDB.Services.Interfaces
+@using Microsoft.EntityFrameworkCore
 @using Microsoft.Extensions.Logging
 
-@inject IInventorySessionApi InventorySessionApi
-@inject IInventoryLineApi InventoryLineApi
-@inject IPosApi PosApi
+@implements IDisposable
+
+@inject PosLocalDbContext LocalDb
+@inject ILocalTenantContext LocalTenantContext
+@inject ILocalInventorySessionService InventorySessionService
 @inject ILogger<Inventories> Logger
 @inject IJSRuntime JS
 
-<div class="page-container">
+<PageTitle>Physical inventory</PageTitle>
 
-    <div class="page-header">
-        <h3 class="page-title">Inventory</h3>
+@if (!string.IsNullOrWhiteSpace(successMessage))
+{
+    <div class="toast-success" role="status">
+        <span class="toast-icon"></span>
+        <span>@successMessage</span>
     </div>
+}
 
-    @if (!string.IsNullOrWhiteSpace(errorMessage))
-    {
-        <div class="alert error">
-            <span>@errorMessage</span>
-            <button @onclick="() => errorMessage = null">×</button>
+@if (!string.IsNullOrWhiteSpace(errorMessage))
+{
+    <div class="toast-error" role="alert">
+        <span class="toast-icon"></span>
+        <span>@errorMessage</span>
+    </div>
+}
+
+<div class="inventory-page">
+    <header class="inventory-header">
+        <div>
+            <span class="eyebrow">LOCAL INVENTORY</span>
+            <h1>Physical inventory</h1>
+            <p>Count products locally, review variances, then update stock.</p>
         </div>
-    }
-    @if (!string.IsNullOrWhiteSpace(successMessage))
-    {
-        <div class="alert success">
-            <span>@successMessage</span>
-            <button @onclick="() => successMessage = null">×</button>
-        </div>
-    }
 
-    <!-- ================= SESSIONS ================= -->
+        <div class="header-actions">
+            <span class="offline-pill">
+                <span class="offline-dot"></span>
+                SQLite ready
+            </span>
 
-    <div class="card section-card">
+            <button type="button"
+                    class="button secondary"
+                    disabled="@isBusy"
+                    @onclick="RefreshAllAsync">
+                Refresh
+            </button>
 
-        <div class="section-header">
-            <div class="section-title">
-                <span class="section-accent"></span>
-                <h4>Inventory Sessions</h4>
-            </div>
-
-            <button class="btn primary"
-                    @onclick="OpenCreateSessionModal"
-                    disabled="@isSaving">
-                + New Session
+            <button type="button"
+                    class="button primary"
+                    disabled="@isBusy"
+                    @onclick="OpenCreateSessionModal">
+                New count
             </button>
         </div>
+    </header>
 
-        <div class="section-body">
-
-            @if (isLoadingSessions)
-            {
-                <div class="loading-container">
-                    <p>Loading sessions...</p>
-                </div>
-            }
-            else if (sessions.Count == 0)
-            {
-                <div class="empty-block">
-                    <p>No inventory sessions found.</p>
-                </div>
-            }
-            else
-            {
-                <div class="table-container clean-table">
-                    <table class="table">
-                        <thead>
-                            <tr>
-                                <th>Session #</th>
-                                <th>Started</th>
-                                <th>Closed</th>
-                                <th>Status</th>
-                                <th>Notes</th>
-                                <th style="width:220px;"></th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @foreach (var session in sessions)
-                            {
-                                <tr class="@(selectedSession?.Id == session.Id ? "row-selected" : "")">
-                                    <td><strong>@session.SessionNumber</strong></td>
-                                    <td>@session.StartedAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</td>
-                                    <td>
-                                        @(session.ClosedAt?.ToLocalTime().ToString("dd/MM/yyyy HH:mm") ?? "—")
-                                    </td>
-                                    <td>
-                                        <span class="@GetSessionBadgeClass(session.Status)">
-                                            @session.Status
-                                        </span>
-                                    </td>
-                                    <td><small>@session.Notes</small></td>
-                                    <td class="actions-end">
-                                        <div class="row-actions">
-                                            <button class="btn ghost small"
-                                                    @onclick="() => SelectSession(session)">
-                                                Lines
-                                            </button>
-
-                                            @if (session.Status == InventoryStatus.InProgress)
-                                            {
-                                                <button class="btn ghost small"
-                                                        @onclick="() => CloseSession(session.Id)">
-                                                    Close
-                                                </button>
-                                            }
-
-                                            @if (session.Status == InventoryStatus.Completed)
-                                            {
-                                                <button class="btn ghost small"
-                                                        @onclick="() => ValidateSession(session.Id)">
-                                                    Validate
-                                                </button>
-                                            }
-
-                                            <button class="btn danger small"
-                                                    @onclick="() => ConfirmDeleteSession(session)">
-                                                Delete
-                                            </button>
-                                        </div>
-                                    </td>
-                                </tr>
-                            }
-                        </tbody>
-                    </table>
-                </div>
-            }
-
-        </div>
-    </div>
-
-    <!-- ================= LINES ================= -->
-    @if (selectedSession != null)
+    @if (isInitialLoading)
     {
-        <div class="card section-card">
-
-            <div class="section-header">
-                <div class="section-title">
-                    <span class="section-accent"></span>
-                    <h4>
-                        Lines —
-                        <span class="muted session-ref">
-                            @selectedSession.SessionNumber
-                        </span>
-                    </h4>
+        <div class="loading-card">
+            <span class="spinner"></span>
+            <strong>Loading the local inventory...</strong>
+        </div>
+    }
+    else
+    {
+        <div class="inventory-layout">
+            <aside class="sessions-panel panel">
+                <div class="panel-heading">
+                    <div>
+                        <span class="eyebrow">COUNT HISTORY</span>
+                        <h2>Sessions</h2>
+                    </div>
+                    <span class="count-badge">@sessions.Count</span>
                 </div>
 
-                <button class="btn primary"
-                        @onclick="OpenAddLineModal">
-                    + Add Line
-                </button>
-            </div>
-
-            <div class="section-summary">
-                <div class="summary-strip">
-                    <div class="summary-item">
-                        <span class="summary-label">Lines</span>
-                        <span class="summary-value">@lines.Count</span>
-                    </div>
-                    <div class="summary-item">
-                        <span class="summary-label">With Variance</span>
-                        <span class="summary-value danger">@lines.Count(l => l.Variance != 0)</span>
-                    </div>
-                    <div class="summary-item">
-                        <span class="summary-label">OK</span>
-                        <span class="summary-value success">@lines.Count(l => l.Variance == 0)</span>
-                    </div>
-                    <div class="summary-item">
-                        <span class="summary-label">Adjusted</span>
-                        <span class="summary-value">@lines.Count(l => l.IsAdjusted)</span>
-                    </div>
-                </div>
-            </div>
-
-            <div class="section-body">
-
-                @if (isLoadingLines)
+                @if (sessions.Count == 0)
                 {
-                    <div class="loading-container">
-                        <p>Loading lines...</p>
-                    </div>
-                }
-                else if (lines.Count == 0)
-                {
-                    <div class="empty-block">
-                        <p>No lines yet. Click "+ Add Line" to start counting.</p>
+                    <div class="empty-state compact">
+                        <span class="empty-icon">#</span>
+                        <strong>No inventory session</strong>
+                        <p>Create a session to begin counting.</p>
+                        <button type="button" class="button primary" @onclick="OpenCreateSessionModal">
+                            Create first count
+                        </button>
                     </div>
                 }
                 else
                 {
-                    <div class="table-container clean-table">
-                        <table class="table">
-                            <thead>
-                                <tr>
-                                    <th>Product</th>
-                                    <th>Expected</th>
-                                    <th>Counted</th>
-                                    <th>Variance</th>
-                                    <th>Adjusted</th>
-                                    <th style="width:160px;"></th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @foreach (var line in lines)
-                                {
-                                    <tr>
-                                        <td>
-                                            <div class="product-name">
-                                                @GetProductName(line.ProductId)
-                                            </div>
-                                            @if (!string.IsNullOrEmpty(GetProductBarcode(line.ProductId)))
-                                            {
-                                                <div class="product-desc">
-                                                    @GetProductBarcode(line.ProductId)
-                                                </div>
-                                            }
-                                        </td>
-
-                                        <td>@line.SystemQuantity</td>
-
-                                        <td>
-                                            @if (editingLineId == line.Id)
-                                            {
-                                                <input type="number"
-                                                       class="qty-input"
-                                                       @bind="editingCountedQty"
-                                                       min="0" />
-                                            }
-                                            else
-                                            {
-                                                @line.CountedQuantity
-                                            }
-                                        </td>
-
-                                        <td>
-                                            <span class="@GetVarianceClass(line.Variance)">
-                                                @(line.Variance > 0 ? "+" : "")@line.Variance
-                                            </span>
-                                        </td>
-
-                                        <td>
-                                            @if (line.IsAdjusted)
-                                            {
-                                                <span class="badge badge-success">✔</span>
-                                            }
-                                            else
-                                            {
-                                                <span class="muted">—</span>
-                                            }
-                                        </td>
-
-                                        <td class="actions-end">
-                                            <div class="row-actions">
-                                                @if (!line.IsAdjusted)
-                                                {
-                                                    <button class="btn ghost small"
-                                                            @onclick="() => StartLineEdit(line)">
-                                                        Edit
-                                                    </button>
-
-                                                    <button class="btn danger small"
-                                                            @onclick="() => ConfirmDeleteLine(line)">
-                                                        Delete
-                                                    </button>
-                                                }
-                                            </div>
-                                        </td>
-                                    </tr>
-                                }
-                            </tbody>
-                        </table>
-                    </div>
-                }
-
-            </div>
-        </div>
-    }
-
-</div>
-@* ══════════════════════════════════════════
-   MODAL — Create Session
-   Matches product.css modal pattern
-══════════════════════════════════════════ *@
-@if (showCreateSessionModal)
-{
-    <div class="modal-overlay" @onclick="CloseCreateSessionModal">
-        <div class="modal-content" @onclick:stopPropagation="true">
-            <div class="modal-header-row">
-                <h4>New Inventory Session</h4>
-                <button class="modal-close-btn" @onclick="CloseCreateSessionModal">×</button>
-            </div>
-            <div class="form-grid" style="margin-top:16px;">
-                <div class="form-field">
-                    <label>Session Number</label>
-                    <input type="text"
-                           placeholder="e.g. INV-2025-001"
-                           @bind="newSession.SessionNumber"
-                           @onkeydown="OnSessionModalKeyDown" />
-                </div>
-                <div class="form-field">
-                    <label>Notes <span class="muted" style="font-weight:400;">(optional)</span></label>
-                    <textarea placeholder="Optional notes..." @bind="newSession.Notes"></textarea>
-                </div>
-            </div>
-            <div class="modal-actions">
-                <button class="btn primary" @onclick="CreateSession" disabled="@isSaving">
-                    @(isSaving ? "Creating..." : "Create Session")
-                </button>
-                <button class="btn ghost" @onclick="CloseCreateSessionModal">Cancel</button>
-            </div>
-        </div>
-    </div>
-}
-
-@* ══════════════════════════════════════════
-   MODAL — Add Line
-══════════════════════════════════════════ *@
-@if (showAddLineModal)
-{
-    <div class="modal-overlay" @onclick="CloseAddLineModal">
-        <div class="modal-content modal-wide" @onclick:stopPropagation="true">
-            <div class="modal-header-row">
-                <h4>Add Inventory Line</h4>
-                <button class="modal-close-btn" @onclick="CloseAddLineModal">×</button>
-            </div>
-
-            @if (lineSelectedProduct == null)
-            {
-                @* Step 1 — Pick product *@
-                <div class="form-grid" style="margin-top:16px;">
-                    <div class="form-field">
-                        <label>Scan Barcode</label>
-                        <div class="search-box-modal">
-                            <input type="text"
-                                   class="search-input-modal"
-                                   placeholder="Scan or type barcode, then press Enter..."
-                                   @bind="barcodeInput"
-                                   @bind:event="oninput"
-                                   @onkeydown="OnBarcodeKeyDown"
-                                   @ref="barcodeRef"
-                                   autofocus />
-                            <span class="search-icon-modal">📷</span>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="divider-or"><span>or search by name</span></div>
-
-                <div class="form-field">
-                    <div class="search-box-modal">
-                        <input type="text"
-                               class="search-input-modal"
-                               placeholder="Search products by name..."
-                               @bind="productSearchTerm"
-                               @bind:event="oninput" />
-                        <span class="search-icon-modal">🔍</span>
-                    </div>
-                </div>
-
-                <div class="product-picker">
-                    @if (isLoadingProducts)
-                    {
-                        <div class="picker-empty">
-                            <p>Loading products...</p>
-                        </div>
-                    }
-                    else if (!FilteredProducts.Any())
-                    {
-                        <div class="picker-empty">
-                            <p>No products found.</p>
-                        </div>
-                    }
-                    else
-                    {
-                        <ul class="picker-list">
-                            @foreach (var product in FilteredProducts)
-                            {
-                                var stock = GetStockForProduct(product.Id);
-                                var qty = stock?.AvailableQuantity ?? 0;
-                                var alreadyIn = lines.Any(l => l.ProductId == product.Id);
-                                var stockCss = qty <= 0 ? "picker-stock-zero"
-                                : qty <= 5 ? "picker-stock-low"
-                                : "picker-stock-ok";
-                                var stockLbl = qty <= 0 ? "Out of stock"
-                                : qty <= 5 ? $"Low: {qty}"
-                                : $"Stock: {qty}";
-                                <li class="picker-item @(alreadyIn ? "picker-item-disabled" : "")"
-                                    @onclick="() => { if (!alreadyIn) SelectProduct(product); }">
-                                    <div class="picker-item-info">
-                                        <div class="product-name">@product.CatalogName</div>
-                                        @if (!string.IsNullOrEmpty(product.CatalogBarcode))
-                                        {
-                                            <div class="product-desc">@product.CatalogBarcode</div>
-                                        }
-                                    </div>
-                                    <div style="display:flex; flex-direction:column; align-items:flex-end; gap:6px;">
-                                        <span class="@stockCss">@stockLbl</span>
-                                        @if (alreadyIn)
-                                        {
-                                            <span class="badge badge-inprogress" style="font-size:10px;">Added</span>
-                                        }
-                                    </div>
-                                </li>
-                            }
-                        </ul>
-                    }
-                </div>
-            }
-            else
-            {
-                @* Step 2 — Enter quantity *@
-                <div class="selected-product-banner" style="margin-top:16px;">
-                    <div>
-                        <div class="product-name">@lineSelectedProduct.CatalogName</div>
-                        @if (!string.IsNullOrEmpty(lineSelectedProduct.CatalogBarcode))
+                    <div class="session-list">
+                        @foreach (var session in sessions)
                         {
-                            <div class="product-desc">@lineSelectedProduct.CatalogBarcode</div>
+                            <button type="button"
+                                    @key="session.Id"
+                                    class="session-item @(selectedSession?.Id == session.Id ? "selected" : null)"
+                                    @onclick="() => SelectSessionAsync(session)">
+                                <span class="session-item-top">
+                                    <strong>@session.SessionNumber</strong>
+                                    <span class="@GetStatusClass(session.Status)">
+                                        @GetStatusText(session.Status)
+                                    </span>
+                                </span>
+                                <span class="session-date">
+                                    @session.StartedAtUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm")
+                                </span>
+                                @if (!string.IsNullOrWhiteSpace(session.Notes))
+                                {
+                                    <span class="session-notes">@session.Notes</span>
+                                }
+                                @if (session.Status == LocalInventoryStatus.Validated)
+                                {
+                                    <span class="sync-label">@GetSyncText(session.SyncStatus)</span>
+                                }
+                            </button>
                         }
                     </div>
-                    <button class="btn ghost small" @onclick="() => lineSelectedProduct = null">
-                        ✕ Change
-                    </button>
-                </div>
+                }
+            </aside>
 
-                <div class="form-grid" style="margin-top:16px;">
-                    <div class="form-field">
-                        <label>Counted Quantity</label>
-                        <input type="number"
-                               class="qty-input-lg"
-                               min="0"
-                               @bind="newLineCountedQty"
-                               @onkeydown="OnCountedQtyKeyDown"
-                               autofocus />
-                        <small class="muted">System quantity will be loaded automatically from stock.</small>
-                    </div>
-                    <div class="form-field">
-                        <label>Notes <span class="muted" style="font-weight:400;">(optional)</span></label>
-                        <input type="text"
-                               placeholder="e.g. damaged items excluded..."
-                               @bind="newLineNotes" />
-                    </div>
-                </div>
+            <main class="workspace">
+                @if (selectedSession is null)
+                {
+                    <section class="panel empty-workspace">
+                        <div class="empty-state">
+                            <span class="empty-icon large">01</span>
+                            <h2>Create or select an inventory session</h2>
+                            <p>A session keeps the physical count separate until it is reviewed and validated.</p>
+                            <button type="button" class="button primary" @onclick="OpenCreateSessionModal">
+                                New inventory session
+                            </button>
+                        </div>
+                    </section>
+                }
+                else
+                {
+                    <section class="session-toolbar panel">
+                        <div class="session-identity">
+                            <div>
+                                <span class="eyebrow">SELECTED SESSION</span>
+                                <h2>@selectedSession.SessionNumber</h2>
+                            </div>
+                            <span class="@GetStatusClass(selectedSession.Status)">
+                                @GetStatusText(selectedSession.Status)
+                            </span>
+                        </div>
 
-                <div class="modal-actions">
-                    <button class="btn primary" @onclick="CreateLine" disabled="@isSaving">
-                        @(isSaving ? "Saving..." : "Add Line")
-                    </button>
-                    <button class="btn ghost" @onclick="CloseAddLineModal">Cancel</button>
-                </div>
-            }
+                        <div class="session-stats">
+                            <div>
+                                <span>Counted</span>
+                                <strong>@lines.Count</strong>
+                            </div>
+                            <div>
+                                <span>Variances</span>
+                                <strong class="@(VarianceLineCount > 0 ? "warning-quantity" : "neutral-quantity")">
+                                    @VarianceLineCount
+                                </strong>
+                            </div>
+                            <div>
+                                <span>Net variance</span>
+                                <strong class="@GetQuantityClass(NetVariance)">@FormatSigned(NetVariance)</strong>
+                            </div>
+                        </div>
+
+                        <div class="session-actions">
+                            @if (CanEditSelectedSession)
+                            {
+                                <button type="button"
+                                        class="button warning"
+                                        disabled="@(isBusy || lines.Count == 0)"
+                                        @onclick="CloseSelectedSessionAsync">
+                                    Finish counting
+                                </button>
+                            }
+                            else if (selectedSession.Status == LocalInventoryStatus.Completed)
+                            {
+                                <button type="button"
+                                        class="button success"
+                                        disabled="@isBusy"
+                                        @onclick="ValidateSelectedSessionAsync">
+                                    Validate and adjust stock
+                                </button>
+                            }
+
+                            @if (selectedSession.Status != LocalInventoryStatus.Validated)
+                            {
+                                <button type="button"
+                                        class="button danger-ghost"
+                                        disabled="@isBusy"
+                                        @onclick="DeleteSelectedSessionAsync">
+                                    Delete
+                                </button>
+                            }
+                        </div>
+                    </section>
+
+                    @if (selectedSession.Status == LocalInventoryStatus.Completed)
+                    {
+                        <div class="review-banner">
+                            <div>
+                                <strong>Review mode</strong>
+                                <span>The count is closed. Check every variance before applying it to local stock.</span>
+                            </div>
+                            <span>@VarianceLineCount variance(s)</span>
+                        </div>
+                    }
+                    else if (selectedSession.Status == LocalInventoryStatus.Validated)
+                    {
+                        <div class="validated-banner">
+                            <div>
+                                <strong>Inventory validated</strong>
+                                <span>Local stock was updated and adjustment movements were queued for synchronization.</span>
+                            </div>
+                            <span>@(selectedSession.ValidatedAtUtc?.ToLocalTime().ToString("dd/MM/yyyy HH:mm") ?? "Completed")</span>
+                        </div>
+                    }
+
+                    @if (CanEditSelectedSession)
+                    {
+                        <section class="count-entry panel">
+                            <div class="panel-heading entry-heading">
+                                <div>
+                                    <span class="eyebrow">FAST COUNT</span>
+                                    <h2>Scan a barcode</h2>
+                                    <p>Each scan adds the quantity shown on the right. Repeated scans increment the same product.</p>
+                                </div>
+                                @if (!string.IsNullOrWhiteSpace(lastActionMessage))
+                                {
+                                    <span class="last-action">@lastActionMessage</span>
+                                }
+                            </div>
+
+                            <div class="scan-row">
+                                <label class="scan-input-wrap">
+                                    <span>Barcode</span>
+                                    <input @ref="barcodeInputRef"
+                                           type="text"
+                                           inputmode="numeric"
+                                           autocomplete="off"
+                                           placeholder="Scan or enter barcode, then press Enter"
+                                           @bind="barcodeInput"
+                                           @bind:event="oninput"
+                                           @onkeydown="HandleBarcodeKeyDown" />
+                                </label>
+
+                                <label class="quantity-input-wrap">
+                                    <span>Quantity per scan</span>
+                                    <input type="number"
+                                           min="0.001"
+                                           step="0.001"
+                                           @bind="scanQuantity"
+                                           @bind:event="oninput" />
+                                </label>
+
+                                <button type="button"
+                                        class="button primary scan-button"
+                                        disabled="@(isBusy || string.IsNullOrWhiteSpace(barcodeInput))"
+                                        @onclick="ProcessBarcodeAsync">
+                                    Add count
+                                </button>
+                            </div>
+                        </section>
+                    }
+
+                    <section class="count-grid @(!CanEditSelectedSession ? "single-column" : null)">
+                        <article class="panel lines-panel">
+                            <div class="panel-heading">
+                                <div>
+                                    <span class="eyebrow">COUNT SHEET</span>
+                                    <h2>Counted products</h2>
+                                </div>
+
+                                <div class="line-filters">
+                                    <button type="button"
+                                            class="filter-button @(lineFilter == LineFilter.All ? "active" : null)"
+                                            @onclick="() => SetLineFilter(LineFilter.All)">
+                                        All @lines.Count
+                                    </button>
+                                    <button type="button"
+                                            class="filter-button @(lineFilter == LineFilter.Variance ? "active" : null)"
+                                            @onclick="() => SetLineFilter(LineFilter.Variance)">
+                                        Variances @VarianceLineCount
+                                    </button>
+                                </div>
+                            </div>
+
+                            @if (isLoadingLines)
+                            {
+                                <div class="inline-loading">
+                                    <span class="spinner small"></span>
+                                    Loading count lines...
+                                </div>
+                            }
+                            else if (lines.Count == 0)
+                            {
+                                <div class="empty-state compact">
+                                    <span class="empty-icon">0</span>
+                                    <strong>No product counted yet</strong>
+                                    <p>Scan a barcode or add a product from the catalogue.</p>
+                                </div>
+                            }
+                            else if (!VisibleLines.Any())
+                            {
+                                <div class="empty-state compact">
+                                    <strong>No variance</strong>
+                                    <p>Every displayed count matches the expected stock.</p>
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="line-list">
+                                    @foreach (var line in VisibleLines)
+                                    {
+                                        var variance = GetVariance(line);
+
+                                        <article @key="line.Id" class="count-line @GetVarianceBorderClass(variance)">
+                                            <div class="product-cell">
+                                                <strong>@line.ProductName</strong>
+                                                <span>@(string.IsNullOrWhiteSpace(line.ProductBarcode) ? "No barcode" : line.ProductBarcode)</span>
+                                            </div>
+
+                                            <div class="number-cell">
+                                                <span>Expected</span>
+                                                <strong>@FormatQuantity(line.ExpectedQuantity)</strong>
+                                            </div>
+
+                                            @if (editingLineId == line.Id)
+                                            {
+                                                <div class="edit-cell">
+                                                    <label>
+                                                        Physical count
+                                                        <input type="number"
+                                                               min="0"
+                                                               step="0.001"
+                                                               @bind="editingQuantity"
+                                                               @bind:event="oninput"
+                                                               @onkeydown="eventArgs => HandleEditKeyDown(eventArgs, line)" />
+                                                    </label>
+                                                    <label>
+                                                        Notes
+                                                        <input type="text"
+                                                               maxlength="1000"
+                                                               placeholder="Optional note"
+                                                               @bind="editingNotes" />
+                                                    </label>
+                                                </div>
+
+                                                <div class="line-actions editing-actions">
+                                                    <button type="button"
+                                                            class="icon-button save"
+                                                            disabled="@isBusy"
+                                                            title="Save"
+                                                            @onclick="() => SaveLineEditAsync(line)">
+                                                        Save
+                                                    </button>
+                                                    <button type="button"
+                                                            class="icon-button"
+                                                            disabled="@isBusy"
+                                                            @onclick="CancelLineEdit">
+                                                        Cancel
+                                                    </button>
+                                                </div>
+                                            }
+                                            else
+                                            {
+                                                <div class="number-cell counted-cell">
+                                                    <span>Counted</span>
+                                                    <strong>@FormatQuantity(line.CountedQuantity)</strong>
+                                                </div>
+
+                                                <div class="number-cell variance-cell">
+                                                    <span>Variance</span>
+                                                    <strong class="@GetQuantityClass(variance)">@FormatSigned(variance)</strong>
+                                                </div>
+
+                                                <div class="line-actions">
+                                                    @if (CanEditSelectedSession)
+                                                    {
+                                                        <button type="button"
+                                                                class="quantity-button"
+                                                                disabled="@(isBusy || line.CountedQuantity <= 0m)"
+                                                                title="Subtract one"
+                                                                @onclick="() => ChangeLineQuantityAsync(line, -1m)">
+                                                            −
+                                                        </button>
+                                                        <button type="button"
+                                                                class="quantity-button"
+                                                                disabled="@isBusy"
+                                                                title="Add one"
+                                                                @onclick="() => ChangeLineQuantityAsync(line, 1m)">
+                                                            +
+                                                        </button>
+                                                        <button type="button"
+                                                                class="icon-button"
+                                                                disabled="@isBusy"
+                                                                @onclick="() => StartLineEdit(line)">
+                                                            Edit
+                                                        </button>
+                                                        <button type="button"
+                                                                class="icon-button delete"
+                                                                disabled="@isBusy"
+                                                                @onclick="() => DeleteLineAsync(line)">
+                                                            Delete
+                                                        </button>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span class="locked-label">Locked</span>
+                                                    }
+                                                </div>
+                                            }
+                                        </article>
+                                    }
+                                </div>
+                            }
+
+                            <footer class="count-summary">
+                                <div>
+                                    <span>Expected total</span>
+                                    <strong>@FormatQuantity(ExpectedTotal)</strong>
+                                </div>
+                                <div>
+                                    <span>Counted total</span>
+                                    <strong>@FormatQuantity(CountedTotal)</strong>
+                                </div>
+                                <div>
+                                    <span>Net variance</span>
+                                    <strong class="@GetQuantityClass(NetVariance)">@FormatSigned(NetVariance)</strong>
+                                </div>
+                            </footer>
+                        </article>
+
+                        @if (CanEditSelectedSession)
+                        {
+                            <aside class="panel catalogue-panel">
+                                <div class="panel-heading">
+                                    <div>
+                                        <span class="eyebrow">MANUAL ENTRY</span>
+                                        <h2>Find a product</h2>
+                                    </div>
+                                </div>
+
+                                <label class="search-box">
+                                    <span>Name or barcode</span>
+                                    <input type="search"
+                                           autocomplete="off"
+                                           placeholder="Enter at least 2 characters"
+                                           @bind="productSearch"
+                                           @bind:event="oninput" />
+                                </label>
+
+                                @if (string.IsNullOrWhiteSpace(productSearch) ||
+                                     productSearch.Trim().Length < 2)
+                                {
+                                    <div class="catalogue-prompt">
+                                        <strong>Search the local catalogue</strong>
+                                        <span>The product list appears after two characters. Barcode scanning remains active.</span>
+                                    </div>
+                                }
+                                else if (!FilteredProducts.Any())
+                                {
+                                    <div class="empty-state compact">
+                                        <strong>No available product</strong>
+                                        <p>No uncounted product matches this search.</p>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="catalogue-list">
+                                        @foreach (var product in FilteredProducts.Take(MaximumDisplayedProducts))
+                                        {
+                                            <article @key="product.Id" class="catalogue-product">
+                                                <div>
+                                                    <strong>@product.Name</strong>
+                                                    <span>@(string.IsNullOrWhiteSpace(product.Barcode) ? "No barcode" : product.Barcode)</span>
+                                                    <small>Expected: @FormatQuantity(product.StockQuantity)</small>
+                                                </div>
+                                                <div class="catalogue-actions">
+                                                    <button type="button"
+                                                            class="mini-button"
+                                                            disabled="@isBusy"
+                                                            title="Count as zero"
+                                                            @onclick="() => AddProductAsync(product, 0m)">
+                                                        Zero
+                                                    </button>
+                                                    <button type="button"
+                                                            class="mini-button primary-mini"
+                                                            disabled="@isBusy"
+                                                            title="Add one unit"
+                                                            @onclick="() => AddProductAsync(product, 1m)">
+                                                        +1
+                                                    </button>
+                                                </div>
+                                            </article>
+                                        }
+                                    </div>
+
+                                    @if (FilteredProducts.Count() > MaximumDisplayedProducts)
+                                    {
+                                        <p class="result-limit">
+                                            First @MaximumDisplayedProducts matches shown. Refine the search for another product.
+                                        </p>
+                                    }
+                                }
+                            </aside>
+                        }
+                    </section>
+                }
+            </main>
         </div>
-    </div>
-}
+    }
+</div>
 
-@* ══════════════════════════════════════════
-   MODAL — Delete Session Confirm
-   Mirrors product.css delete modal pattern
-══════════════════════════════════════════ *@
-@if (showDeleteSessionConfirm && sessionToDelete != null)
+@if (showCreateSessionModal)
 {
-    <div class="modal-overlay" @onclick="CancelDeleteSession">
-        <div class="modal-content" @onclick:stopPropagation="true">
-            <h4>Confirm Delete</h4>
-            <p>Are you sure you want to delete session <strong>@sessionToDelete.SessionNumber</strong>?</p>
-            <p class="text-muted">All lines in this session will also be deleted. This action cannot be undone.</p>
-            <div class="modal-actions">
-                <button class="btn danger" @onclick="ConfirmDeleteSessionAction" disabled="@isSaving">
-                    Delete
-                </button>
-                <button class="btn ghost" @onclick="CancelDeleteSession">Cancel</button>
-            </div>
-        </div>
-    </div>
-}
+    <div class="modal-backdrop" @onclick="CloseCreateSessionModal">
+        <section class="modal-card" role="dialog" aria-modal="true" @onclick:stopPropagation="true">
+            <header>
+                <div>
+                    <span class="eyebrow">NEW LOCAL COUNT</span>
+                    <h2>Create inventory session</h2>
+                </div>
+                <button type="button" class="modal-close" @onclick="CloseCreateSessionModal">×</button>
+            </header>
 
-@* ══════════════════════════════════════════
-   MODAL — Delete Line Confirm
-══════════════════════════════════════════ *@
-@if (showDeleteLineConfirm && lineToDelete != null)
-{
-    <div class="modal-overlay" @onclick="CancelDeleteLine">
-        <div class="modal-content" @onclick:stopPropagation="true">
-            <h4>Confirm Delete</h4>
-            <p>Are you sure you want to delete the line for <strong>@GetProductName(lineToDelete.ProductId)</strong>?</p>
-            <p class="text-muted">This action cannot be undone.</p>
-            <div class="modal-actions">
-                <button class="btn danger" @onclick="ConfirmDeleteLineAction" disabled="@isSaving">
-                    Delete
-                </button>
-                <button class="btn ghost" @onclick="CancelDeleteLine">Cancel</button>
+            <div class="modal-content">
+                <label class="form-field">
+                    <span>Session number</span>
+                    <input type="text"
+                           maxlength="100"
+                           autocomplete="off"
+                           @bind="newSessionNumber"
+                           @onkeydown="HandleCreateSessionKeyDown" />
+                    <small>Use a clear reference for reports and synchronization.</small>
+                </label>
+
+                <label class="form-field">
+                    <span>Notes</span>
+                    <textarea rows="4"
+                              maxlength="1000"
+                              placeholder="Area, shelf, employee, or reason for the count"
+                              @bind="newSessionNotes"></textarea>
+                </label>
+
+                <div class="modal-information">
+                    Only one inventory session can remain in progress. Finish it before starting another one.
+                </div>
             </div>
-        </div>
+
+            <footer>
+                <button type="button"
+                        class="button secondary"
+                        disabled="@isBusy"
+                        @onclick="CloseCreateSessionModal">
+                    Cancel
+                </button>
+                <button type="button"
+                        class="button primary"
+                        disabled="@(isBusy || string.IsNullOrWhiteSpace(newSessionNumber))"
+                        @onclick="CreateSessionAsync">
+                    Create session
+                </button>
+            </footer>
+        </section>
     </div>
 }
 
 @code {
+    private const int MaximumDisplayedProducts = 100;
 
-    // ── Alerts ────────────────────────────────────────────────────────────────
+    private readonly List<LocalInventorySession> sessions = new();
+    private readonly List<LocalInventoryLine> lines = new();
+    private readonly List<LocalProductListItem> products = new();
+
+    private LocalInventorySession? selectedSession;
+
+    private bool isInitialLoading = true;
+    private bool isLoadingLines;
+    private bool isBusy;
+    private bool showCreateSessionModal;
+    private bool focusBarcodeRequested;
+
+    private CancellationTokenSource? toastCancellation;
+
     private string? errorMessage;
     private string? successMessage;
+    private string? lastActionMessage;
 
-    // ── Sessions ──────────────────────────────────────────────────────────────
-    private List<InventorySessionResult> sessions = new();
-    private InventorySessionResult? selectedSession;
-    private bool isLoadingSessions;
-
-    // ── Lines ─────────────────────────────────────────────────────────────────
-    private List<InventoryLineResult> lines = new();
-    private bool isLoadingLines;
-
-    // ── Inline edit ───────────────────────────────────────────────────────────
-    private Guid? editingLineId;
-    private decimal editingCountedQty;
-
-    // ── Products & stocks ─────────────────────────────────────────────────────
-    private List<ProductResult> allProducts = new();
-    private List<StockResult> allStocks = new();
-    private bool isLoadingProducts;
-
-    // ── Shared ────────────────────────────────────────────────────────────────
-    private bool isSaving;
-
-    // ── Create session modal ──────────────────────────────────────────────────
-    private bool showCreateSessionModal;
-    private CreateInventorySessionRequest newSession = new();
-
-    // ── Delete session confirm (mirrors product pattern) ──────────────────────
-    private bool showDeleteSessionConfirm;
-    private InventorySessionResult? sessionToDelete;
-
-    // ── Delete line confirm ───────────────────────────────────────────────────
-    private bool showDeleteLineConfirm;
-    private InventoryLineResult? lineToDelete;
-
-    // ── Add line modal ────────────────────────────────────────────────────────
-    private bool showAddLineModal;
     private string barcodeInput = string.Empty;
-    private string productSearchTerm = string.Empty;
-    private ProductResult? lineSelectedProduct;
-    private decimal newLineCountedQty;
-    private string newLineNotes = string.Empty;
-    private ElementReference barcodeRef;
+    private decimal scanQuantity = 1m;
+    private string productSearch = string.Empty;
+    private ElementReference barcodeInputRef;
 
-    // ── Filtered products ─────────────────────────────────────────────────────
-    private IEnumerable<ProductResult> FilteredProducts =>
-        string.IsNullOrWhiteSpace(productSearchTerm)
-            ? allProducts
-            : allProducts.Where(p =>
-                p.CatalogName.Contains(productSearchTerm, StringComparison.OrdinalIgnoreCase) ||
-                (p.CatalogBarcode?.Contains(productSearchTerm, StringComparison.OrdinalIgnoreCase) ?? false));
+    private string newSessionNumber = string.Empty;
+    private string? newSessionNotes;
 
-    // =========================================================================
-    // LIFECYCLE
-    // =========================================================================
+    private Guid? editingLineId;
+    private decimal editingQuantity;
+    private string? editingNotes;
+
+    private LineFilter lineFilter = LineFilter.All;
+
+    private bool CanEditSelectedSession =>
+        selectedSession?.Status == LocalInventoryStatus.InProgress;
+
+    private int VarianceLineCount =>
+        lines.Count(line => GetVariance(line) != 0m);
+
+    private decimal ExpectedTotal =>
+        RoundQuantity(lines.Sum(line => line.ExpectedQuantity));
+
+    private decimal CountedTotal =>
+        RoundQuantity(lines.Sum(line => line.CountedQuantity));
+
+    private decimal NetVariance =>
+        RoundQuantity(CountedTotal - ExpectedTotal);
+
+    private IEnumerable<LocalInventoryLine> VisibleLines =>
+        lineFilter == LineFilter.Variance
+            ? lines.Where(line => GetVariance(line) != 0m)
+            : lines;
+
+    private IEnumerable<LocalProductListItem> FilteredProducts
+    {
+        get
+        {
+            var existingProductIds =
+                lines.Select(line => line.ProductLocalId).ToHashSet();
+
+            var query = products
+                .Where(product => !existingProductIds.Contains(product.Id));
+
+            if (!string.IsNullOrWhiteSpace(productSearch))
+            {
+                var search = productSearch.Trim();
+
+                query = query.Where(product =>
+                    product.Name.Contains(search, StringComparison.OrdinalIgnoreCase) ||
+                    (!string.IsNullOrWhiteSpace(product.Barcode) &&
+                     product.Barcode.Contains(search, StringComparison.OrdinalIgnoreCase)));
+            }
+
+            return query;
+        }
+    }
+
     protected override async Task OnInitializedAsync()
     {
-        await Task.WhenAll(LoadSessions(), LoadProducts());
-    }
-
-    // =========================================================================
-    // PRODUCTS
-    // =========================================================================
-    private async Task LoadProducts()
-    {
-        isLoadingProducts = true;
         try
         {
-            var bootstrap = await PosApi.Bootstrap();
-            allProducts = bootstrap.Products;
-            allStocks = bootstrap.Stocks;
+            await LoadProductsAsync();
+            await LoadSessionsAsync();
+
+            selectedSession =
+                sessions.FirstOrDefault(session =>
+                    session.Status == LocalInventoryStatus.InProgress)
+                ?? sessions.FirstOrDefault();
+
+            if (selectedSession is not null)
+            {
+                await LoadLinesAsync(selectedSession.Id);
+                RequestBarcodeFocus();
+            }
         }
-        catch (Exception ex)
+        catch (Exception exception)
         {
-            Logger.LogError(ex, "Error loading products for inventory");
+            HandleException(exception, "The local inventory could not be loaded.");
         }
         finally
         {
-            isLoadingProducts = false;
+            isInitialLoading = false;
         }
     }
 
-    private StockResult? GetStockForProduct(Guid productId) =>
-        allStocks.FirstOrDefault(s => s.ProductId == productId);
-
-    private string GetProductName(Guid productId) =>
-        allProducts.FirstOrDefault(p => p.Id == productId)?.CatalogName ?? "Unknown product";
-
-    private string? GetProductBarcode(Guid productId) =>
-        allProducts.FirstOrDefault(p => p.Id == productId)?.CatalogBarcode;
-
-    // =========================================================================
-    // SESSIONS — Load / Select
-    // =========================================================================
-    private async Task LoadSessions()
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        isLoadingSessions = true;
-        errorMessage = null;
-        try
+        if (!focusBarcodeRequested || !CanEditSelectedSession)
         {
-            sessions = await InventorySessionApi.GetAll();
-        }
-        catch (Exception ex)
-        {
-            errorMessage = $"Error loading sessions: {ex.Message}";
-            Logger.LogError(ex, "Error loading inventory sessions");
-        }
-        finally
-        {
-            isLoadingSessions = false;
-        }
-    }
-
-    private async Task SelectSession(InventorySessionResult session)
-    {
-        selectedSession = session;
-        editingLineId = null;
-        await LoadLines(session.Id);
-    }
-
-    // =========================================================================
-    // SESSIONS — Create
-    // =========================================================================
-    private void OpenCreateSessionModal()
-    {
-        newSession = new CreateInventorySessionRequest();
-        showCreateSessionModal = true;
-    }
-
-    private void CloseCreateSessionModal() => showCreateSessionModal = false;
-
-    private async Task OnSessionModalKeyDown(KeyboardEventArgs e)
-    {
-        if (e.Key == "Enter") await CreateSession();
-    }
-
-    private async Task CreateSession()
-    {
-        if (string.IsNullOrWhiteSpace(newSession.SessionNumber))
-        {
-            errorMessage = "Session number is required.";
             return;
         }
 
-        isSaving = true;
+        focusBarcodeRequested = false;
+
         try
         {
-            var result = await InventorySessionApi.Create(newSession);
-            successMessage = $"Session '{result.SessionNumber}' created.";
-            CloseCreateSessionModal();
-            await LoadSessions();
-            selectedSession = sessions.FirstOrDefault(s => s.Id == result.Id);
-            if (selectedSession != null) await LoadLines(selectedSession.Id);
+            await JS.InvokeVoidAsync("focusElement", barcodeInputRef);
         }
-        catch (Exception ex)
+        catch (Exception exception)
         {
-            errorMessage = $"Error creating session: {ex.Message}";
-            Logger.LogError(ex, "Error creating inventory session");
-        }
-        finally
-        {
-            isSaving = false;
+            Logger.LogDebug(exception, "The barcode input could not receive focus.");
         }
     }
 
-    // =========================================================================
-    // SESSIONS — Close / Validate
-    // =========================================================================
-    private async Task CloseSession(Guid id)
+    private async Task LoadProductsAsync()
     {
-        isSaving = true;
-        try
-        {
-            await InventorySessionApi.Close(id);
-            successMessage = "Session closed.";
-            await LoadSessions();
-            if (selectedSession?.Id == id)
-                selectedSession = sessions.FirstOrDefault(s => s.Id == id);
-        }
-        catch (Exception ex) { errorMessage = $"Error: {ex.Message}"; }
-        finally { isSaving = false; }
+        var tenantId = LocalTenantContext.GetRequiredTenantId();
+
+        var localProducts = await LocalDb.Products
+            .AsNoTracking()
+            .Where(product =>
+                product.TenantId == tenantId &&
+                !product.IsDeletedLocally)
+            .OrderBy(product => product.Name)
+            .Select(product => new LocalProductListItem(
+                product.Id,
+                product.Name,
+                product.Barcode,
+                product.LocalStockQuantity))
+            .ToListAsync();
+
+        var stocks = await LocalDb.Stocks
+            .AsNoTracking()
+            .Where(stock =>
+                stock.TenantId == tenantId)
+            .Select(stock => new
+            {
+                stock.ProductLocalId,
+                stock.Quantity
+            })
+            .ToListAsync();
+
+        var stockByProductId = stocks
+            .GroupBy(stock => stock.ProductLocalId)
+            .ToDictionary(
+                group => group.Key,
+                group => RoundQuantity(group.First().Quantity));
+
+        products.Clear();
+        products.AddRange(localProducts.Select(product =>
+            product with
+            {
+                StockQuantity = stockByProductId.TryGetValue(product.Id, out var quantity)
+                    ? quantity
+                    : RoundQuantity(product.StockQuantity)
+            }));
     }
 
-    private async Task ValidateSession(Guid id)
+    private async Task LoadSessionsAsync()
     {
-        isSaving = true;
-        try
-        {
-            await InventorySessionApi.Validate(id);
-            successMessage = "Session validated. Stock has been adjusted.";
-            await LoadSessions();
-            if (selectedSession?.Id == id)
-                selectedSession = sessions.FirstOrDefault(s => s.Id == id);
-        }
-        catch (Exception ex) { errorMessage = $"Error: {ex.Message}"; }
-        finally { isSaving = false; }
+        var result = await InventorySessionService.GetAllAsync();
+
+        sessions.Clear();
+        sessions.AddRange(result);
     }
 
-    // =========================================================================
-    // SESSIONS — Delete (modal confirm, mirrors product pattern)
-    // =========================================================================
-    private void ConfirmDeleteSession(InventorySessionResult session)
-    {
-        sessionToDelete = session;
-        showDeleteSessionConfirm = true;
-    }
-
-    private void CancelDeleteSession()
-    {
-        sessionToDelete = null;
-        showDeleteSessionConfirm = false;
-    }
-
-    private async Task ConfirmDeleteSessionAction()
-    {
-        if (sessionToDelete == null) return;
-
-        isSaving = true;
-        showDeleteSessionConfirm = false;
-        try
-        {
-            await InventorySessionApi.Delete(sessionToDelete.Id);
-            successMessage = $"Session '{sessionToDelete.SessionNumber}' deleted.";
-            if (selectedSession?.Id == sessionToDelete.Id) { selectedSession = null; lines.Clear(); }
-            sessionToDelete = null;
-            await LoadSessions();
-        }
-        catch (Exception ex) { errorMessage = $"Error deleting session: {ex.Message}"; }
-        finally { isSaving = false; }
-    }
-
-    // =========================================================================
-    // LINES — Load
-    // =========================================================================
-    private async Task LoadLines(Guid sessionId)
+    private async Task LoadLinesAsync(Guid sessionId)
     {
         isLoadingLines = true;
-        errorMessage = null;
+
         try
         {
-            var result = await InventoryLineApi.Search(new InventoryLineQuery
-            {
-                InventorySessionId = sessionId,
-                Page = 1,
-                PageSize = 100
-            });
-            lines = result.Items?.ToList() ?? new();
-        }
-        catch (Exception ex)
-        {
-            errorMessage = $"Error loading lines: {ex.Message}";
-            Logger.LogError(ex, "Error loading lines for session {Id}", sessionId);
+            var result = await InventorySessionService.GetLinesAsync(sessionId);
+
+            lines.Clear();
+            lines.AddRange(result);
         }
         finally
         {
@@ -761,168 +766,796 @@
         }
     }
 
-    // =========================================================================
-    // LINES — Add modal
-    // =========================================================================
-    private void OpenAddLineModal()
+    private async Task RefreshAllAsync()
     {
-        barcodeInput = string.Empty;
-        productSearchTerm = string.Empty;
-        lineSelectedProduct = null;
-        newLineCountedQty = 0;
-        newLineNotes = string.Empty;
-        showAddLineModal = true;
-    }
-
-    private void CloseAddLineModal() => showAddLineModal = false;
-
-    private async Task OnBarcodeKeyDown(KeyboardEventArgs e)
-    {
-        if (e.Key != "Enter" || string.IsNullOrWhiteSpace(barcodeInput)) return;
-
-        var code = barcodeInput.Trim();
-        var match = allProducts.FirstOrDefault(p =>
-            p.CatalogBarcode == code ||
-            (p.CatalogBarcode?.Contains(code, StringComparison.OrdinalIgnoreCase) ?? false));
-
-        if (match != null)
-            SelectProduct(match);
-        else
+        if (isBusy)
         {
-            errorMessage = $"No product found for barcode: {code}";
-            barcodeInput = string.Empty;
-        }
-    }
-
-    private void SelectProduct(ProductResult product)
-    {
-        if (lines.Any(l => l.ProductId == product.Id))
-        {
-            errorMessage = $"'{product.CatalogName}' is already in this session.";
             return;
         }
-        lineSelectedProduct = product;
-        barcodeInput = string.Empty;
-        productSearchTerm = string.Empty;
-        newLineCountedQty = 0;
-    }
 
-    private async Task OnCountedQtyKeyDown(KeyboardEventArgs e)
-    {
-        if (e.Key == "Enter") await CreateLine();
-    }
+        isBusy = true;
+        ClearMessages();
 
-    private async Task CreateLine()
-    {
-        if (selectedSession == null || lineSelectedProduct == null) return;
-
-        isSaving = true;
         try
         {
-            await InventoryLineApi.Create(new CreateInventoryLineRequest
+            var selectedId = selectedSession?.Id;
+
+            await LoadProductsAsync();
+            await LoadSessionsAsync();
+
+            selectedSession = selectedId.HasValue
+                ? sessions.FirstOrDefault(session => session.Id == selectedId.Value)
+                : sessions.FirstOrDefault(session =>
+                    session.Status == LocalInventoryStatus.InProgress)
+                  ?? sessions.FirstOrDefault();
+
+            lines.Clear();
+
+            if (selectedSession is not null)
             {
-                InventorySessionId = selectedSession.Id,
-                ProductId = lineSelectedProduct.Id,
-                CountedQuantity = newLineCountedQty,
-                Notes = newLineNotes
-            });
-            successMessage = $"'{lineSelectedProduct.CatalogName}' added.";
-            CloseAddLineModal();
-            await LoadLines(selectedSession.Id);
+                await LoadLinesAsync(selectedSession.Id);
+            }
+
+            ShowSuccess("The local inventory was refreshed.");
+            RequestBarcodeFocus();
         }
-        catch (Exception ex)
+        catch (Exception exception)
         {
-            errorMessage = $"Error adding line: {ex.Message}";
-            Logger.LogError(ex, "Error creating inventory line");
+            HandleException(exception, "The inventory could not be refreshed.");
         }
         finally
         {
-            isSaving = false;
+            isBusy = false;
         }
     }
 
-    // =========================================================================
-    // LINES — Inline edit
-    // =========================================================================
-    private void StartLineEdit(InventoryLineResult line)
+    private async Task SelectSessionAsync(LocalInventorySession session)
+    {
+        if (isBusy || selectedSession?.Id == session.Id)
+        {
+            return;
+        }
+
+        ClearMessages();
+        selectedSession = session;
+        editingLineId = null;
+        lineFilter = LineFilter.All;
+
+        try
+        {
+            await LoadLinesAsync(session.Id);
+            RequestBarcodeFocus();
+        }
+        catch (Exception exception)
+        {
+            HandleException(exception, "The inventory lines could not be loaded.");
+        }
+    }
+
+    private void OpenCreateSessionModal()
+    {
+        ClearMessages();
+        newSessionNumber = $"INV-{DateTime.Now:yyyyMMdd-HHmmss}";
+        newSessionNotes = null;
+        showCreateSessionModal = true;
+    }
+
+    private void CloseCreateSessionModal()
+    {
+        if (isBusy)
+        {
+            return;
+        }
+
+        showCreateSessionModal = false;
+    }
+
+    private async Task HandleCreateSessionKeyDown(KeyboardEventArgs eventArgs)
+    {
+        if (eventArgs.Key == "Enter")
+        {
+            await CreateSessionAsync();
+        }
+    }
+
+    private async Task CreateSessionAsync()
+    {
+        if (isBusy)
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(newSessionNumber))
+        {
+            ShowError("A session number is required.");
+            return;
+        }
+
+        isBusy = true;
+        ClearMessages();
+
+        try
+        {
+            var createdSession = await InventorySessionService.CreateAsync(
+                newSessionNumber,
+                newSessionNotes);
+
+            showCreateSessionModal = false;
+            await LoadSessionsAsync();
+
+            selectedSession =
+                sessions.FirstOrDefault(session => session.Id == createdSession.Id)
+                ?? createdSession;
+
+            lines.Clear();
+            ShowSuccess($"Session '{createdSession.SessionNumber}' was created.");
+            RequestBarcodeFocus();
+        }
+        catch (Exception exception)
+        {
+            HandleException(exception, "The inventory session could not be created.");
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private async Task HandleBarcodeKeyDown(KeyboardEventArgs eventArgs)
+    {
+        if (eventArgs.Key == "Enter")
+        {
+            await ProcessBarcodeAsync();
+        }
+    }
+
+    private async Task ProcessBarcodeAsync()
+    {
+        if (isBusy || !CanEditSelectedSession)
+        {
+            return;
+        }
+
+        var barcode = barcodeInput.Trim();
+        barcodeInput = string.Empty;
+
+        if (string.IsNullOrWhiteSpace(barcode))
+        {
+            RequestBarcodeFocus();
+            return;
+        }
+
+        if (scanQuantity <= 0m)
+        {
+            ShowError("Quantity per scan must be greater than zero.");
+            RequestBarcodeFocus();
+            return;
+        }
+
+        var normalizedBarcode = NormalizeBarcode(barcode);
+
+        var matchingProducts = products
+            .Where(item => string.Equals(
+                NormalizeBarcode(item.Barcode),
+                normalizedBarcode,
+                StringComparison.OrdinalIgnoreCase))
+            .Take(2)
+            .ToList();
+
+        if (matchingProducts.Count == 0)
+        {
+            ShowError($"No local product matches barcode '{barcode}'.");
+            lastActionMessage = "Unknown barcode";
+            RequestBarcodeFocus();
+            return;
+        }
+
+        if (matchingProducts.Count > 1)
+        {
+            ShowError($"Barcode '{barcode}' is assigned to more than one local product.");
+            lastActionMessage = "Duplicate barcode";
+            RequestBarcodeFocus();
+            return;
+        }
+
+        var product = matchingProducts[0];
+
+        var existingLine = lines.FirstOrDefault(line =>
+            line.ProductLocalId == product.Id);
+
+        if (existingLine is null)
+        {
+            await AddProductAsync(product, scanQuantity, fromScanner: true);
+        }
+        else
+        {
+            await SetLineQuantityAsync(
+                existingLine,
+                existingLine.CountedQuantity + scanQuantity,
+                fromScanner: true);
+        }
+    }
+
+    private async Task AddProductAsync(
+        LocalProductListItem product,
+        decimal countedQuantity,
+        bool fromScanner = false)
+    {
+        if (isBusy || selectedSession is null || !CanEditSelectedSession)
+        {
+            return;
+        }
+
+        if (lines.Any(line => line.ProductLocalId == product.Id))
+        {
+            ShowError($"'{product.Name}' is already in this count.");
+            RequestBarcodeFocus();
+            return;
+        }
+
+        isBusy = true;
+        ClearMessages(keepLastAction: true);
+
+        try
+        {
+            var line = await InventorySessionService.AddLineAsync(
+                selectedSession.Id,
+                product.Id,
+                RoundQuantity(countedQuantity));
+
+            lines.Add(line);
+            SortLines();
+
+            lastActionMessage = $"{product.Name}: {FormatQuantity(line.CountedQuantity)}";
+
+            if (!fromScanner)
+            {
+                ShowSuccess($"'{product.Name}' was added to the count.");
+            }
+        }
+        catch (Exception exception)
+        {
+            HandleException(exception, "The product could not be added to the count.");
+        }
+        finally
+        {
+            isBusy = false;
+            RequestBarcodeFocus();
+        }
+    }
+
+    private async Task ChangeLineQuantityAsync(
+        LocalInventoryLine line,
+        decimal change)
+    {
+        var quantity = Math.Max(0m, line.CountedQuantity + change);
+        await SetLineQuantityAsync(line, quantity);
+    }
+
+    private async Task SetLineQuantityAsync(
+        LocalInventoryLine line,
+        decimal quantity,
+        bool fromScanner = false)
+    {
+        if (isBusy || !CanEditSelectedSession)
+        {
+            return;
+        }
+
+        isBusy = true;
+        ClearMessages(keepLastAction: true);
+
+        try
+        {
+            var updated = await InventorySessionService.UpdateLineAsync(
+                line.Id,
+                RoundQuantity(quantity),
+                line.Notes);
+
+            ReplaceLine(updated);
+            lastActionMessage = $"{updated.ProductName}: {FormatQuantity(updated.CountedQuantity)}";
+
+            if (!fromScanner)
+            {
+                ShowSuccess($"'{updated.ProductName}' was updated.");
+            }
+        }
+        catch (Exception exception)
+        {
+            HandleException(exception, "The counted quantity could not be updated.");
+        }
+        finally
+        {
+            isBusy = false;
+            RequestBarcodeFocus();
+        }
+    }
+
+    private void StartLineEdit(LocalInventoryLine line)
     {
         editingLineId = line.Id;
-        editingCountedQty = line.CountedQuantity;
+        editingQuantity = line.CountedQuantity;
+        editingNotes = line.Notes;
     }
 
-    private void CancelLineEdit() => editingLineId = null;
-
-    private async Task OnEditKeyDown(KeyboardEventArgs e, InventoryLineResult line)
+    private void CancelLineEdit()
     {
-        if (e.Key == "Enter") await SaveLineEdit(line);
-        if (e.Key == "Escape") CancelLineEdit();
+        editingLineId = null;
+        editingNotes = null;
+        RequestBarcodeFocus();
     }
 
-    private async Task SaveLineEdit(InventoryLineResult line)
+    private async Task HandleEditKeyDown(
+        KeyboardEventArgs eventArgs,
+        LocalInventoryLine line)
     {
-        isSaving = true;
+        if (eventArgs.Key == "Enter")
+        {
+            await SaveLineEditAsync(line);
+        }
+        else if (eventArgs.Key == "Escape")
+        {
+            CancelLineEdit();
+        }
+    }
+
+    private async Task SaveLineEditAsync(LocalInventoryLine line)
+    {
+        if (isBusy || !CanEditSelectedSession)
+        {
+            return;
+        }
+
+        if (editingQuantity < 0m)
+        {
+            ShowError("The counted quantity cannot be negative.");
+            return;
+        }
+
+        isBusy = true;
+        ClearMessages(keepLastAction: true);
+
         try
         {
-            await InventoryLineApi.Update(line.Id, new UpdateInventoryLineRequest
-            {
-                CountedQuantity = editingCountedQty
-            });
-            successMessage = "Line updated.";
+            var updated = await InventorySessionService.UpdateLineAsync(
+                line.Id,
+                RoundQuantity(editingQuantity),
+                editingNotes);
+
+            ReplaceLine(updated);
             editingLineId = null;
-            await LoadLines(selectedSession!.Id);
+            editingNotes = null;
+            ShowSuccess($"'{updated.ProductName}' was updated.");
+            lastActionMessage = $"{updated.ProductName}: {FormatQuantity(updated.CountedQuantity)}";
         }
-        catch (Exception ex) { errorMessage = $"Error updating line: {ex.Message}"; }
-        finally { isSaving = false; }
+        catch (Exception exception)
+        {
+            HandleException(exception, "The inventory line could not be updated.");
+        }
+        finally
+        {
+            isBusy = false;
+            RequestBarcodeFocus();
+        }
     }
 
-    // =========================================================================
-    // LINES — Delete (modal confirm, mirrors product pattern)
-    // =========================================================================
-    private void ConfirmDeleteLine(InventoryLineResult line)
+    private async Task DeleteLineAsync(LocalInventoryLine line)
     {
-        lineToDelete = line;
-        showDeleteLineConfirm = true;
-    }
+        if (isBusy || !CanEditSelectedSession)
+        {
+            return;
+        }
 
-    private void CancelDeleteLine()
-    {
-        lineToDelete = null;
-        showDeleteLineConfirm = false;
-    }
+        var confirmed = await JS.InvokeAsync<bool>(
+            "confirm",
+            $"Remove '{line.ProductName}' from this inventory count?");
 
-    private async Task ConfirmDeleteLineAction()
-    {
-        if (lineToDelete == null) return;
+        if (!confirmed)
+        {
+            RequestBarcodeFocus();
+            return;
+        }
 
-        isSaving = true;
-        showDeleteLineConfirm = false;
+        isBusy = true;
+        ClearMessages();
+
         try
         {
-            await InventoryLineApi.Delete(lineToDelete.Id);
-            successMessage = "Line deleted.";
-            lineToDelete = null;
-            await LoadLines(selectedSession!.Id);
+            await InventorySessionService.DeleteLineAsync(line.Id);
+            lines.RemoveAll(item => item.Id == line.Id);
+            ShowSuccess($"'{line.ProductName}' was removed from the count.");
         }
-        catch (Exception ex) { errorMessage = $"Error deleting line: {ex.Message}"; }
-        finally { isSaving = false; }
+        catch (Exception exception)
+        {
+            HandleException(exception, "The inventory line could not be deleted.");
+        }
+        finally
+        {
+            isBusy = false;
+            RequestBarcodeFocus();
+        }
     }
 
-    // =========================================================================
-    // HELPERS
-    // =========================================================================
-    private string GetSessionBadgeClass(InventoryStatus status) => status switch
+    private async Task CloseSelectedSessionAsync()
     {
-        InventoryStatus.InProgress => "badge badge-inprogress",
-        InventoryStatus.Completed => "badge badge-completed",
-        InventoryStatus.Validated => "badge success",
-        InventoryStatus.Cancelled => "badge badge-inactive",
-        _ => "badge"
-    };
+        if (isBusy || selectedSession is null || !CanEditSelectedSession)
+        {
+            return;
+        }
 
-    private string GetVarianceClass(decimal variance) => variance switch
+        var confirmed = await JS.InvokeAsync<bool>(
+            "confirm",
+            $"Finish this count? {lines.Count} of {products.Count} catalogue products were counted. " +
+            "Only counted products will be adjusted. Quantities will be locked for review.");
+
+        if (!confirmed)
+        {
+            return;
+        }
+
+        isBusy = true;
+        ClearMessages();
+
+        try
+        {
+            var sessionId = selectedSession.Id;
+            await InventorySessionService.CloseAsync(sessionId);
+            await ReloadSelectedSessionAsync(sessionId);
+            ShowSuccess("Counting is finished. Review the variances, then validate the session.");
+        }
+        catch (Exception exception)
+        {
+            HandleException(exception, "The inventory session could not be closed.");
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private async Task ValidateSelectedSessionAsync()
     {
-        0 => "variance-ok",
-        > 0 => "variance-pos",
-        _ => "variance-neg"
-    };
+        if (isBusy || selectedSession is null ||
+            selectedSession.Status != LocalInventoryStatus.Completed)
+        {
+            return;
+        }
+
+        var confirmed = await JS.InvokeAsync<bool>(
+            "confirm",
+            $"Validate {lines.Count} counted product(s) and apply {VarianceLineCount} stock variance(s) to SQLite? This action cannot be undone.");
+
+        if (!confirmed)
+        {
+            return;
+        }
+
+        isBusy = true;
+        ClearMessages();
+
+        try
+        {
+            var sessionId = selectedSession.Id;
+            await InventorySessionService.ValidateAsync(sessionId);
+            await LoadProductsAsync();
+            await ReloadSelectedSessionAsync(sessionId);
+            ShowSuccess("Inventory validated. Local stock and synchronization movements were updated.");
+        }
+        catch (Exception exception)
+        {
+            HandleException(exception, "The inventory session could not be validated.");
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private async Task DeleteSelectedSessionAsync()
+    {
+        if (isBusy || selectedSession is null ||
+            selectedSession.Status == LocalInventoryStatus.Validated)
+        {
+            return;
+        }
+
+        var sessionNumber = selectedSession.SessionNumber;
+        var sessionId = selectedSession.Id;
+
+        var confirmed = await JS.InvokeAsync<bool>(
+            "confirm",
+            $"Delete inventory session '{sessionNumber}' and all its count lines?");
+
+        if (!confirmed)
+        {
+            return;
+        }
+
+        isBusy = true;
+        ClearMessages();
+
+        try
+        {
+            await InventorySessionService.DeleteAsync(sessionId);
+            await LoadSessionsAsync();
+
+            selectedSession =
+                sessions.FirstOrDefault(session =>
+                    session.Status == LocalInventoryStatus.InProgress)
+                ?? sessions.FirstOrDefault();
+
+            lines.Clear();
+
+            if (selectedSession is not null)
+            {
+                await LoadLinesAsync(selectedSession.Id);
+            }
+
+            ShowSuccess($"Session '{sessionNumber}' was deleted.");
+            RequestBarcodeFocus();
+        }
+        catch (Exception exception)
+        {
+            HandleException(exception, "The inventory session could not be deleted.");
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private async Task ReloadSelectedSessionAsync(Guid sessionId)
+    {
+        await LoadSessionsAsync();
+
+        selectedSession = sessions.FirstOrDefault(session => session.Id == sessionId);
+
+        lines.Clear();
+
+        if (selectedSession is not null)
+        {
+            await LoadLinesAsync(selectedSession.Id);
+        }
+    }
+
+    private void ReplaceLine(LocalInventoryLine updated)
+    {
+        var index = lines.FindIndex(line => line.Id == updated.Id);
+
+        if (index >= 0)
+        {
+            lines[index] = updated;
+        }
+        else
+        {
+            lines.Add(updated);
+        }
+
+        SortLines();
+    }
+
+    private void SortLines()
+    {
+        lines.Sort((left, right) =>
+            string.Compare(
+                left.ProductName,
+                right.ProductName,
+                StringComparison.OrdinalIgnoreCase));
+    }
+
+    private void SetLineFilter(LineFilter filter)
+    {
+        lineFilter = filter;
+    }
+
+    private void RequestBarcodeFocus()
+    {
+        if (!CanEditSelectedSession)
+        {
+            return;
+        }
+
+        focusBarcodeRequested = true;
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private void HandleException(Exception exception, string fallbackMessage)
+    {
+        Logger.LogError(exception, "{InventoryError}", fallbackMessage);
+
+        ShowError(
+            string.IsNullOrWhiteSpace(exception.Message)
+                ? fallbackMessage
+                : exception.Message);
+    }
+
+    private void ClearMessages(bool keepLastAction = false)
+    {
+        StopToastTimer();
+
+        errorMessage = null;
+        successMessage = null;
+
+        if (!keepLastAction)
+        {
+            lastActionMessage = null;
+        }
+    }
+
+    private void ShowSuccess(string message)
+    {
+        StopToastTimer();
+
+        errorMessage = null;
+        successMessage = message;
+
+        StartToastTimer(clearSuccess: true);
+    }
+
+    private void ShowError(string message)
+    {
+        StopToastTimer();
+
+        successMessage = null;
+        errorMessage = message;
+
+        StartToastTimer(clearSuccess: false);
+    }
+
+    private void StartToastTimer(bool clearSuccess)
+    {
+        var source = new CancellationTokenSource();
+        toastCancellation = source;
+
+        _ = HideToastAfterDelayAsync(source, clearSuccess);
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private async Task HideToastAfterDelayAsync(
+        CancellationTokenSource source,
+        bool clearSuccess)
+    {
+        try
+        {
+            await Task.Delay(3000, source.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        if (!ReferenceEquals(toastCancellation, source))
+        {
+            return;
+        }
+
+        if (clearSuccess)
+        {
+            successMessage = null;
+        }
+        else
+        {
+            errorMessage = null;
+        }
+
+        toastCancellation = null;
+        source.Dispose();
+
+        try
+        {
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+    }
+
+    private void StopToastTimer()
+    {
+        toastCancellation?.Cancel();
+        toastCancellation?.Dispose();
+        toastCancellation = null;
+    }
+
+    private static string NormalizeBarcode(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value)
+            ? string.Empty
+            : new string(value.Where(character => !char.IsWhiteSpace(character)).ToArray());
+    }
+
+    private static decimal GetVariance(LocalInventoryLine line)
+    {
+        return RoundQuantity(line.CountedQuantity - line.ExpectedQuantity);
+    }
+
+    private static decimal RoundQuantity(decimal value)
+    {
+        return Math.Round(value, 3, MidpointRounding.AwayFromZero);
+    }
+
+    private static string FormatQuantity(decimal value)
+    {
+        return value.ToString("0.###");
+    }
+
+    private static string FormatSigned(decimal value)
+    {
+        value = RoundQuantity(value);
+
+        return value > 0m
+            ? $"+{FormatQuantity(value)}"
+            : FormatQuantity(value);
+    }
+
+    private static string GetQuantityClass(decimal value)
+    {
+        return value switch
+        {
+            > 0m => "positive-quantity",
+            < 0m => "negative-quantity",
+            _ => "neutral-quantity"
+        };
+    }
+
+    private static string GetVarianceBorderClass(decimal value)
+    {
+        return value switch
+        {
+            > 0m => "positive-variance",
+            < 0m => "negative-variance",
+            _ => "zero-variance"
+        };
+    }
+
+    private static string GetStatusClass(string status)
+    {
+        return status switch
+        {
+            LocalInventoryStatus.InProgress => "status-badge in-progress",
+            LocalInventoryStatus.Completed => "status-badge completed",
+            LocalInventoryStatus.Validated => "status-badge validated",
+            _ => "status-badge"
+        };
+    }
+
+    private static string GetStatusText(string status)
+    {
+        return status switch
+        {
+            LocalInventoryStatus.InProgress => "In progress",
+            LocalInventoryStatus.Completed => "Ready to validate",
+            LocalInventoryStatus.Validated => "Validated",
+            _ => status
+        };
+    }
+
+    private static string GetSyncText(string syncStatus)
+    {
+        return syncStatus switch
+        {
+            "Synced" => "Synchronized",
+            "Pending" => "Waiting for synchronization",
+            "Failed" => "Synchronization failed",
+            "Conflict" => "Synchronization conflict",
+            _ => syncStatus
+        };
+    }
+
+    public void Dispose()
+    {
+        StopToastTimer();
+    }
+
+    private enum LineFilter
+    {
+        All,
+        Variance
+    }
+
+    private sealed record LocalProductListItem(
+        Guid Id,
+        string Name,
+        string? Barcode,
+        decimal StockQuantity);
 }

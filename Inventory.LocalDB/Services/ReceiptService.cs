@@ -1,5 +1,4 @@
-﻿
-using Inventory.LocalDB.Context;
+﻿using Inventory.LocalDB.Context;
 using Inventory.LocalDB.Models;
 using Inventory.LocalDB.Services.Interfaces;
 using Inventory.LocalDB.Services.Results;
@@ -41,26 +40,29 @@ namespace Inventory.LocalDB.Services
         private readonly IReceiptPdfGenerator _pdfGenerator;
         private readonly ReceiptSettings _settings;
         private readonly ILogger<ReceiptService> _logger;
-
+        private readonly ILocalStoreProfileService _storeProfileService;
+        private readonly ReceiptPrinterOptions _printerOptions;
         public ReceiptService(
-     PosLocalDbContext db,
-     ILocalTenantContext tenantContext,
-     IReceiptPrinter receiptPrinter,
-     IReceiptPdfGenerator pdfGenerator,
-     IOptions<ReceiptSettings> settings,
-     ILogger<ReceiptService> logger)
+            PosLocalDbContext db,
+            ILocalTenantContext tenantContext,
+            IReceiptPrinter receiptPrinter,
+            IReceiptPdfGenerator pdfGenerator,
+            ILocalStoreProfileService storeProfileService,
+            IOptions<ReceiptSettings> settings,
+            IOptions<ReceiptPrinterOptions> printerOptions,
+            ILogger<ReceiptService> logger)
         {
             _db = db;
             _tenantContext = tenantContext;
             _receiptPrinter = receiptPrinter;
+            _printerOptions = printerOptions.Value;
+            _storeProfileService = storeProfileService;
             _pdfGenerator = pdfGenerator;
             _settings = settings.Value;
             _logger = logger;
         }
 
-        public async Task<LocalReceipt> CreateReceiptAsync(
-    Guid localSaleId,
-    CancellationToken cancellationToken = default)
+        public async Task<LocalReceipt> CreateReceiptAsync(Guid localSaleId, CancellationToken cancellationToken = default)
         {
             if (localSaleId == Guid.Empty)
             {
@@ -137,10 +139,19 @@ namespace Inventory.LocalDB.Services
                         tenantId,
                         cancellationToken);
 
+                var store = await _storeProfileService.GetCurrentAsync(cancellationToken);
+
+                if (store == null)
+                {
+                    throw new InvalidOperationException(
+                        "The local store information is missing. " +
+                        "Synchronize the application before creating a receipt.");
+                }
                 var snapshot =
-                    BuildSnapshot(
-                        sale,
-                        customerName);
+                BuildSnapshot(
+                    sale,
+                    customerName,
+                    store);
 
                 var snapshotJson =
                     JsonSerializer.Serialize(
@@ -254,10 +265,7 @@ namespace Inventory.LocalDB.Services
                 cancellationToken);
         }
 
-        public async Task<byte[]> GeneratePdfAsync(
-    Guid receiptId,
-    bool duplicate,
-    CancellationToken cancellationToken = default)
+        public async Task<byte[]> GeneratePdfAsync(Guid receiptId, bool duplicate, CancellationToken cancellationToken = default)
         {
             if (receiptId == Guid.Empty)
             {
@@ -361,6 +369,13 @@ namespace Inventory.LocalDB.Services
             {
                 return LocalReceiptPrintResult.Failed(
                     "The receipt id is required.");
+            }
+
+            if (!_printerOptions.Enabled)
+            {
+                return LocalReceiptPrintResult.Failed(
+                    "Physical receipt printing is currently disabled. " +
+                    "Use PDF generation until a receipt printer is configured.");
             }
 
             var receiptLock =
@@ -477,45 +492,31 @@ namespace Inventory.LocalDB.Services
                     var printLog =
                         new LocalReceiptPrintLog
                         {
-                            Id =
-                                Guid.NewGuid(),
+                            Id = Guid.NewGuid(),
 
-                            TenantId =
-                                tenantId,
+                            TenantId = tenantId,
 
-                            LocalReceiptId =
-                                receipt.Id,
+                            LocalReceiptId = receipt.Id,
 
-                            PrintType =
-                                isDuplicate
-                                    ? ReceiptPrintType.Duplicate
-                                    : ReceiptPrintType.Original,
+                            PrintType = isDuplicate ? ReceiptPrintType.Duplicate : ReceiptPrintType.Original,
 
-                            CopyNumber =
-                                copyNumber,
+                            CopyNumber = copyNumber,
 
-                            PrintedAtUtc =
-                                printedAtUtc,
+                            PrintedAtUtc = printedAtUtc,
 
                             /*
                              * Remplace Guid.Empty par ton CurrentUserId
                              * lorsqu'un ILocalCurrentUserContext sera disponible.
                              */
-                            PrintedByUserId =
-                                Guid.Empty,
+                            PrintedByUserId = Guid.Empty,
 
-                            DeviceName =
-                                _receiptPrinter.DeviceName,
+                            DeviceName = _receiptPrinter.DeviceName,
 
-                            Reason =
-                                NormalizeReason(
-                                    reason),
+                            Reason = NormalizeReason(reason),
 
-                            WasSuccessful =
-                                false,
+                            WasSuccessful = false,
 
-                            ErrorMessage =
-                                null
+                            ErrorMessage = null
                         };
 
                     try
@@ -629,12 +630,20 @@ namespace Inventory.LocalDB.Services
         }
 
         private ReceiptSnapshot BuildSnapshot(
-            LocalSale sale,
-            string customerName)
+    LocalSale sale,
+    string customerName,
+    LocalStoreProfile store)
         {
+            ArgumentNullException.ThrowIfNull(
+                sale);
+
+            ArgumentNullException.ThrowIfNull(
+                store);
+
             var lineSnapshots =
                 sale.Lines
-                    .Select(BuildLineSnapshot)
+                    .Select(
+                        BuildLineSnapshot)
                     .ToList();
 
             var subtotalExclVat =
@@ -671,7 +680,8 @@ namespace Inventory.LocalDB.Services
                                 payment.TransactionRef,
 
                             PaidAtUtc =
-                                payment.PaidAtUtc
+                                EnsureUtc(
+                                    payment.PaidAtUtc)
                         })
                     .ToList();
 
@@ -690,8 +700,9 @@ namespace Inventory.LocalDB.Services
 
             var vatSummary =
                 lineSnapshots
-                    .GroupBy(line =>
-                        line.VatRate)
+                    .GroupBy(
+                        line =>
+                            line.VatRate)
                     .Select(group =>
                         new ReceiptVatSnapshot
                         {
@@ -716,39 +727,160 @@ namespace Inventory.LocalDB.Services
                                         line =>
                                             line.TotalInclVat))
                         })
-                    .OrderBy(summary =>
-                        summary.VatRate)
+                    .OrderBy(
+                        summary =>
+                            summary.VatRate)
                     .ToList();
+
+            /*
+             * Nom commercial du tenant.
+             */
+            var companyName =
+                !string.IsNullOrWhiteSpace(
+                    store.TradeName)
+                        ? store.TradeName.Trim()
+                        : !string.IsNullOrWhiteSpace(
+                            store.Name)
+                                ? store.Name.Trim()
+                                : "MAGASIN";
+
+            var companyAddress =
+                BuildStoreAddress(
+                    store);
+
+            var companyPhone =
+                !string.IsNullOrWhiteSpace(
+                    store.Phone)
+                        ? store.Phone.Trim()
+                        : NormalizeOptionalText(
+                            store.Mobile);
+
+            var receiptBarcodeValue =
+                NormalizeOptionalText(
+                    sale.ReceiptBarcodeValue);
+
+            if (string.IsNullOrWhiteSpace(
+                    receiptBarcodeValue))
+            {
+                throw new InvalidOperationException(
+                    $"Sale '{sale.LocalInvoiceNumber}' does not have " +
+                    "a receipt barcode value.");
+            }
+
+            /*
+             * Configuration propre au tenant.
+             *
+             * ReceiptSettings sert uniquement de valeur de secours.
+             */
+            var currencyCode =
+                FirstNotEmpty(
+                    store.ReceiptCurrencyCode,
+                    store.Currency,
+                    _settings.CurrencyCode,
+                    "EUR")
+                .ToUpperInvariant();
+
+            var cashierName =
+                FirstNotEmpty(
+                    store.ReceiptDefaultCashierName,
+                    _settings.DefaultCashierName,
+                    "POS");
+
+            var headerTagLine =
+                FirstOptionalText(
+                    store.ReceiptHeaderTagLine,
+                    _settings.HeaderTagLine);
+
+            var socialLine =
+                FirstOptionalText(
+                    store.ReceiptSocialLine,
+                    store.Website,
+                    _settings.SocialLine);
+
+            var extraAddressLine =
+                FirstOptionalText(
+                    store.ReceiptExtraAddressLine,
+                    _settings.ExtraAddressLine);
+
+            var footerText =
+                FirstOptionalText(
+                    store.ReceiptFooter,
+                    _settings.FooterText);
+
+            var logoBytes =
+                store.ReceiptLogoBytes is { Length: > 0 }
+                    ? store.ReceiptLogoBytes.ToArray()
+                    : null;
 
             return new ReceiptSnapshot
             {
                 CompanyName =
-                    _settings.CompanyName,
+                    companyName,
 
                 CompanyAddress =
-                    _settings.CompanyAddress,
+                    companyAddress,
+
+                ExtraAddressLine =
+                    extraAddressLine,
 
                 CompanyPhone =
-                    _settings.CompanyPhone,
+                    companyPhone,
 
                 CompanyEmail =
-                    _settings.CompanyEmail,
+                    NormalizeOptionalText(
+                        store.Email),
 
                 CompanyTaxNumber =
-                    _settings.CompanyTaxNumber,
+                    NormalizeOptionalText(
+                        store.TaxNumber),
+
+                CompanyLegalName =
+                    NormalizeOptionalText(
+                        store.LegalName),
+
+                CompanyRegistrationNumber =
+                    NormalizeOptionalText(
+                        store.RegistrationNumber),
+
+                CompanyMobile =
+                    NormalizeOptionalText(
+                        store.Mobile),
+
+                CompanyWebsite =
+                    NormalizeOptionalText(
+                        store.Website),
+
+                ReceiptHeader =
+                    NormalizeOptionalText(
+                        store.ReceiptHeader),
+
+                HeaderTagLine =
+                    headerTagLine,
+
+                SocialLine =
+                    socialLine,
+
+                LogoBytes =
+                    logoBytes,
 
                 InvoiceNumber =
                     sale.LocalInvoiceNumber,
+
+                BarcodeValue =
+                    receiptBarcodeValue,
 
                 SaleDateUtc =
                     EnsureUtc(
                         sale.SaleDateUtc),
 
                 CashierName =
-                    _settings.DefaultCashierName,
+                    cashierName,
 
                 CustomerName =
-                    customerName,
+                    string.IsNullOrWhiteSpace(
+                        customerName)
+                            ? "CLIENT PASSAGER"
+                            : customerName.Trim(),
 
                 Lines =
                     lineSnapshots,
@@ -762,18 +894,104 @@ namespace Inventory.LocalDB.Services
                 TotalAmount =
                     totalAmount,
 
+                TotalReceived =
+                    totalReceived,
+
+                ChangeAmount =
+                    changeAmount,
+
+                CurrencyCode =
+                    currencyCode,
+
                 VatSummary =
                     vatSummary,
 
                 Payments =
                     payments,
 
-                ChangeAmount =
-                    changeAmount,
-
                 FooterText =
-                    _settings.FooterText
+                    footerText
             };
+        }
+
+        private static string FirstNotEmpty(
+    params string?[] values)
+        {
+            foreach (var value in values)
+            {
+                if (!string.IsNullOrWhiteSpace(
+                        value))
+                {
+                    return value.Trim();
+                }
+            }
+
+            return string.Empty;
+        }
+
+        private static string? FirstOptionalText(
+            params string?[] values)
+        {
+            foreach (var value in values)
+            {
+                if (!string.IsNullOrWhiteSpace(
+                        value))
+                {
+                    return value.Trim();
+                }
+            }
+
+            return null;
+        }
+
+        private static string? BuildStoreAddress(LocalStoreProfile store)
+        {
+            var cityLine =
+                string.Join(
+                    " ",
+                    new[]
+                    {
+                NormalizeOptionalText(
+                    store.PostalCode),
+
+                NormalizeOptionalText(
+                    store.City)
+                    }
+                    .Where(value =>
+                        !string.IsNullOrWhiteSpace(value)));
+
+            var addressParts =
+                new[]
+                {
+            NormalizeOptionalText(
+                store.Address),
+
+            NormalizeOptionalText(
+                cityLine),
+
+            NormalizeOptionalText(
+                store.State),
+
+            NormalizeOptionalText(
+                store.Country)
+                }
+                .Where(value =>
+                    !string.IsNullOrWhiteSpace(value))
+                .ToList();
+
+            return addressParts.Count == 0
+                ? null
+                : string.Join(
+                    Environment.NewLine,
+                    addressParts);
+        }
+
+        private static string? NormalizeOptionalText(
+            string? value)
+        {
+            return string.IsNullOrWhiteSpace(value)
+                ? null
+                : value.Trim();
         }
 
         private static ReceiptLineSnapshot BuildLineSnapshot(

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8" ?>
+
+<ContentPage
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    xmlns:display="clr-namespace:Inventory.Ui.Components.Pages"
+    x:Class="Inventory.Ui.Pages.CustomerDisplayPage"
+    Shell.NavBarIsVisible="False">
+
+    <BlazorWebView
+        x:Name="CustomerBlazorWebView"
+        HostPage="wwwroot/index.html">
+
+        <BlazorWebView.RootComponents>
+            <RootComponent
+                Selector="#app"
+                ComponentType="{x:Type display:CustomerDisplay}" />
+        </BlazorWebView.RootComponents>
+
+    </BlazorWebView>
+
+</ContentPage>

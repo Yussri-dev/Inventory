@@ -64,11 +64,9 @@ public static class LocalSaleSyncMapper
 
         return new CreateCompleteSaleRequest
         {
-            CustomerId =
-                sale.CustomerServerId,
-
-            CashSessionId =
-                sale.CashSessionServerId.Value,
+            ClientOperationId = sale.ClientOperationId,
+            CashSessionId = sale.CashSessionServerId.Value,
+            CustomerId = sale.CustomerServerId,
 
             SaleDate =
                 EnsureUtc(

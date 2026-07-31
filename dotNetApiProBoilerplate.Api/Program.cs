@@ -1,94 +1,145 @@
 using Inventory.Api.Installers;
-
 using Inventory.Api.Middleware;
 using QuestPDF.Infrastructure;
 
-var builder = WebApplication.CreateBuilder(args);
-QuestPDF.Settings.License = LicenseType.Community;
+var builder =
+    WebApplication.CreateBuilder(args);
+
+QuestPDF.Settings.License =
+    LicenseType.Community;
+
+/*
+ * Cette valeur est true par défaut pour le développement
+ * classique avec Visual Studio.
+ *
+ * Dans Docker, elle sera définie à false avec une variable
+ * d'environnement.
+ */
+var useHttpsRedirection =
+    builder.Configuration.GetValue(
+        "UseHttpsRedirection",
+        true);
 
 builder
-    // Registers controllers and API explorer
+    // Controllers and API explorer.
     .InstallRestApi()
 
+    // Swagger/OpenAPI.
     .InstallSwagger()
 
+    // Entity Framework Core database.
     .InstallDatabase()
 
-    // Registers repositories, UnitOfWork, and business services
+    // Repositories, UnitOfWork and business services.
     .InstallServices()
 
-    // Registers JWT authentication configuration
+    // JWT authentication.
     .InstallAuthentication()
 
-    // Registers ASP.NET Core Identity (users, passwords, tokens)
+    // ASP.NET Core Identity.
     .InstallIdentity()
 
-    // Registers API versioning and versioned API explorer
+    // API versioning.
     .InstallVersioning()
 
-    // Registers AutoMapper and scans for mapping profiles
+    // AutoMapper profiles.
     .InstallMapping()
 
-    // Registers MediatR
+    // MediatR handlers.
     .InstallMediatR()
 
-    // Registers middleware-related services (if any)
+    // Custom middleware services.
     .InstallMiddleware();
 
-// Register authorization services
-// Enables [Authorize] and policy-based authorization
 builder.Services.AddAuthorization();
 
-// Build the WebApplication
-// At this point, the DI container is finalized
-var app = builder.Build();
+var app =
+    builder.Build();
 
+/*
+ * Global exception handler.
+ */
 app.UseMiddleware<ExceptionHandlingMiddleware>();
 
+/*
+ * Request metrics.
+ */
+app.Use(
+    async (context, next) =>
+    {
+        var route =
+            context.Request.Path.ToString();
 
+        RequestMetrics.PerRoute.AddOrUpdate(
+            route,
+            1,
+            (_, count) =>
+                count + 1);
 
-app.Use(async (context, next) =>
-{
-    var route = context.Request.Path.ToString();
+        await next();
+    });
 
-    RequestMetrics.PerRoute.AddOrUpdate(route, 1, (_, count) => count + 1);
-
-    await next();
-});
-
-// Development-only configuration
+/*
+ * Swagger remains enabled in Development.
+ *
+ * The Docker container will initially run with:
+ * ASPNETCORE_ENVIRONMENT=Development
+ */
 if (app.Environment.IsDevelopment())
 {
-    // Map OpenAPI endpoints (minimal OpenAPI support)
     app.MapOpenApi();
 
-    // Enable Swagger middleware
     app.UseSwagger();
 
-    // Enable Swagger UI for interactive API exploration
     app.UseSwaggerUI();
 }
 
-// Enforce HTTPS redirection
-// Automatically redirects HTTP requests to HTTPS
-app.UseHttpsRedirection();
+/*
+ * Local Visual Studio:
+ *     UseHttpsRedirection=true
+ *
+ * Docker:
+ *     UseHttpsRedirection=false
+ */
+if (useHttpsRedirection)
+{
+    app.UseHttpsRedirection();
+}
 
-// Enable authentication middleware
-// Validates JWT tokens and sets HttpContext.User
 app.UseAuthentication();
 
-// Enable authorization middleware
-// Enforces access rules defined by [Authorize] attributes
 app.UseAuthorization();
 
-// Map controller endpoints
-// Activates attribute-based routing
 app.MapControllers();
 
-app.MapGet("/metrics/requests", () =>
-{
-    return new { total = RequestMetrics.PerRoute };
-});
+/*
+ * Simple endpoint used to check whether the Docker
+ * container is running correctly.
+ */
+app.MapGet(
+    "/health",
+    () =>
+        Results.Ok(
+            new
+            {
+                status =
+                    "healthy",
 
-// Start the HTTP server and begin listening for requests
+                application =
+                    "Inventory.Api",
+
+                utcTime =
+                    DateTime.UtcNow
+            }));
+
+app.MapGet(
+    "/metrics/requests",
+    () =>
+        Results.Ok(
+            new
+            {
+                total =
+                    RequestMetrics.PerRoute
+            }));
+
 app.Run();

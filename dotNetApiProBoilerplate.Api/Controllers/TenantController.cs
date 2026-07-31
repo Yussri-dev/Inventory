@@ -35,55 +35,140 @@ namespace Inventory.Api.Controllers
             if (string.IsNullOrEmpty(tenantId))
                 return Unauthorized(new { message = "TenantId not found in token" });
 
-            var tenant = await _context.Tenants
-                .Where(t => t.Id == Guid.Parse(tenantId))
-                .Select(t => new TenantResponse
-                {
-                    Id = t.Id,
-                    Name = t.Name,
-                    LegalName = t.LegalName,
-                    Email = t.Email,
-                    Phone = t.Phone,
-                    Address = t.Address,
-                    City = t.City,
-                    PostalCode = t.PostalCode,
-                    Country = t.Country,
-                    TaxNumber = t.TaxNumber,
+            var tenant =
+     await _context.Tenants
+         .AsNoTracking()
+         .Where(item =>
+             item.Id == Guid.Parse(tenantId) &&
+             item.IsActive &&
+             !item.IsDeleted)
+         .Select(item =>
+             new TenantResponse
+             {
+                 Id =
+                     item.Id,
 
-                    // Regional Settings
-                    Currency = t.Currency,
-                    CurrencySymbol = t.CurrencySymbol,
-                    Locale = t.Locale,
-                    TimeZone = t.TimeZone,
-                    DateFormat = t.DateFormat,
-                    TimeFormat = t.TimeFormat,
-                    DefaultVatRate = t.DefaultVatRate,
+                 Name =
+                     item.Name,
 
-                    // Subscription Info
-                    SubscriptionPlan = t.SubscriptionPlan,
-                    SubscriptionStartDate = t.SubscriptionStartDate,
-                    SubscriptionEndDate = t.SubscriptionEndDate,
-                    IsTrialActive = t.IsTrialActive,
-                    TrialEndDate = t.TrialEndDate,
+                 LegalName =
+                     item.LegalName,
 
-                    // Limits
-                    MaxUsers = t.MaxUsers,
-                    MaxProducts = t.MaxProducts,
-                    MaxLocations = t.MaxLocations,
-                    MaxMonthlyTransactions = t.MaxMonthlyTransactions,
+                 TradeName =
+                     item.TradeName,
 
-                    // Current Usage
-                    CurrentUsers = t.CurrentUsers,
-                    CurrentProducts = t.CurrentProducts,
-                    CurrentLocations = t.CurrentLocations,
-                    CurrentMonthTransactions = t.CurrentMonthTransactions,
+                 TaxNumber =
+                     item.TaxNumber,
 
-                    // Status
-                    IsActive = t.IsActive,
-                    CreatedAt = t.CreatedAt,
-                    LastActivityAt = t.LastActivityAt
-                })
-                .FirstOrDefaultAsync();
+                 RegistrationNumber =
+                     item.RegistrationNumber,
+
+                 Address =
+                     item.Address,
+
+                 City =
+                     item.City,
+
+                 State =
+                     item.State,
+
+                 PostalCode =
+                     item.PostalCode,
+
+                 Country =
+                     item.Country,
+
+                 Phone =
+                     item.Phone,
+
+                 Mobile =
+                     item.Mobile,
+
+                 Email =
+                     item.Email,
+
+                 Website =
+                     item.Website,
+
+                 LogoUrl =
+                     item.LogoUrl,
+
+                 ReceiptHeader =
+                     item.ReceiptHeader,
+
+                 ReceiptFooter =
+                     item.ReceiptFooter,
+
+                 Currency =
+                     item.Currency,
+
+                 CurrencySymbol =
+                     item.CurrencySymbol,
+
+                 Locale =
+                     item.Locale,
+
+                 TimeZone =
+                     item.TimeZone,
+
+                 DateFormat =
+                     item.DateFormat,
+
+                 TimeFormat =
+                     item.TimeFormat,
+
+                 DefaultVatRate =
+                     item.DefaultVatRate,
+
+                 SubscriptionPlan =
+                     item.SubscriptionPlan,
+
+                 SubscriptionStartDate =
+                     item.SubscriptionStartDate,
+
+                 SubscriptionEndDate =
+                     item.SubscriptionEndDate,
+
+                 IsTrialActive =
+                     item.IsTrialActive,
+
+                 TrialEndDate =
+                     item.TrialEndDate,
+
+                 MaxUsers =
+                     item.MaxUsers,
+
+                 MaxProducts =
+                     item.MaxProducts,
+
+                 MaxLocations =
+                     item.MaxLocations,
+
+                 MaxMonthlyTransactions =
+                     item.MaxMonthlyTransactions,
+
+                 CurrentUsers =
+                     item.CurrentUsers,
+
+                 CurrentProducts =
+                     item.CurrentProducts,
+
+                 CurrentLocations =
+                     item.CurrentLocations,
+
+                 CurrentMonthTransactions =
+                     item.CurrentMonthTransactions,
+
+                 IsActive =
+                     item.IsActive,
+
+                 CreatedAt =
+                     item.CreatedAt,
+
+                 LastActivityAt =
+                     item.LastActivityAt
+             })
+         .FirstOrDefaultAsync();
 
             if (tenant == null)
                 return NotFound(new { message = "Tenant not found" });

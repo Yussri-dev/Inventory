@@ -75,6 +75,12 @@ public sealed class LocalCustomerService
 
         ValidateName(request.Name);
 
+        var creditPolicy =
+            CreateCreditPolicy(
+                request.AllowCredit,
+                request.HasUnlimitedCredit,
+                request.CreditLimit);
+
         var normalizedName =
             request.Name.Trim();
 
@@ -98,6 +104,7 @@ public sealed class LocalCustomerService
         var now =
             DateTime.UtcNow;
 
+
         var customer =
             new LocalCustomer
             {
@@ -111,8 +118,12 @@ public sealed class LocalCustomerService
                 Address = NormalizeNullable(request.Address),
                 TaxNumber = NormalizeNullable(request.TaxNumber),
 
-                CreditLimit = request.CreditLimit,
+                CreditLimit = creditPolicy.CreditLimit,
                 CurrentBalance = 0m,
+
+                AllowCredit = creditPolicy.AllowCredit,
+                HasUnlimitedCredit =
+                    creditPolicy.HasUnlimitedCredit,
 
                 IsActive = request.IsActive,
                 IsDeleted = false,
@@ -148,6 +159,12 @@ public sealed class LocalCustomerService
             _tenantContext.GetRequiredTenantId();
 
         ValidateName(request.Name);
+
+        var creditPolicy =
+            CreateCreditPolicy(
+                request.AllowCredit,
+                request.HasUnlimitedCredit,
+                request.CreditLimit);
 
         var customer =
             await _db.Customers
@@ -201,7 +218,13 @@ public sealed class LocalCustomerService
             NormalizeNullable(request.TaxNumber);
 
         customer.CreditLimit =
-            request.CreditLimit;
+            creditPolicy.CreditLimit;
+
+        customer.AllowCredit =
+            creditPolicy.AllowCredit;
+
+        customer.HasUnlimitedCredit =
+            creditPolicy.HasUnlimitedCredit;
 
         customer.IsActive =
             request.IsActive;
@@ -588,9 +611,59 @@ public sealed class LocalCustomerService
             TaxNumber = customer.TaxNumber,
             CreditLimit = customer.CreditLimit,
             CurrentBalance = customer.CurrentBalance,
+            AllowCredit = customer.AllowCredit,
+            HasUnlimitedCredit =
+                customer.HasUnlimitedCredit,
             IsActive = customer.IsActive,
             Notes = customer.Notes
         };
+    }
+
+    private static CustomerCreditPolicy CreateCreditPolicy(
+        bool allowCredit,
+        bool hasUnlimitedCredit,
+        decimal creditLimit)
+    {
+        if (!allowCredit)
+        {
+            return new CustomerCreditPolicy(
+                AllowCredit: false,
+                HasUnlimitedCredit: false,
+                CreditLimit: 0m);
+        }
+
+        if (hasUnlimitedCredit)
+        {
+            return new CustomerCreditPolicy(
+                AllowCredit: true,
+                HasUnlimitedCredit: true,
+                CreditLimit: 0m);
+        }
+
+        creditLimit =
+            RoundMoney(
+                creditLimit);
+
+        if (creditLimit <= 0m)
+        {
+            throw new InvalidOperationException(
+                "A positive credit limit is required when " +
+                "credit is enabled and unlimited credit is disabled.");
+        }
+
+        return new CustomerCreditPolicy(
+            AllowCredit: true,
+            HasUnlimitedCredit: false,
+            CreditLimit: creditLimit);
+    }
+
+    private static decimal RoundMoney(
+        decimal value)
+    {
+        return Math.Round(
+            value,
+            2,
+            MidpointRounding.AwayFromZero);
     }
 
     private static string? NormalizeNullable(
@@ -600,4 +673,9 @@ public sealed class LocalCustomerService
             ? null
             : value.Trim();
     }
+
+    private readonly record struct CustomerCreditPolicy(
+        bool AllowCredit,
+        bool HasUnlimitedCredit,
+        decimal CreditLimit);
 }

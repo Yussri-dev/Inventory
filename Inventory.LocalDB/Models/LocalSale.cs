@@ -16,6 +16,7 @@ namespace Inventory.LocalDB.Models
         [Required, MaxLength(100)]
         public string LocalInvoiceNumber { get; set; } = string.Empty;
 
+        public string? ReceiptBarcodeValue { get; set; }
         [MaxLength(100)]
         public string? ServerInvoiceNumber { get; set; }
 

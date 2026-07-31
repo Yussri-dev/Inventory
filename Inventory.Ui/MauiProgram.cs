@@ -8,6 +8,7 @@ using Inventory.Ui.Infrastructure;
 using Inventory.Ui.Interfaces;
 using Inventory.Ui.Services;
 using Inventory.Ui.Services.Analytics;
+using Inventory.Ui.Services.Labels;
 using Inventory.Ui.Services.Sync;
 using Inventory.Ui.State;
 using Microsoft.AspNetCore.Components.Authorization;
@@ -47,6 +48,7 @@ public static class MauiProgram
 #endif
 
 #if ANDROID
+        //const string apiBaseUrl = "https://10.0.2.2:8080";
         const string apiBaseUrl = "https://10.0.2.2:7190";
 #else
         const string apiBaseUrl = "https://localhost:7190";
@@ -70,13 +72,10 @@ public static class MauiProgram
 
         builder.Services.AddScoped<JwtAuthStateProvider>();
 
-        builder.Services.AddScoped<
-            AuthenticationStateProvider,
-            JwtAuthStateProvider>();
+        builder.Services.AddScoped<AuthenticationStateProvider, JwtAuthStateProvider>();
 
-        builder.Services.AddSingleton<
-            ISecureStorageService,
-            SecureStorageService>();
+        builder.Services.AddSingleton<ISecureStorageService, SecureStorageService>();
+        builder.Services.AddSingleton<CustomerDisplayState>();
 
         builder.Services.AddTransient<AuthHeaderHandler>();
         builder.Services.AddTransient<AuthExpiredHandler>();
@@ -165,6 +164,10 @@ public static class MauiProgram
             ILocalStockAdjustmentService,
             LocalStockAdjustmentService>();
 
+      builder.Services.AddScoped<
+            ILocalInventorySessionService,
+            LocalInventorySessionService>();
+
         // Uploads only manual StockMovement outbox items.
         // Sale/Purchase/Return stock movements are synchronized by their
         // authoritative complete endpoints and must not be uploaded twice.
@@ -212,60 +215,96 @@ public static class MauiProgram
             ILocalSalesHistoryService,
             LocalSalesHistoryService>();
 
-        builder.Services.Configure<ReceiptSettings>(
-     settings =>
-     {
-         settings.CompanyName =
-             "My Store";
+        builder.Services.AddScoped<
+            ILocalStoreProfileService,
+            LocalStoreProfileService>();
 
-         settings.CompanyAddress =
-             "Kortrijk, Belgium";
+        builder.Services.AddScoped<
+            ITenantStoreProfileSyncService,
+            TenantStoreProfileSyncService>();
 
-         settings.CompanyPhone =
-             "+32 ...";
+        builder.Services.AddSingleton<
+            IReceiptBarcodeGenerator,
+            ReceiptBarcodeGenerator>();
 
-         settings.CompanyEmail =
-             "contact@example.com";
+        builder.Services.AddSingleton<
+            ILocalPurchaseDraftService,
+            LocalPurchaseDraftService>();
 
-         settings.CompanyTaxNumber =
-             "BE0123.456.789";
+        builder.Services.AddScoped<
+    ILocalBarcodeLabelService,
+    LocalBarcodeLabelService>();
+        //   builder.Services.Configure<ReceiptSettings>(
+        //settings =>
+        //{
+        //    settings.CompanyName =
+        //        "My Store";
 
-         settings.DefaultCashierName =
-             "POS";
+        //    settings.CompanyAddress =
+        //        "Kortrijk, Belgium";
 
-         settings.FooterText =
-             "Thank you for your purchase.";
-     });
+        //    settings.CompanyPhone =
+        //        "+32 ...";
+
+        //    settings.CompanyEmail =
+        //        "contact@example.com";
+
+        //    settings.CompanyTaxNumber =
+        //        "BE0123.456.789";
+
+        //    settings.DefaultCashierName =
+        //        "POS";
+
+        //    settings.FooterText =
+        //        "Thank you for your purchase.";
+        //});
 
         builder.Services.Configure<ReceiptPrinterOptions>(
             options =>
             {
-                /*
-                 * Nom exact visible dans les paramètres des imprimantes
-                 * Windows.
-                 */
-                options.PrinterName =
-                    "EPSON TM-T20III Receipt";
+                options.Enabled = false;
 
-                /*
-                 * 80 mm : 42 ou 48 caractères.
-                 * 58 mm : généralement 32 caractères.
-                 */
-                options.CharactersPerLine =
-                    48;
+                options.PrinterName = string.Empty;
 
-                options.CodePage =
-                    858;
+                options.CharactersPerLine = 48;
 
-                options.CutPaper =
-                    true;
+                options.CodePage = 858;
 
-                options.FeedLinesAfterReceipt =
-                    4;
+                options.CutPaper = true;
 
-                options.ReceiptTitle =
-                    "TICKET DE CAISSE";
+                options.FeedLinesAfterReceipt = 4;
+
+                options.ReceiptTitle = "TICKET DE CAISSE";
             });
+
+        builder.Services.Configure<ReceiptSettings>(
+    settings =>
+    {
+        /*
+         * Valeurs utilisées uniquement lorsque le tenant
+         * n'a pas encore personnalisé son ticket.
+         */
+        settings.DefaultCashierName =
+            "POS";
+
+        settings.CurrencyCode =
+            "EUR";
+
+        settings.HeaderTagLine =
+            null;
+
+        settings.SocialLine =
+            null;
+
+        settings.ExtraAddressLine =
+            null;
+
+        settings.FooterText =
+            "Merci pour votre achat.";
+
+        settings.MaximumLogoSizeBytes =
+            1_048_576;
+    });
 
         builder.Services.AddScoped<
             IReceiptService,
@@ -279,11 +318,11 @@ public static class MauiProgram
             IReceiptPrinter,
             ReceiptPrinter>();
 
-        #if WINDOWS
+#if WINDOWS
         builder.Services.AddSingleton<
             IReceiptPrinterTransport,
             WindowsRawPrinterTransport>();
-        #endif
+#endif
 
         // AutoSyncService may remain singleton only if it creates
         // its own IServiceScope for scoped synchronization services.
@@ -291,6 +330,9 @@ public static class MauiProgram
             IAutoSyncService,
             AutoSyncService>();
 
+        builder.Services.AddSingleton<
+            IBackgroundSyncCoordinator,
+            BackgroundSyncCoordinator>();
         // =========================
         // STATES
         // =========================
@@ -306,6 +348,9 @@ public static class MauiProgram
         builder.Services.AddSecuredApi<IAuthApi>(
             apiBaseUrl,
             withRefresh: false);
+
+        builder.Services.AddSecuredApi<ITenantApi>(
+            apiBaseUrl);
 
         builder.Services.AddSecuredApi<ICashSessionApi>(
             apiBaseUrl);

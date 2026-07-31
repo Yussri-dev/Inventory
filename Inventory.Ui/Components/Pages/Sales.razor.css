@@ -1230,10 +1230,10 @@
     border-radius: 6px;
     font-size: 15px;
     font-weight: 600;
-    cursor: pointer;
-    transition: all 0.2s;
     margin-bottom: 8px;
     box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    transition: all 0.2s;
+    cursor: pointer;
     touch-action: manipulation;
 }
 
@@ -2120,4 +2120,227 @@ tr.overstock {
         .modal-footer button {
             width: 100%;
         }
+}
+
+.receipt-delivery-panel {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 12px 16px;
+    margin-top: 12px;
+    border: 1px solid var(--border-color, #dcdfe4);
+    border-radius: 10px;
+    background: var(--card-background, #ffffff);
+}
+
+.receipt-delivery-header {
+    display: flex;
+    flex-direction: column;
+    min-width: 160px;
+}
+
+.receipt-delivery-options {
+    display: flex;
+    gap: 8px;
+}
+
+.receipt-delivery-btn {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-height: 40px;
+    padding: 8px 14px;
+    border: 1px solid #cfd4da;
+    border-radius: 8px;
+    background: transparent;
+    cursor: pointer;
+    transition: 0.2s ease;
+}
+
+    .receipt-delivery-btn:hover:not(:disabled) {
+        transform: translateY(-1px);
+        border-color: #1976d2;
+    }
+
+    .receipt-delivery-btn.active {
+        color: #ffffff;
+        background: #1976d2;
+        border-color: #1976d2;
+    }
+
+    .receipt-delivery-btn:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+    }
+
+.receipt-delivery-warning {
+    font-size: 12px;
+    color: #b45309;
+}
+
+.receipt-delivery-printer {
+    font-size: 12px;
+    color: #6b7280;
+}
+
+@media (max-width: 900px) {
+    .receipt-delivery-panel {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .receipt-delivery-options {
+        flex-wrap: wrap;
+    }
+
+    .receipt-delivery-btn {
+        flex: 1;
+        justify-content: center;
+    }
+}
+
+.actions-footer {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.tax-info {
+    flex: 1;
+}
+
+.pos-footer-buttons {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.pos-icon-btn {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 46px;
+    height: 46px;
+    padding: 0;
+    border: 1px solid #d1d5db;
+    border-radius: 9px;
+    background: #ffffff;
+    color: #374151;
+    font-size: 20px;
+    line-height: 1;
+    cursor: pointer;
+    transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+    .pos-icon-btn:hover:not(:disabled) {
+        transform: translateY(-1px);
+        border-color: #4f6fe8;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+    }
+
+    .pos-icon-btn:active:not(:disabled) {
+        transform: translateY(0);
+    }
+
+    .pos-icon-btn:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+    }
+
+    .pos-icon-btn.warning {
+        background: #fff8db;
+        border-color: #e0bd4e;
+    }
+
+    .pos-icon-btn.secondary {
+        background: #f8fafc;
+    }
+
+    .pos-icon-btn.duplicate {
+        background: #fff4d6;
+        border-color: #f0b429;
+    }
+
+.pos-complete-sale-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-width: 135px;
+    height: 46px;
+    font-weight: 700;
+}
+
+.duplicate-indicator {
+    position: absolute;
+    top: 2px;
+    right: 3px;
+    min-width: 18px;
+    padding: 1px 3px;
+    border-radius: 8px;
+    background: #dc2626;
+    color: #ffffff;
+    font-size: 9px;
+    font-weight: 800;
+    line-height: 14px;
+}
+
+.mini-spinner {
+    width: 18px;
+    height: 18px;
+    border: 2px solid rgba(0, 0, 0, 0.2);
+    border-top-color: currentColor;
+    border-radius: 50%;
+    animation: pos-spin 0.7s linear infinite;
+}
+
+@keyframes pos-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@media (max-width: 1000px) {
+    .actions-footer {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .pos-footer-buttons {
+        justify-content: flex-end;
+        flex-wrap: wrap;
+    }
+}
+
+.change-due-panel {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    margin-top: 14px;
+    padding: 16px;
+    border: 2px solid #f59e0b;
+    border-radius: 10px;
+    background: #fff7d6;
+    text-align: center;
+}
+
+.change-due-label {
+    color: #92400e;
+    font-size: 15px;
+    font-weight: 700;
+}
+
+.change-due-value {
+    color: #dc2626;
+    font-size: 34px;
+    font-weight: 900;
+    line-height: 1.1;
+}
+
+.change-due-message {
+    color: #78350f;
+    font-size: 12px;
 }

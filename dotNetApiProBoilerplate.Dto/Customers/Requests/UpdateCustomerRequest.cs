@@ -34,7 +34,9 @@ namespace Inventory.Dto.Customers.Requests
 
         [Column(TypeName = "decimal(18,2)")]
         public decimal CurrentBalance { get; set; }
+        public bool AllowCredit { get; set; }
 
+        public bool HasUnlimitedCredit { get; set; }
         public bool IsActive { get; set; }
 
         [MaxLength(1000)]

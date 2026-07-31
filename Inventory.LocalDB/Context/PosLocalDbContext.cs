@@ -57,10 +57,25 @@ namespace Inventory.LocalDB.Context
         public DbSet<LocalPackComponent> PackComponents => Set<LocalPackComponent>();
         public DbSet<LocalDamage> Damages => Set<LocalDamage>();
         public DbSet<LocalReceipt> Receipts => Set<LocalReceipt>();
-
+        public DbSet<LocalStoreProfile> StoreProfiles => Set<LocalStoreProfile>();
         public DbSet<LocalReceiptPrintLog> ReceiptPrintLogs => Set<LocalReceiptPrintLog>();
         public DbSet<LocalCustomerTransaction> CustomerTransactions =>
             Set<LocalCustomerTransaction>();
+
+        public DbSet<LocalPurchaseDraftAdjustment> PurchaseDraftAdjustments => 
+            Set<LocalPurchaseDraftAdjustment>();
+
+        public DbSet<LocalPurchaseDraft> PurchaseDrafts => Set<LocalPurchaseDraft>();
+
+        public DbSet<LocalPurchaseDraftLine> PurchaseDraftLines =>
+            Set<LocalPurchaseDraftLine>();
+
+        public DbSet<LocalInventorySession> InventorySessions =>
+    Set<LocalInventorySession>();
+
+        public DbSet<LocalInventoryLine> InventoryLines =>
+            Set<LocalInventoryLine>();
+
         protected override void OnModelCreating(ModelBuilder builder)
         {
             base.OnModelCreating(builder);
@@ -92,7 +107,457 @@ namespace Inventory.LocalDB.Context
             ConfigureLocalCustomerTransaction(builder);
             ConfigureLocalReceipt(builder);
             ConfigureLocalReceiptPrintLog(builder);
+            ConfigureLocalStoreProfile(builder);
+            ConfigureLocalPurchaseDraft(builder);
+
+            ConfigureLocalInventory(builder);
+            ConfigureLocalInventoryLine(builder);
         }
+
+        private static void ConfigureLocalInventory(ModelBuilder builder)
+        {
+            builder.Entity<LocalInventorySession>(
+     entity =>
+     {
+         entity.ToTable(
+             "InventorySessions");
+
+         entity.HasKey(
+             session =>
+                 session.Id);
+
+         entity.Property(
+                 session =>
+                     session.SessionNumber)
+             .HasMaxLength(100)
+             .IsRequired();
+
+         entity.Property(
+                 session =>
+                     session.Status)
+             .HasMaxLength(50)
+             .IsRequired();
+
+         entity.Property(
+                 session =>
+                     session.SyncStatus)
+             .HasMaxLength(50)
+             .IsRequired();
+
+         entity.Property(
+                 session =>
+                     session.Notes)
+             .HasMaxLength(1000);
+
+         entity.HasIndex(
+             session =>
+                 new
+                 {
+                     session.TenantId,
+                     session.SessionNumber
+                 })
+             .IsUnique();
+
+         entity.HasIndex(
+             session =>
+                 new
+                 {
+                     session.TenantId,
+                     session.Status
+                 });
+
+         entity.HasMany(
+                 session =>
+                     session.Lines)
+             .WithOne(
+                 line =>
+                     line.Session)
+             .HasForeignKey(
+                 line =>
+                     line.LocalInventorySessionId)
+             .OnDelete(
+                 DeleteBehavior.Cascade);
+     });
+        }
+
+        private static void ConfigureLocalInventoryLine(ModelBuilder builder)
+        {
+            builder.Entity<LocalInventoryLine>(
+               entity =>
+               {
+                   entity.ToTable(
+                       "InventoryLines");
+
+                   entity.HasKey(
+                       line =>
+                           line.Id);
+
+                   entity.Property(
+                           line =>
+                               line.ProductName)
+                       .HasMaxLength(300)
+                       .IsRequired();
+
+                   entity.Property(
+                           line =>
+                               line.ProductBarcode)
+                       .HasMaxLength(100);
+
+                   entity.Property(
+                           line =>
+                               line.Notes)
+                       .HasMaxLength(1000);
+
+                   entity.Property(
+                           line =>
+                               line.ExpectedQuantity)
+                       .HasPrecision(
+                           18,
+                           3);
+
+                   entity.Property(
+                           line =>
+                               line.CountedQuantity)
+                       .HasPrecision(
+                           18,
+                           3);
+
+                   entity.HasIndex(
+                       line =>
+                           new
+                           {
+                               line.LocalInventorySessionId,
+                               line.ProductLocalId
+                           })
+                       .IsUnique();
+
+                   entity.HasIndex(
+                       line =>
+                           new
+                           {
+                               line.TenantId,
+                               line.ProductLocalId
+                           });
+               });
+
+        }
+        private static void ConfigureLocalPurchaseDraft(
+    ModelBuilder builder)
+        {
+            var draft =
+                builder.Entity<LocalPurchaseDraft>();
+
+            draft.ToTable(
+                "PurchaseDrafts");
+
+            draft.HasKey(item =>
+                item.Id);
+
+            draft.Property(item =>
+                    item.Status)
+                .HasConversion<string>()
+                .IsRequired();
+
+            draft.Property(item =>
+                    item.CreatedAtUtc)
+                .IsRequired();
+
+            draft.Property(item =>
+                    item.UpdatedAtUtc)
+                .IsRequired();
+
+            draft.HasIndex(item =>
+                new
+                {
+                    item.TenantId,
+                    item.Status
+                });
+
+            draft.HasMany(item =>
+                    item.Lines)
+                .WithOne(line =>
+                    line.PurchaseDraft)
+                .HasForeignKey(line =>
+                    line.PurchaseDraftId)
+                .OnDelete(
+                    DeleteBehavior.Cascade);
+
+
+            var draftLine =
+                builder.Entity<LocalPurchaseDraftLine>();
+
+            draftLine.ToTable(
+                "PurchaseDraftLines");
+
+            draftLine.HasKey(line =>
+                line.Id);
+
+            draftLine.Property(line =>
+                    line.Quantity)
+                .HasPrecision(18, 3)
+                .IsRequired();
+
+            draftLine.Property(line =>
+                    line.BasePurchasePrice)
+                .HasPrecision(18, 2)
+                .IsRequired();
+
+            draftLine.Property(line =>
+                    line.EffectiveUnitPrice)
+                .HasPrecision(18, 2)
+                .IsRequired();
+
+            draftLine.Property(line =>
+                    line.VatRate)
+                .HasPrecision(5, 2)
+                .IsRequired();
+
+            draftLine.Property(line =>
+                    line.DisplayOrder)
+                .IsRequired();
+
+            draftLine.HasIndex(line =>
+                new
+                {
+                    line.PurchaseDraftId,
+                    line.DisplayOrder
+                });
+
+            draftLine.HasMany(line =>
+                    line.Adjustments)
+                .WithOne(adjustment =>
+                    adjustment.PurchaseDraftLine)
+                .HasForeignKey(adjustment =>
+                    adjustment.PurchaseDraftLineId)
+                .OnDelete(
+                    DeleteBehavior.Cascade);
+
+
+            var adjustment =
+                builder.Entity<LocalPurchaseDraftAdjustment>();
+
+            adjustment.ToTable(
+                "PurchaseDraftAdjustments");
+
+            adjustment.HasKey(item =>
+                item.Id);
+
+            adjustment.Property(item =>
+                    item.Type)
+                .HasConversion<string>()
+                .IsRequired();
+
+            adjustment.Property(item =>
+                    item.Value)
+                .HasPrecision(18, 2)
+                .IsRequired();
+
+            adjustment.Property(item =>
+                    item.DisplayOrder)
+                .IsRequired();
+
+            adjustment.HasIndex(item =>
+                new
+                {
+                    item.PurchaseDraftLineId,
+                    item.DisplayOrder
+                });
+        }
+
+        private static void ConfigureLocalStoreProfile(
+    ModelBuilder modelBuilder)
+        {
+            var entity =
+                modelBuilder.Entity<LocalStoreProfile>();
+
+            entity.ToTable(
+                "StoreProfiles");
+
+            /*
+             * Un seul profil magasin par tenant.
+             */
+            entity.HasKey(
+                item =>
+                    item.TenantId);
+
+            entity.Property(
+                    item =>
+                        item.TenantId)
+                .ValueGeneratedNever();
+
+            /*
+             * Informations générales du magasin.
+             */
+            entity.Property(
+                    item =>
+                        item.Name)
+                .IsRequired()
+                .HasMaxLength(200);
+
+            entity.Property(
+                    item =>
+                        item.LegalName)
+                .HasMaxLength(200);
+
+            entity.Property(
+                    item =>
+                        item.TradeName)
+                .HasMaxLength(100);
+
+            entity.Property(
+                    item =>
+                        item.TaxNumber)
+                .HasMaxLength(50);
+
+            entity.Property(
+                    item =>
+                        item.RegistrationNumber)
+                .HasMaxLength(50);
+
+            entity.Property(
+                    item =>
+                        item.Address)
+                .HasMaxLength(500);
+
+            entity.Property(
+                    item =>
+                        item.City)
+                .HasMaxLength(100);
+
+            entity.Property(
+                    item =>
+                        item.State)
+                .HasMaxLength(100);
+
+            entity.Property(
+                    item =>
+                        item.PostalCode)
+                .HasMaxLength(20);
+
+            entity.Property(
+                    item =>
+                        item.Country)
+                .HasMaxLength(100);
+
+            entity.Property(
+                    item =>
+                        item.Phone)
+                .HasMaxLength(50);
+
+            entity.Property(
+                    item =>
+                        item.Mobile)
+                .HasMaxLength(50);
+
+            entity.Property(
+                    item =>
+                        item.Email)
+                .HasMaxLength(100);
+
+            entity.Property(
+                    item =>
+                        item.Website)
+                .HasMaxLength(200);
+
+            entity.Property(
+                    item =>
+                        item.LogoUrl)
+                .HasMaxLength(500);
+
+            /*
+             * Textes généraux du ticket.
+             */
+            entity.Property(
+                    item =>
+                        item.ReceiptHeader)
+                .HasMaxLength(2000);
+
+            entity.Property(
+                    item =>
+                        item.ReceiptFooter)
+                .HasMaxLength(2000);
+
+            /*
+             * Paramètres régionaux généraux.
+             */
+            entity.Property(
+                    item =>
+                        item.Currency)
+                .IsRequired()
+                .HasMaxLength(3)
+                .HasDefaultValue("EUR");
+
+            entity.Property(
+                    item =>
+                        item.CurrencySymbol)
+                .IsRequired()
+                .HasMaxLength(10)
+                .HasDefaultValue("€");
+
+            entity.Property(
+                    item =>
+                        item.Locale)
+                .IsRequired()
+                .HasMaxLength(10)
+                .HasDefaultValue("fr-BE");
+
+            /*
+             * Configuration personnalisée du ticket par tenant.
+             */
+            entity.Property(
+                    item =>
+                        item.ReceiptCurrencyCode)
+                .IsRequired()
+                .HasMaxLength(10)
+                .HasDefaultValue("EUR");
+
+            entity.Property(
+                    item =>
+                        item.ReceiptHeaderTagLine)
+                .HasMaxLength(200);
+
+            entity.Property(
+                    item =>
+                        item.ReceiptSocialLine)
+                .HasMaxLength(200);
+
+            entity.Property(
+                    item =>
+                        item.ReceiptExtraAddressLine)
+                .HasMaxLength(300);
+
+            entity.Property(
+                    item =>
+                        item.ReceiptDefaultCashierName)
+                .HasMaxLength(100);
+
+            entity.Property(
+                    item =>
+                        item.ReceiptLogoFileName)
+                .HasMaxLength(200);
+
+            entity.Property(
+                    item =>
+                        item.ReceiptLogoContentType)
+                .HasMaxLength(100);
+
+            /*
+             * SQLite stocke le logo comme BLOB.
+             */
+            entity.Property(
+                    item =>
+                        item.ReceiptLogoBytes)
+                .HasColumnType("BLOB");
+
+            entity.Property(
+                item =>
+                    item.ReceiptConfigurationUpdatedAtUtc);
+
+            entity.Property(
+                item =>
+                    item.LastSyncedAtUtc);
+        }
+
 
         private static void ConfigureLocalReceipt(
     ModelBuilder modelBuilder)
@@ -619,10 +1084,12 @@ namespace Inventory.LocalDB.Context
         }
 
         private static void ConfigureLocalSale(
-            ModelBuilder builder)
+     ModelBuilder builder)
         {
             builder.Entity<LocalSale>(entity =>
             {
+                entity.ToTable("Sales");
+
                 entity.HasKey(x => x.Id);
 
                 entity.HasIndex(x => x.TenantId);
@@ -633,7 +1100,8 @@ namespace Inventory.LocalDB.Context
                     x.ServerId
                 })
                 .IsUnique()
-                .HasFilter("ServerId IS NOT NULL");
+                .HasFilter(
+                    "\"ServerId\" IS NOT NULL");
 
                 entity.HasIndex(x => new
                 {
@@ -641,6 +1109,16 @@ namespace Inventory.LocalDB.Context
                     x.LocalInvoiceNumber
                 })
                 .IsUnique();
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.ReceiptBarcodeValue
+                })
+                .IsUnique()
+                .HasFilter(
+                    "\"ReceiptBarcodeValue\" IS NOT NULL " +
+                    "AND trim(\"ReceiptBarcodeValue\") <> ''");
 
                 entity.HasIndex(x => new
                 {
@@ -653,13 +1131,20 @@ namespace Inventory.LocalDB.Context
                     .IsUnique();
 
                 entity.HasIndex(x => x.LocalCashSessionId);
+
                 entity.HasIndex(x => x.CashSessionServerId);
+
                 entity.HasIndex(x => x.CustomerLocalId);
+
                 entity.HasIndex(x => x.CustomerServerId);
 
                 entity.Property(x => x.LocalInvoiceNumber)
                     .HasMaxLength(100)
                     .IsRequired();
+
+                entity.Property(x => x.ReceiptBarcodeValue)
+                    .HasMaxLength(32)
+                    .IsRequired(false);
 
                 entity.Property(x => x.ServerInvoiceNumber)
                     .HasMaxLength(100);

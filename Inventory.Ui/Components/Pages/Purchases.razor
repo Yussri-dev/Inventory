@@ -4,19 +4,25 @@
 @using Inventory.Dto.Enums
 @using Inventory.Dto.Products.Results
 @using Inventory.Dto.Suppliers.Results
+@using Inventory.LocalDB.Enums
 @using Inventory.LocalDB.Services.Interfaces
 @using Inventory.LocalDB.Services.Requests
 @using Inventory.Ui.Services
+@using Microsoft.JSInterop
+
 
 @attribute [Microsoft.AspNetCore.Authorization.Authorize]
-@implements IDisposable
+
+@implements IAsyncDisposable
 
 @inject ILocalPurchaseService LocalPurchaseService
+@inject ILocalPurchaseDraftService LocalPurchaseDraftService
 @inject ILocalProductService LocalProductService
 @inject ILocalSupplierService LocalSupplierService
 @inject AppState State
 @inject ILogger<Purchases> Logger
 @inject NavigationManager Nav
+@inject IJSRuntime JS
 
 <div class="purchase-container">
 
@@ -213,9 +219,11 @@
 
             <button type="button"
                     class="btn btn-secondary"
-                    @onclick="Reset"
+                    @onclick="ResetPurchaseAsync"
                     @onclick:stopPropagation="true"
-                    disabled="@(IsSaving || Lines.Count == 0)">
+                    disabled="@(IsSaving ||
+                                                                                                                (Lines.Count == 0 &&
+                                                                                                                 SelectedSupplier == null))">
                 Reset
             </button>
 
@@ -237,7 +245,15 @@
 
             <button type="button"
                     class="btn btn-secondary"
-                    @onclick="NavigateToDashboard"
+                    @onclick="NavigateToSalesAsync"
+                    @onclick:stopPropagation="true"
+                    disabled="@IsSaving">
+                Sales
+            </button>
+
+            <button type="button"
+                    class="btn btn-secondary"
+                    @onclick="NavigateToDashboardAsync"
                     @onclick:stopPropagation="true"
                     disabled="@IsSaving">
                 Close
@@ -297,18 +313,18 @@
             else
             {
                 <ul class="product-list">
-                   @foreach (var product in FilteredProducts)
+                    @foreach (var product in FilteredProducts)
                     {
                         <li class="product-item"
                             @onclick="() => SelectAndAddProduct(product)">
 
                             <strong>
                                 @(string.IsNullOrWhiteSpace(product.CatalogName)
-                                    ? "Unknown product"
-                                    : product.CatalogName)
-                            </strong>
+                                                        ? "Unknown product"
+                                                        : product.CatalogName)
+                    </strong>
 
-                            @if (!string.IsNullOrWhiteSpace(product.CatalogBarcode))
+                    @if (!string.IsNullOrWhiteSpace(product.CatalogBarcode))
                             {
                                 <span class="muted">
                                     @product.CatalogBarcode
@@ -344,6 +360,7 @@
                     {
                         <button type="button"
                                 class="key-btn"
+                                @onmousedown:preventDefault="true"
                                 @onclick="() => PressKey(key)"
                                 disabled="@IsSaving">
                             @key
@@ -352,6 +369,7 @@
 
                     <button type="button"
                             class="key-btn clear"
+                            @onmousedown:preventDefault="true"
                             @onclick="ClearNumpad"
                             disabled="@IsSaving">
                         C
@@ -481,7 +499,6 @@
     private string SupplierSearchText = string.Empty;
     private string NumpadValue = string.Empty;
 
-    private bool IsSaving;
     private bool IsLoadingData;
     private bool ShowSupplierModal;
 
@@ -490,7 +507,24 @@
 
     private ElementReference barcodeInputRef;
 
+    private IJSObjectReference? barcodeScannerModule;
+
+    private DotNetObjectReference<Purchases>? barcodeScannerReference;
+
     private CancellationTokenSource? toastCancellation;
+    private CancellationTokenSource? draftSaveCancellation;
+
+    private readonly SemaphoreSlim barcodeScanGate = new(1, 1);
+    private readonly SemaphoreSlim draftSaveGate = new(1, 1);
+
+    private Guid? CurrentDraftId;
+
+    private bool IsSaving;
+    private bool IsRestoringDraft;
+    private bool IsFinalizingPurchase;
+    private bool IsDisposed;
+    private bool HasSavedBeforeNavigation;
+
 
     private static readonly string[] NumpadKeys =
     {
@@ -546,26 +580,174 @@
                         SupplierSearchText))
                 .ToList();
 
+
+
+
     protected override async Task OnInitializedAsync()
     {
         await LoadInitialDataAsync();
+        await RestoreActiveDraftAsync();
+    }
+
+
+    [JSInvokable]
+    public async Task OnHardwareScan(string? rawBarcode)
+    {
+        if (string.IsNullOrWhiteSpace(
+                rawBarcode))
+        {
+            return;
+        }
+
+        var barcode =
+            rawBarcode.Trim();
+
+        await barcodeScanGate.WaitAsync();
+
+        try
+        {
+            BarcodeInput =
+                string.Empty;
+
+            if (IsLoadingData)
+            {
+                await ShowErrorAsync(
+                    "Product data is still loading.");
+
+                return;
+            }
+
+            if (IsSaving)
+            {
+                await ShowErrorAsync(
+                    "A purchase operation is currently in progress.");
+
+                return;
+            }
+
+            if (ShowSupplierModal)
+            {
+                await ShowErrorAsync(
+                    "Product scanning is unavailable while a dialog is open.");
+
+                return;
+            }
+
+            Logger.LogDebug(
+                "Barcode scanned: {Barcode}",
+                barcode);
+
+            await AddProductByBarcodeAsync(barcode);
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(
+                exception,
+                "Failed to process barcode {Barcode}.",
+                barcode);
+
+            await ShowErrorAsync(
+                "The barcode could not be processed.");
+        }
+        finally
+        {
+            barcodeScanGate.Release();
+        }
     }
 
     protected override async Task OnAfterRenderAsync(
-        bool firstRender)
+    bool firstRender)
     {
         if (!firstRender)
         {
             return;
         }
 
+        try
+        {
+            barcodeScannerReference =
+                DotNetObjectReference.Create(this);
+
+            barcodeScannerModule =
+                await JS.InvokeAsync<IJSObjectReference>(
+                    "import",
+                    "./js/barcodeScanner.js");
+
+            await barcodeScannerModule.InvokeVoidAsync(
+                "initialize",
+                barcodeScannerReference);
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(
+                exception,
+                "Failed to initialize the barcode scanner.");
+
+            errorMessage =
+                "The barcode scanner could not be initialized.";
+
+            await InvokeAsync(
+                StateHasChanged);
+        }
+
         await FocusBarcodeInput();
     }
 
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
+        draftSaveCancellation?.Cancel();
+        draftSaveCancellation?.Dispose();
+
+        if (!IsFinalizingPurchase &&
+            !HasSavedBeforeNavigation)
+        {
+            try
+            {
+                await SaveCurrentDraftAsync();
+            }
+            catch (Exception exception)
+            {
+                Logger.LogError(
+                    exception,
+                    "Failed to save the purchase draft while leaving the page.");
+            }
+        }
+
+        IsDisposed = true;
+
         toastCancellation?.Cancel();
         toastCancellation?.Dispose();
+
+        if (barcodeScannerModule != null)
+        {
+            try
+            {
+                await barcodeScannerModule.InvokeVoidAsync(
+                    "dispose");
+            }
+            catch (JSDisconnectedException)
+            {
+            }
+            catch (ObjectDisposedException)
+            {
+            }
+
+            try
+            {
+                await barcodeScannerModule.DisposeAsync();
+            }
+            catch (JSDisconnectedException)
+            {
+            }
+            catch (ObjectDisposedException)
+            {
+            }
+        }
+
+        barcodeScannerReference?.Dispose();
+
+        barcodeScannerModule = null;
+        barcodeScannerReference = null;
     }
 
     private async Task LoadInitialDataAsync()
@@ -620,12 +802,13 @@
             FilteredProducts = new();
             Suppliers = new();
             BarcodeMap =
-                new Dictionary<string, ProductResult>(
-                    StringComparer.OrdinalIgnoreCase);
+                new Dictionary<string, ProductResult>
+(
+StringComparer.OrdinalIgnoreCase);
 
             await ShowErrorAsync(
-                $"Failed to load local purchase data: " +
-                $"{exception.GetBaseException().Message}");
+            $"Failed to load local purchase data: " +
+            $"{exception.GetBaseException().Message}");
         }
         finally
         {
@@ -633,67 +816,476 @@
         }
     }
 
+    private async Task RestoreActiveDraftAsync()
+    {
+        try
+        {
+            IsRestoringDraft =
+                true;
+
+            var draft =
+                await LocalPurchaseDraftService
+                    .GetActiveAsync();
+
+            if (draft == null)
+            {
+                return;
+            }
+
+            CurrentDraftId =
+                draft.Id;
+
+            SelectedSupplier =
+                draft.SupplierLocalId.HasValue
+                    ? Suppliers.FirstOrDefault(supplier =>
+                        supplier.Id ==
+                        draft.SupplierLocalId.Value)
+                    : null;
+
+            Lines.Clear();
+
+            foreach (var draftLine in
+                     draft.Lines.OrderBy(line =>
+                         line.DisplayOrder))
+            {
+                var product =
+                    Products.FirstOrDefault(item =>
+                        item.Id ==
+                        draftLine.ProductLocalId);
+
+                var adjustments =
+                    draftLine.Adjustments
+                        .OrderBy(adjustment =>
+                            adjustment.DisplayOrder)
+                        .Select(adjustment =>
+                            new CartAdjustment
+                            {
+                                Type =
+                                    ToCartAdjustmentType(
+                                        adjustment.Type),
+
+                                Value =
+                                    adjustment.Value
+                            })
+                        .ToList();
+
+                /*
+                 * Compatibility with drafts created before adjustment
+                 * persistence was introduced.
+                 */
+                if (adjustments.Count == 0 &&
+                    RoundMoney(
+                        draftLine.EffectiveUnitPrice) !=
+                    RoundMoney(
+                        draftLine.BasePurchasePrice))
+                {
+                    adjustments.Add(
+                        new CartAdjustment
+                        {
+                            Type =
+                                AdjustmentType.PriceOverride,
+
+                            Value =
+                                RoundMoney(
+                                    draftLine.EffectiveUnitPrice)
+                        });
+                }
+
+                Lines.Add(
+                    new CartLine
+                    {
+                        ProductId =
+                            draftLine.ProductLocalId,
+
+                        ProductName =
+                            string.IsNullOrWhiteSpace(
+                                product?.CatalogName)
+                                ? "Unavailable local product"
+                                : product.CatalogName,
+
+                        ProductBarcode =
+                            product?.CatalogBarcode,
+
+                        Quantity =
+                            RoundQuantity(
+                                draftLine.Quantity),
+
+                        BasePurchasePrice =
+                            RoundMoney(
+                                draftLine.BasePurchasePrice),
+
+                        TaxRate =
+                            draftLine.VatRate,
+
+                        IsPack =
+                            product?.IsPack ?? false,
+
+                        PackSize =
+                            product?.PackSize ?? 1m,
+
+                        Adjustments =
+                            adjustments
+                    });
+            }
+
+            SelectedLine =
+                null;
+
+            Logger.LogInformation(
+                "Purchase draft {DraftId} restored with {LineCount} lines.",
+                draft.Id,
+                Lines.Count);
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(
+                exception,
+                "Failed to restore the active purchase draft.");
+
+            await ShowErrorAsync(
+                "The saved purchase draft could not be restored.");
+        }
+        finally
+        {
+            IsRestoringDraft =
+                false;
+        }
+    }
+
+    private void ScheduleDraftSave()
+    {
+        if (IsRestoringDraft ||
+            IsFinalizingPurchase ||
+            IsDisposed)
+        {
+            return;
+        }
+
+        draftSaveCancellation?.Cancel();
+        draftSaveCancellation?.Dispose();
+
+        var source =
+            new CancellationTokenSource();
+
+        draftSaveCancellation =
+            source;
+
+        _ = SaveDraftAfterDelayAsync(
+            source);
+    }
+
+    private async Task SaveDraftAfterDelayAsync(
+        CancellationTokenSource source)
+    {
+        try
+        {
+            await Task.Delay(
+                300,
+                source.Token);
+
+            await SaveCurrentDraftAsync();
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(
+                exception,
+                "Failed to automatically save the purchase draft.");
+
+            if (!IsDisposed)
+            {
+                var rootException = exception.GetBaseException();
+
+                await ShowErrorAsync(
+                    $"Draft save failed: {rootException.Message}");
+            }
+        }
+        finally
+        {
+            if (ReferenceEquals(
+                    draftSaveCancellation,
+                    source))
+            {
+                draftSaveCancellation =
+                    null;
+            }
+
+            source.Dispose();
+        }
+    }
+
+    private async Task SaveCurrentDraftAsync()
+    {
+        if (IsRestoringDraft ||
+            IsDisposed)
+        {
+            return;
+        }
+
+        await draftSaveGate.WaitAsync();
+
+        try
+        {
+            if (Lines.Count == 0 &&
+                SelectedSupplier == null)
+            {
+                if (CurrentDraftId.HasValue)
+                {
+                    await LocalPurchaseDraftService
+                        .DeleteAsync(
+                            CurrentDraftId.Value);
+
+                    CurrentDraftId =
+                        null;
+                }
+
+                return;
+            }
+
+            var request =
+                CreateDraftRequest();
+
+            CurrentDraftId =
+                await LocalPurchaseDraftService
+                    .SaveAsync(
+                        request);
+        }
+        finally
+        {
+            draftSaveGate.Release();
+        }
+    }
+
+    private SaveLocalPurchaseDraftRequest CreateDraftRequest()
+    {
+        return new SaveLocalPurchaseDraftRequest
+        {
+            DraftId =
+                CurrentDraftId,
+
+            SupplierLocalId =
+                SelectedSupplier?.Id,
+
+            Lines =
+                Lines
+                    .Select((line, lineIndex) =>
+                        new SaveLocalPurchaseDraftLineRequest
+                        {
+                            ProductLocalId =
+                                line.ProductId,
+
+                            Quantity =
+                                RoundQuantity(
+                                    line.Quantity),
+
+                            BasePurchasePrice =
+                                RoundMoney(
+                                    line.BasePurchasePrice),
+
+                            VatRate =
+                                Math.Round(
+                                    line.TaxRate,
+                                    2,
+                                    MidpointRounding.AwayFromZero),
+
+                            DisplayOrder =
+                                lineIndex,
+
+                            Adjustments =
+                                line.Adjustments
+                                    .Select((
+                                        adjustment,
+                                        adjustmentIndex) =>
+                                        new SaveLocalPurchaseDraftAdjustmentRequest
+                                        {
+                                            Type =
+                                                ToDraftAdjustmentType(
+                                                    adjustment.Type),
+
+                                            Value =
+                                                adjustment.Value,
+
+                                            DisplayOrder =
+                                                adjustmentIndex
+                                        })
+                                    .ToList()
+                        })
+                    .ToList()
+        };
+    }
+
+    private async Task SaveAndSuspendDraftAsync()
+    {
+        draftSaveCancellation?.Cancel();
+        draftSaveCancellation?.Dispose();
+        draftSaveCancellation = null;
+
+        await SaveCurrentDraftAsync();
+
+        if (CurrentDraftId.HasValue)
+        {
+            await LocalPurchaseDraftService
+                .SuspendAsync(
+                    CurrentDraftId.Value);
+        }
+    }
+
+    private async Task NavigateToSalesAsync()
+    {
+        try
+        {
+            await SaveAndSuspendDraftAsync();
+
+            HasSavedBeforeNavigation =
+                true;
+
+            Nav.NavigateTo(
+                "/sales");
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(
+                exception,
+                "Failed to save the purchase draft before opening sales.");
+
+            await ShowErrorAsync(
+                "The purchase draft could not be saved.");
+        }
+    }
+
+    private async Task NavigateToDashboardAsync()
+    {
+        try
+        {
+            await SaveAndSuspendDraftAsync();
+
+            HasSavedBeforeNavigation =
+                true;
+
+            Nav.NavigateTo(
+                "/");
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(
+                exception,
+                "Failed to save the purchase draft before leaving the page.");
+
+            await ShowErrorAsync(
+                "The purchase draft could not be saved.");
+        }
+    }
+
+    private static PurchaseDraftAdjustmentType
+        ToDraftAdjustmentType(
+            AdjustmentType type)
+    {
+        return type switch
+        {
+            AdjustmentType.PriceOverride =>
+                PurchaseDraftAdjustmentType.PriceOverride,
+
+            AdjustmentType.DiscountPercent =>
+                PurchaseDraftAdjustmentType.DiscountPercent,
+
+            AdjustmentType.DiscountAmount =>
+                PurchaseDraftAdjustmentType.DiscountAmount,
+
+            AdjustmentType.Fee =>
+                PurchaseDraftAdjustmentType.Fee,
+
+            _ =>
+                throw new InvalidOperationException(
+                    $"Unsupported cart adjustment type: {type}.")
+        };
+    }
+
+    private static AdjustmentType ToCartAdjustmentType(
+        PurchaseDraftAdjustmentType type)
+    {
+        return type switch
+        {
+            PurchaseDraftAdjustmentType.PriceOverride =>
+                AdjustmentType.PriceOverride,
+
+            PurchaseDraftAdjustmentType.DiscountPercent =>
+                AdjustmentType.DiscountPercent,
+
+            PurchaseDraftAdjustmentType.DiscountAmount =>
+                AdjustmentType.DiscountAmount,
+
+            PurchaseDraftAdjustmentType.Fee =>
+                AdjustmentType.Fee,
+
+            _ =>
+                throw new InvalidOperationException(
+                    $"Unsupported draft adjustment type: {type}.")
+        };
+    }
+
     private void BuildBarcodeMap()
     {
         BarcodeMap =
-            Products
-                .Where(product =>
-                    !string.IsNullOrWhiteSpace(
-                        product.CatalogBarcode))
-                .GroupBy(
-                    product =>
-                        product.CatalogBarcode!.Trim(),
-                    StringComparer.OrdinalIgnoreCase)
-                .ToDictionary(
-                    group => group.Key,
-                    group => group.First(),
-                    StringComparer.OrdinalIgnoreCase);
+        Products
+        .Where(product =>
+        !string.IsNullOrWhiteSpace(
+        product.CatalogBarcode))
+        .GroupBy(
+        product =>
+        product.CatalogBarcode!.Trim(),
+        StringComparer.OrdinalIgnoreCase)
+        .ToDictionary(
+        group => group.Key,
+        group => group.First(),
+        StringComparer.OrdinalIgnoreCase);
     }
 
     private void UpdateFilter()
     {
         var search =
-            SearchText.Trim();
+        SearchText.Trim();
 
         FilteredProducts =
-            string.IsNullOrWhiteSpace(search)
-                ? Products.ToList()
-                : Products
-                    .Where(product =>
-                        Contains(
-                            product.CatalogName,
-                            search) ||
-                        Contains(
-                            product.CatalogBarcode,
-                            search) ||
-                        Contains(
-                            product.CatalogBrand,
-                            search))
-                    .ToList();
+        string.IsNullOrWhiteSpace(search)
+        ? Products.ToList()
+        : Products
+        .Where(product =>
+        Contains(
+        product.CatalogName,
+        search) ||
+        Contains(
+        product.CatalogBarcode,
+        search) ||
+        Contains(
+        product.CatalogBrand,
+        search))
+        .ToList();
     }
 
     private void OpenSupplierModal()
     {
         TempSelectedSupplier =
-            SelectedSupplier;
+        SelectedSupplier;
 
         SupplierSearchText =
-            string.Empty;
+        string.Empty;
 
         ShowSupplierModal =
-            true;
+        true;
     }
 
     private void CloseSupplierModal()
     {
         ShowSupplierModal =
-            false;
+        false;
 
         TempSelectedSupplier =
-            null;
+        null;
 
         SupplierSearchText =
-            string.Empty;
+        string.Empty;
     }
 
     private void ConfirmSupplierSelection()
@@ -704,93 +1296,121 @@
         }
 
         SelectedSupplier =
-            TempSelectedSupplier;
+        TempSelectedSupplier;
 
         CloseSupplierModal();
+
+        ScheduleDraftSave();
 
         _ = FocusBarcodeInput();
     }
 
     private async Task OnBarcodeScanned(
-        string code)
+    string code)
     {
         var normalizedCode =
-            code.Trim();
+        code.Trim();
 
         if (!BarcodeMap.TryGetValue(
-                normalizedCode,
-                out var product))
+        normalizedCode,
+        out var product))
         {
             await ShowErrorAsync(
-                $"Unknown local barcode: {normalizedCode}");
+            $"Unknown local barcode: {normalizedCode}");
 
             return;
         }
 
-        AddProduct(
-            product,
-            GetQuantityFromNumpad());
+        await AddProductAsync(product, GetQuantityFromNumpad());
 
         NumpadValue =
-            string.Empty;
+        string.Empty;
 
         await FocusBarcodeInput();
     }
 
     private async Task OnBarcodeKeyDown(
-        KeyboardEventArgs args)
+     KeyboardEventArgs args)
     {
-        if (!string.Equals(
+        var isSubmitKey =
+            string.Equals(
                 args.Key,
                 "Enter",
                 StringComparison.OrdinalIgnoreCase) ||
-            string.IsNullOrWhiteSpace(
-                BarcodeInput))
+            string.Equals(
+                args.Key,
+                "Tab",
+                StringComparison.OrdinalIgnoreCase);
+
+        if (!isSubmitKey)
         {
             return;
         }
 
-        var code =
+        var barcode =
             BarcodeInput.Trim();
+
+        if (string.IsNullOrWhiteSpace(barcode))
+        {
+            return;
+        }
 
         BarcodeInput =
             string.Empty;
 
-        await OnBarcodeScanned(code);
+        await OnHardwareScan(barcode);
     }
 
-    private void PressKey(
-        string key)
+    private async Task AddProductByBarcodeAsync(
+        string barcode)
+    {
+        if (!BarcodeMap.TryGetValue(
+                barcode,
+                out var product))
+        {
+            await ShowErrorAsync(
+                $"Unknown local barcode: {barcode}");
+
+            return;
+        }
+
+        await AddProductAsync(
+            product,
+            GetQuantityFromNumpad());
+    }
+
+    private async Task PressKey(
+    string key)
     {
         if (key == "." &&
             NumpadValue.Contains(
                 '.',
                 StringComparison.Ordinal))
         {
+            await FocusBarcodeInput();
             return;
         }
 
-        NumpadValue +=
-            key;
+        NumpadValue += key;
+
+        await FocusBarcodeInput();
     }
 
-    private void ClearNumpad()
+    private async Task ClearNumpad()
     {
         NumpadValue =
             string.Empty;
 
-        _ = FocusBarcodeInput();
+        await FocusBarcodeInput();
     }
 
-    private void SelectAndAddProduct(
-        ProductResult product)
+    private async Task SelectAndAddProduct(
+    ProductResult product)
     {
-        AddProduct(
-            product,
-            GetQuantityFromNumpad());
+        await AddProductAsync(product, GetQuantityFromNumpad());
 
         NumpadValue =
-            string.Empty;
+        string.Empty;
 
         _ = FocusBarcodeInput();
     }
@@ -798,36 +1418,34 @@
     private decimal GetQuantityFromNumpad()
     {
         return TryReadNumpadDecimal(
-            out var quantity) &&
-            quantity > 0m
-                ? RoundQuantity(quantity)
-                : 1m;
+        out var quantity) &&
+        quantity > 0m
+        ? RoundQuantity(quantity)
+        : 1m;
     }
 
-    private void AddProduct(
-        ProductResult product,
-        decimal quantity = 1m)
+    private async Task AddProductAsync(ProductResult product, decimal quantity)
     {
         if (quantity <= 0m)
         {
-            _ = ShowErrorAsync(
-                "Quantity must be greater than zero.");
+            await ShowErrorAsync(
+            "Quantity must be greater than zero.");
 
             return;
         }
 
         if (product.PurchasePrice <= 0m)
         {
-            _ = ShowErrorAsync(
-                $"Product '{product.CatalogName}' has no valid " +
-                "purchase price.");
+            await ShowErrorAsync(
+            $"Product '{product.CatalogName}' has no valid " +
+            "purchase price.");
 
             return;
         }
 
         var existingLine =
-            Lines.FirstOrDefault(line =>
-                line.ProductId == product.Id);
+        Lines.FirstOrDefault(line =>
+        line.ProductId == product.Id);
 
         if (existingLine != null)
         {
@@ -844,8 +1462,7 @@
             var newLine =
                 new CartLine
                 {
-                    ProductId =
-                        product.Id,
+                    ProductId = product.Id,
 
                     ProductName =
                         string.IsNullOrWhiteSpace(
@@ -878,33 +1495,42 @@
                 newLine;
         }
 
-        _ = FocusBarcodeInput();
+        NumpadValue =
+            string.Empty;
+
+        ScheduleDraftSave();
+
+        await FocusBarcodeInput();
     }
 
     private void Increment(
-        CartLine line)
+    CartLine line)
     {
         line.Quantity =
-            RoundQuantity(
-                line.Quantity + 1m);
+        RoundQuantity(
+        line.Quantity + 1m);
 
         SelectedLine =
-            line;
+        line;
+
+        ScheduleDraftSave();
 
         _ = FocusBarcodeInput();
     }
 
     private void Decrement(
-        CartLine line)
+    CartLine line)
     {
         if (line.Quantity > 1m)
         {
             line.Quantity =
-                RoundQuantity(
-                    line.Quantity - 1m);
+            RoundQuantity(
+            line.Quantity - 1m);
 
             SelectedLine =
-                line;
+            line;
+
+            ScheduleDraftSave();
 
             _ = FocusBarcodeInput();
 
@@ -914,12 +1540,14 @@
         Lines.Remove(line);
 
         if (ReferenceEquals(
-                SelectedLine,
-                line))
+        SelectedLine,
+        line))
         {
             SelectedLine =
-                null;
+            null;
         }
+
+        ScheduleDraftSave();
 
         _ = FocusBarcodeInput();
     }
@@ -932,47 +1560,89 @@
         }
 
         Lines.Remove(
-            SelectedLine);
+        SelectedLine);
 
         SelectedLine =
-            null;
+        null;
+
+        ScheduleDraftSave();
 
         _ = FocusBarcodeInput();
     }
 
-    private void Reset()
+    private async Task ResetPurchaseAsync()
+    {
+        draftSaveCancellation?.Cancel();
+        draftSaveCancellation?.Dispose();
+        draftSaveCancellation = null;
+
+        await draftSaveGate.WaitAsync();
+
+        try
+        {
+            if (CurrentDraftId.HasValue)
+            {
+                await LocalPurchaseDraftService
+                    .DeleteAsync(
+                        CurrentDraftId.Value);
+            }
+
+            CurrentDraftId =
+                null;
+
+            ClearPurchaseState();
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(
+                exception,
+                "Failed to delete the purchase draft.");
+
+            var rootException = exception.GetBaseException();
+
+            await ShowErrorAsync($"Draft reset failed: {rootException.Message}");
+
+            return;
+        }
+        finally
+        {
+            draftSaveGate.Release();
+        }
+
+        await FocusBarcodeInput();
+    }
+
+    private void ClearPurchaseState()
     {
         Lines.Clear();
 
         SelectedLine =
-            null;
+        null;
 
         SelectedSupplier =
-            null;
+        null;
 
         SearchText =
-            string.Empty;
+        string.Empty;
 
         BarcodeInput =
-            string.Empty;
+        string.Empty;
 
         NumpadValue =
-            string.Empty;
+        string.Empty;
 
         UpdateFilter();
-
-        _ = FocusBarcodeInput();
     }
 
     private void OnLineClicked(
-        CartLine line)
+    CartLine line)
     {
         if (ReferenceEquals(
-                SelectedLine,
-                line))
+        SelectedLine,
+        line))
         {
             line.IsExpanded =
-                !line.IsExpanded;
+            !line.IsExpanded;
 
             return;
         }
@@ -980,142 +1650,150 @@
         if (SelectedLine != null)
         {
             SelectedLine.IsExpanded =
-                false;
+            false;
         }
 
         SelectedLine =
-            line;
+        line;
 
         line.IsExpanded =
-            true;
+        true;
     }
 
     private void AddPriceOverride(
-        CartLine line)
+    CartLine line)
     {
         if (!TryReadNumpadDecimal(
-                out var price) ||
-            price <= 0m)
+        out var price) ||
+        price <= 0m)
         {
             _ = ShowErrorAsync(
-                "Enter a valid unit purchase price.");
+            "Enter a valid unit purchase price.");
 
             return;
         }
 
         line.Adjustments.RemoveAll(
-            adjustment =>
-                adjustment.Type ==
-                    AdjustmentType.PriceOverride);
+        adjustment =>
+        adjustment.Type ==
+        AdjustmentType.PriceOverride);
 
         line.Adjustments.Add(
-            new CartAdjustment
-            {
-                Type =
-                    AdjustmentType.PriceOverride,
+        new CartAdjustment
+        {
+            Type =
+        AdjustmentType.PriceOverride,
 
-                Value =
-                    RoundMoney(price)
-            });
+            Value =
+        RoundMoney(price)
+        });
 
         NumpadValue =
-            string.Empty;
+        string.Empty;
+
+        ScheduleDraftSave();
     }
 
     private void AddDiscountPercent(
-        CartLine line)
+    CartLine line)
     {
         if (!TryReadNumpadDecimal(
-                out var value) ||
-            value <= 0m ||
-            value > 100m)
+        out var value) ||
+        value <= 0m ||
+        value > 100m)
         {
             _ = ShowErrorAsync(
-                "Discount percentage must be greater than zero " +
-                "and not exceed 100.");
+            "Discount percentage must be greater than zero " +
+            "and not exceed 100.");
 
             return;
         }
 
         RemoveDiscountAdjustments(
-            line);
+        line);
 
         line.Adjustments.Add(
-            new CartAdjustment
-            {
-                Type =
-                    AdjustmentType.DiscountPercent,
+        new CartAdjustment
+        {
+            Type =
+        AdjustmentType.DiscountPercent,
 
-                Value =
-                    Math.Round(
-                        value,
-                        2,
-                        MidpointRounding.AwayFromZero)
-            });
+            Value =
+        Math.Round(
+        value,
+        2,
+        MidpointRounding.AwayFromZero)
+        });
 
         NumpadValue =
-            string.Empty;
+        string.Empty;
+
+        ScheduleDraftSave();
     }
 
     private void AddDiscountAmount(
-        CartLine line)
+    CartLine line)
     {
         if (!TryReadNumpadDecimal(
-                out var value) ||
-            value <= 0m)
+        out var value) ||
+        value <= 0m)
         {
             _ = ShowErrorAsync(
-                "Enter a valid discount amount.");
+            "Enter a valid discount amount.");
 
             return;
         }
 
         var priceBeforeDiscount =
-            line.PriceBeforeDiscount;
+        line.PriceBeforeDiscount;
 
         if (value >= priceBeforeDiscount)
         {
             _ = ShowErrorAsync(
-                "Discount amount must be lower than the unit price.");
+            "Discount amount must be lower than the unit price.");
 
             return;
         }
 
         RemoveDiscountAdjustments(
-            line);
+        line);
 
         line.Adjustments.Add(
-            new CartAdjustment
-            {
-                Type =
-                    AdjustmentType.DiscountAmount,
+        new CartAdjustment
+        {
+            Type =
+        AdjustmentType.DiscountAmount,
 
-                Value =
-                    RoundMoney(value)
-            });
+            Value =
+        RoundMoney(value)
+        });
 
         NumpadValue =
-            string.Empty;
+        string.Empty;
+
+        ScheduleDraftSave();
     }
 
     private static void RemoveDiscountAdjustments(
-        CartLine line)
+    CartLine line)
     {
         line.Adjustments.RemoveAll(
-            adjustment =>
-                adjustment.Type ==
-                    AdjustmentType.DiscountPercent ||
-                adjustment.Type ==
-                    AdjustmentType.DiscountAmount);
+        adjustment =>
+        adjustment.Type ==
+        AdjustmentType.DiscountPercent ||
+        adjustment.Type ==
+        AdjustmentType.DiscountAmount);
     }
 
     private void ClearAdjustments(
-        CartLine line)
+    CartLine line)
     {
         line.Adjustments.Clear();
 
         NumpadValue =
-            string.Empty;
+        string.Empty;
+
+        ScheduleDraftSave();
     }
 
     private async Task SavePurchase()
@@ -1128,7 +1806,7 @@
         if (SelectedSupplier == null)
         {
             await ShowErrorAsync(
-                "Select a supplier.");
+            "Select a supplier.");
 
             return;
         }
@@ -1136,23 +1814,23 @@
         if (Lines.Count == 0)
         {
             await ShowErrorAsync(
-                "Add at least one product.");
+            "Add at least one product.");
 
             return;
         }
 
         var invalidLine =
-            Lines.FirstOrDefault(line =>
-                line.ProductId == Guid.Empty ||
-                line.Quantity <= 0m ||
-                line.EffectiveUnitPrice < 0m ||
-                line.TaxRate < 0m ||
-                line.TaxRate > 100m);
+        Lines.FirstOrDefault(line =>
+        line.ProductId == Guid.Empty ||
+        line.Quantity <= 0m ||
+        line.EffectiveUnitPrice < 0m ||
+        line.TaxRate < 0m ||
+        line.TaxRate > 100m);
 
         if (invalidLine != null)
         {
             await ShowErrorAsync(
-                $"Purchase line '{invalidLine.ProductName}' is invalid.");
+            $"Purchase line '{invalidLine.ProductName}' is invalid.");
 
             return;
         }
@@ -1160,177 +1838,290 @@
         try
         {
             IsSaving =
+            true;
+
+            draftSaveCancellation?.Cancel();
+            draftSaveCancellation?.Dispose();
+            draftSaveCancellation = null;
+
+            /*
+             * Persist the last cart state first. If final creation fails,
+             * the complete draft remains available.
+             */
+            await SaveCurrentDraftAsync();
+
+            IsFinalizingPurchase =
                 true;
 
             var request =
-                new CreateLocalPurchaseRequest
-                {
-                    SupplierLocalId =
-                        SelectedSupplier.Id,
+            new CreateLocalPurchaseRequest
+            {
+                SupplierLocalId =
+            SelectedSupplier.Id,
 
-                    PurchaseDateUtc =
-                        DateTime.UtcNow,
+                PurchaseDateUtc =
+            DateTime.UtcNow,
 
-                    Lines =
-                        Lines
-                            .Select(line =>
-                                new CreateLocalPurchaseLineRequest
-                                {
-                                    ProductLocalId =
-                                        line.ProductId,
+                Lines =
+            Lines
+            .Select(line =>
+            new CreateLocalPurchaseLineRequest
+            {
+                ProductLocalId =
+            line.ProductId,
 
-                                    Quantity =
-                                        RoundQuantity(
-                                            line.Quantity),
+                Quantity =
+            RoundQuantity(
+            line.Quantity),
 
-                                    /*
-                                     * The local model stores the effective
-                                     * unit price. The discount must not be
-                                     * applied a second time by the uploader.
-                                     */
-                                    UnitPurchasePrice =
-                                        RoundMoney(
-                                            line.EffectiveUnitPrice),
+                /*
+                * The local model stores the effective
+                * unit price. The discount must not be
+                * applied a second time by the uploader.
+                */
+                UnitPurchasePrice =
+            RoundMoney(
+            line.EffectiveUnitPrice),
 
-                                    VatRate =
-                                        Math.Round(
-                                            line.TaxRate,
-                                            2,
-                                            MidpointRounding.AwayFromZero)
-                                })
-                            .ToList()
-                };
+                VatRate =
+            Math.Round(
+            line.TaxRate,
+            2,
+            MidpointRounding.AwayFromZero)
+            })
+            .ToList()
+            };
 
             var purchase =
-                await LocalPurchaseService
-                    .CreateCompleteAsync(
-                        request);
+            await LocalPurchaseService
+            .CreateCompleteAsync(
+            request);
 
             /*
-             * The service already:
-             * - creates LocalPurchase and lines;
-             * - increases LocalStock;
-             * - creates local StockMovements;
-             * - adds Purchase/Create to SyncQueue.
-             */
+            * The service already:
+            * - creates LocalPurchase and lines;
+            * - increases LocalStock;
+            * - creates local StockMovements;
+            * - adds Purchase/Create to SyncQueue.
+            */
             State.InvalidatePos();
 
             Logger.LogInformation(
-                "Local purchase {PurchaseNumber} created with " +
-                "{LineCount} lines.",
-                purchase.LocalPurchaseNumber,
-                purchase.Lines.Count);
+            "Local purchase {PurchaseNumber} created with " +
+            "{LineCount} lines.",
+            purchase.LocalPurchaseNumber,
+            purchase.Lines.Count);
 
-            Reset();
+            var draftCleanupSucceeded =
+                true;
 
-            await ShowSuccessAsync(
-                $"Purchase {purchase.LocalPurchaseNumber} saved " +
-                "locally and queued for synchronization.");
+            if (CurrentDraftId.HasValue)
+            {
+                try
+                {
+                    await LocalPurchaseDraftService
+                        .DeleteAsync(
+                            CurrentDraftId.Value);
+
+                    CurrentDraftId =
+                        null;
+                }
+                catch (Exception cleanupException)
+                {
+                    draftCleanupSucceeded =
+                        false;
+
+                    Logger.LogError(
+                        cleanupException,
+                        "Purchase {PurchaseNumber} was saved, but draft " +
+                        "{DraftId} could not be deleted.",
+                        purchase.LocalPurchaseNumber,
+                        CurrentDraftId);
+                }
+            }
+
+            ClearPurchaseState();
+
+            if (draftCleanupSucceeded)
+            {
+                await ShowSuccessAsync(
+                    $"Purchase {purchase.LocalPurchaseNumber} saved " +
+                    "locally and queued for synchronization.");
+            }
+            else
+            {
+                await ShowErrorAsync(
+                    $"Purchase {purchase.LocalPurchaseNumber} was saved, " +
+                    "but the old draft could not be removed.");
+            }
         }
         catch (Exception exception)
         {
             Logger.LogError(
-                exception,
-                "Failed to create the local purchase.");
+            exception,
+            "Failed to create the local purchase.");
 
             await ShowErrorAsync(
-                exception
-                    .GetBaseException()
-                    .Message);
+            exception
+            .GetBaseException()
+            .Message);
         }
         finally
         {
-            IsSaving =
+            IsFinalizingPurchase =
                 false;
+
+            IsSaving =
+            false;
 
             await FocusBarcodeInput();
         }
     }
 
-    private void NavigateToDashboard()
-    {
-        Nav.NavigateTo("/");
-    }
-
     private async Task FocusBarcodeInput()
     {
+        if (ShowSupplierModal ||
+            IsSaving)
+        {
+            return;
+        }
+
         try
         {
-            await Task.Delay(50);
-
-            await barcodeInputRef
-                .FocusAsync();
+            await barcodeInputRef.FocusAsync();
         }
-        catch
+        catch (Exception exception)
         {
-            /*
-             * The element may not be rendered yet or the page may
-             * already be navigating away.
-             */
+            Logger.LogDebug(
+                exception,
+                "Barcode input could not receive focus.");
         }
     }
 
     private bool TryReadNumpadDecimal(
-        out decimal value)
+    out decimal value)
     {
         var normalized =
-            NumpadValue
-                .Trim()
-                .Replace(',', '.');
+        NumpadValue
+        .Trim()
+        .Replace(',', '.');
 
         return decimal.TryParse(
-            normalized,
-            NumberStyles.Number,
-            CultureInfo.InvariantCulture,
-            out value);
+        normalized,
+        NumberStyles.Number,
+        CultureInfo.InvariantCulture,
+        out value);
     }
 
-    private async Task ShowSuccessAsync(
-        string message)
+    private Task ShowSuccessAsync(
+     string message)
     {
-        errorMessage =
-            null;
+        errorMessage = null;
+        successMessage = message;
 
-        successMessage =
-            message;
-
-        await StartToastTimerAsync(
+        RestartToastTimer(
             clearSuccess: true);
+
+        return InvokeAsync(
+            StateHasChanged);
     }
 
-    private async Task ShowErrorAsync(
+    private Task ShowErrorAsync(
         string message)
     {
-        successMessage =
-            null;
+        successMessage = null;
+        errorMessage = message;
 
-        errorMessage =
-            message;
-
-        await StartToastTimerAsync(
+        RestartToastTimer(
             clearSuccess: false);
+
+        return InvokeAsync(
+            StateHasChanged);
     }
 
-    private async Task StartToastTimerAsync(
+    private void RestartToastTimer(
         bool clearSuccess)
     {
         toastCancellation?.Cancel();
         toastCancellation?.Dispose();
 
-        toastCancellation =
+        var source =
             new CancellationTokenSource();
 
-        var currentSource =
-            toastCancellation;
+        toastCancellation =
+            source;
 
-        await InvokeAsync(
-            StateHasChanged);
+        _ = ClearToastLaterAsync(
+            source,
+            clearSuccess);
+    }
 
+    private async Task ClearToastLaterAsync(
+        CancellationTokenSource source,
+        bool clearSuccess)
+    {
         try
         {
             await Task.Delay(
                 3000,
-                currentSource.Token);
+                source.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        try
+        {
+            await InvokeAsync(() =>
+            {
+                if (!ReferenceEquals(
+                        toastCancellation,
+                        source))
+                {
+                    return;
+                }
+
+                if (clearSuccess)
+                {
+                    successMessage = null;
+                }
+                else
+                {
+                    errorMessage = null;
+                }
+
+                toastCancellation = null;
+                source.Dispose();
+
+                StateHasChanged();
+            });
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+    }
+
+    private async Task StartToastTimerAsync(
+    bool clearSuccess)
+    {
+        toastCancellation?.Cancel();
+        toastCancellation?.Dispose();
+
+        toastCancellation =
+        new CancellationTokenSource();
+
+        var currentSource =
+        toastCancellation;
+
+        await InvokeAsync(
+        StateHasChanged);
+
+        try
+        {
+            await Task.Delay(
+            3000,
+            currentSource.Token);
         }
         catch (OperationCanceledException)
         {
@@ -1338,8 +2129,8 @@
         }
 
         if (!ReferenceEquals(
-                toastCancellation,
-                currentSource))
+        toastCancellation,
+        currentSource))
         {
             return;
         }
@@ -1347,52 +2138,52 @@
         if (clearSuccess)
         {
             successMessage =
-                null;
+            null;
         }
         else
         {
             errorMessage =
-                null;
+            null;
         }
 
         await InvokeAsync(
-            StateHasChanged);
+        StateHasChanged);
     }
 
     private static bool Contains(
-        string? source,
-        string value)
+    string? source,
+    string value)
     {
         return !string.IsNullOrWhiteSpace(source) &&
-               source.Contains(
-                   value,
-                   StringComparison.OrdinalIgnoreCase);
+        source.Contains(
+        value,
+        StringComparison.OrdinalIgnoreCase);
     }
 
     private static decimal RoundMoney(
-        decimal value)
+    decimal value)
     {
         return Math.Round(
-            value,
-            2,
-            MidpointRounding.AwayFromZero);
+        value,
+        2,
+        MidpointRounding.AwayFromZero);
     }
 
     private static decimal RoundQuantity(
-        decimal value)
+    decimal value)
     {
         return Math.Round(
-            value,
-            3,
-            MidpointRounding.AwayFromZero);
+        value,
+        3,
+        MidpointRounding.AwayFromZero);
     }
 
     private static string FormatQuantity(
-        decimal quantity)
+    decimal quantity)
     {
         return quantity.ToString(
-            "0.###",
-            CultureInfo.InvariantCulture);
+        "0.###",
+        CultureInfo.InvariantCulture);
     }
 
     private sealed class CartAdjustment
@@ -1402,46 +2193,46 @@
         public decimal Value { get; set; }
 
         public decimal Apply(
-            decimal basePrice)
+        decimal basePrice)
         {
             return Type switch
             {
                 AdjustmentType.PriceOverride =>
-                    Value,
+                Value,
 
                 AdjustmentType.DiscountPercent =>
-                    basePrice *
-                    (1m - Value / 100m),
+                basePrice *
+                (1m - Value / 100m),
 
                 AdjustmentType.DiscountAmount =>
-                    basePrice - Value,
+                basePrice - Value,
 
                 AdjustmentType.Fee =>
-                    basePrice + Value,
+                basePrice + Value,
 
                 _ =>
-                    basePrice
+                basePrice
             };
         }
 
         public string Display =>
-            Type switch
-            {
-                AdjustmentType.PriceOverride =>
-                    $"Price changed → €{Value:0.00}",
+        Type switch
+        {
+            AdjustmentType.PriceOverride =>
+            $"Price changed → €{Value:0.00}",
 
-                AdjustmentType.DiscountPercent =>
-                    $"Discount → -{Value:0.##}%",
+            AdjustmentType.DiscountPercent =>
+            $"Discount → -{Value:0.##}%",
 
-                AdjustmentType.DiscountAmount =>
-                    $"Discount → -€{Value:0.00}",
+            AdjustmentType.DiscountAmount =>
+            $"Discount → -€{Value:0.00}",
 
-                AdjustmentType.Fee =>
-                    $"Fee → +€{Value:0.00}",
+            AdjustmentType.Fee =>
+            $"Fee → +€{Value:0.00}",
 
-                _ =>
-                    string.Empty
-            };
+            _ =>
+            string.Empty
+        };
     }
 
     private sealed class CartLine
@@ -1449,7 +2240,7 @@
         public Guid ProductId { get; set; }
 
         public string ProductName { get; set; } =
-            string.Empty;
+        string.Empty;
 
         public string? ProductBarcode { get; set; }
 
@@ -1465,7 +2256,9 @@
 
         public bool IsExpanded { get; set; }
 
-        public List<CartAdjustment> Adjustments { get; set; } =
+        public List<CartAdjustment>
+            Adjustments
+        { get; set; } =
             new();
 
         public decimal PriceBeforeDiscount
@@ -1473,13 +2266,13 @@
             get
             {
                 var overrideAdjustment =
-                    Adjustments.LastOrDefault(
-                        adjustment =>
-                            adjustment.Type ==
-                                AdjustmentType.PriceOverride);
+                Adjustments.LastOrDefault(
+                adjustment =>
+                adjustment.Type ==
+                AdjustmentType.PriceOverride);
 
                 return overrideAdjustment?.Value ??
-                       BasePurchasePrice;
+                BasePurchasePrice;
             }
         }
 
@@ -1488,34 +2281,34 @@
             get
             {
                 var price =
-                    BasePurchasePrice;
+                BasePurchasePrice;
 
                 foreach (var adjustment in Adjustments)
                 {
                     price =
-                        adjustment.Apply(price);
+                    adjustment.Apply(price);
                 }
 
                 return RoundMoney(
-                    Math.Max(
-                        0m,
-                        price));
+                Math.Max(
+                0m,
+                price));
             }
         }
 
         public decimal AmountExclVat =>
-            RoundMoney(
-                Quantity *
-                EffectiveUnitPrice);
+        RoundMoney(
+        Quantity *
+        EffectiveUnitPrice);
 
         public decimal TaxAmount =>
-            RoundMoney(
-                AmountExclVat *
-                TaxRate /
-                100m);
+        RoundMoney(
+        AmountExclVat *
+        TaxRate /
+        100m);
 
         public decimal AmountInclVat =>
-            AmountExclVat +
-            TaxAmount;
+        AmountExclVat +
+        TaxAmount;
     }
 }

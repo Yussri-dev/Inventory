@@ -2,6 +2,8 @@
 {
     public sealed class ReceiptPrinterOptions
     {
+        public bool Enabled { get; set; }
+
         /// <summary>
         /// Nom exact de l'imprimante dans Windows.
         /// Exemple : EPSON TM-T20III Receipt

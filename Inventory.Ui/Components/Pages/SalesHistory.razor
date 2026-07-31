@@ -95,36 +95,39 @@
                                 <th style="width:110px;">Status</th>
                                 <th style="width:110px;">Payment</th>
                                 <th style="width:110px;">Sync</th>
+                                <th style="width:100px;">Actions</th>
                             </tr>
                         </thead>
                         <tbody>
                             @foreach (var sale in sales)
                             {
-                                <tr>
+                                <tr class="clickable-sale-row"
+                                    @onclick="() => OpenSaleDetailsAsync(sale.LocalId)"
+                                    title="Open sale details">
                                     <td>
                                         <strong>@sale.InvoiceNumber</strong>
 
                                         @if (!string.IsNullOrWhiteSpace(
-                                            sale.ServerInvoiceNumber) &&
-                                            !string.Equals(
-                                                sale.ServerInvoiceNumber,
-                                                sale.LocalInvoiceNumber,
-                                                StringComparison.OrdinalIgnoreCase))
+                                                                        sale.ServerInvoiceNumber) &&
+                                                                        !string.Equals(
+                                                                        sale.ServerInvoiceNumber,
+                                                                        sale.LocalInvoiceNumber,
+                                                                        StringComparison.OrdinalIgnoreCase))
                                         {
                                             <small class="muted invoice-local">
                                                 Local: @sale.LocalInvoiceNumber
                                             </small>
                                         }
-                                    </td>
+                                </td>
+
+                                <td>
+                                    @(sale.SaleDateUtc
+                                                                    .ToLocalTime()
+                                                                    .ToString("dd/MM/yyyy HH:mm"))
+                            </td>
 
                                     <td>
-                                        @(sale.SaleDateUtc
-                                            .ToLocalTime()
-                                            .ToString("dd/MM/yyyy HH:mm"))
-                                    </td>
-
-                                    <td>
-                                        @if (!sale.CustomerLocalId.HasValue)
+                                @if (!sale.CustomerLocalId.HasValue)
                                         {
                                             <span class="muted">Walk-in</span>
                                         }
@@ -164,6 +167,14 @@
                                         <span class="status-badge @GetSyncStatusClass(sale.SyncStatus)">
                                             @GetSyncStatusLabel(sale.SyncStatus)
                                         </span>
+                                    </td>
+                                    <td>
+                                        <button type="button"
+                                                class="btn ghost"
+                                                @onclick="() => OpenSaleDetailsAsync(sale.LocalId)"
+                                                @onclick:stopPropagation="true">
+                                            Details
+                                        </button>
                                     </td>
                                 </tr>
                             }
@@ -280,11 +291,11 @@
                         @onclick="SearchCustomersAsync"
                         disabled="@isSearchingCustomer">
                     @(isSearchingCustomer
-                        ? "Searching SQLite..."
-                        : "Find local customer")
-                </button>
+                                    ? "Searching SQLite..."
+                                    : "Find local customer")
+            </button>
 
-                @if (customerResults != null)
+            @if (customerResults != null)
                 {
                     <ul class="product-list local-customer-list">
                         @foreach (var customer in customerResults)
@@ -401,6 +412,308 @@
     </div>
 </div>
 
+@if (isLoadingDetails)
+{
+    <div class="details-loading-overlay">
+        <div class="details-loading-card">
+            <div class="details-spinner"></div>
+            <strong>Loading sale details...</strong>
+        </div>
+    </div>
+}
+
+@if (selectedSaleDetails != null)
+{
+    <div class="modal-overlay sale-details-overlay"
+         @onclick="CloseSaleDetails">
+
+        <div class="modal-content sale-details-modal"
+             @onclick:stopPropagation="true">
+
+            <div class="modal-header sale-details-header">
+                <div>
+                    <span class="details-eyebrow">
+                        Local sale
+                    </span>
+
+                    <h2>
+                        @selectedSaleDetails.InvoiceNumber
+                    </h2>
+
+                    <span class="muted">
+                        @(selectedSaleDetails.SaleDateUtc
+                                            .ToLocalTime()
+                                            .ToString("dd/MM/yyyy HH:mm"))
+                                                                      </span>
+                                                                  </div>
+
+                <button type="button"
+                        class="modal-close"
+                        title="Close"
+                        aria-label="Close sale details"
+                        @onclick="CloseSaleDetails">
+                    ×
+                </button>
+            </div>
+
+            <div class="modal-body sale-details-body">
+                <div class="sale-detail-summary">
+                    <div class="detail-summary-item">
+                        <span>Customer</span>
+                        <strong>
+                            @(selectedSaleDetails.CustomerName ??
+                                                    "Walk-in customer")
+                    </strong>
+                </div>
+
+                    <div class="detail-summary-item">
+                        <span>Sale status</span>
+                        <strong>
+                            <span class="status-badge @GetSaleStatusClass(selectedSaleDetails.Status)">
+                                @selectedSaleDetails.Status
+                            </span>
+                        </strong>
+                    </div>
+
+                    <div class="detail-summary-item">
+                        <span>Payment</span>
+                        <strong>
+                            <span class="status-badge @GetPaymentStatusClass(selectedSaleDetails.PaymentStatus)">
+                                @selectedSaleDetails.PaymentStatus
+                            </span>
+                        </strong>
+                    </div>
+
+                    <div class="detail-summary-item">
+                        <span>Synchronization</span>
+                        <strong>
+                            <span class="status-badge @GetSyncStatusClass(selectedSaleDetails.SyncStatus)">
+                                @GetSyncStatusLabel(selectedSaleDetails.SyncStatus)
+                            </span>
+                        </strong>
+                    </div>
+                </div>
+
+                <section class="details-section">
+                    <div class="details-section-header">
+                        <div>
+                            <span class="details-eyebrow">
+                                Purchased items
+                            </span>
+
+                            <h3>Products</h3>
+                        </div>
+
+                        <span class="details-count">
+                            @selectedSaleDetails.Lines.Count line(s)
+                        </span>
+                    </div>
+
+                @if (selectedSaleDetails.Lines.Count == 0)
+                    {
+                        <div class="details-empty-state">
+                            This sale contains no local sale lines.
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="details-table-scroll">
+                            <table class="table details-table">
+                                <thead>
+                                    <tr>
+                                        <th>Product</th>
+                                        <th>Quantity</th>
+                                        <th>Unit price</th>
+                                        <th>Discount</th>
+                                        <th>VAT</th>
+                                        <th>Total</th>
+                                    </tr>
+                                </thead>
+
+                                <tbody>
+                                    @foreach (var line in
+                                                                selectedSaleDetails.Lines)
+                                    {
+                                        <tr>
+                                            <td>
+                                                <strong>
+                                                    @line.ProductName
+                                                </strong>
+
+                                                @if (!string.IsNullOrWhiteSpace(
+                                                                                    line.ProductBarcode))
+                                                {
+                                                    <small class="muted detail-product-barcode">
+                                                        @line.ProductBarcode
+                                                    </small>
+                                                }
+                                            </td>
+
+                                            <td>
+                                                @line.Quantity.ToString("0.###")
+                                            </td>
+
+                                            <td>
+                                                €@line.UnitPrice.ToString("F2")
+                                            </td>
+
+                                            <td>
+                                                @if (line.DiscountAmount > 0m)
+                                                {
+                                                    <span class="detail-discount">
+                                                        − €@line.DiscountAmount.ToString("F2")
+                                                    </span>
+
+                                                    @if (line.DiscountPercent > 0m)
+                                                    {
+                                                        <small class="muted detail-product-barcode">
+                                                            @line.DiscountPercent.ToString("0.##")%
+                                                        </small>
+                                                    }
+                                                }
+                                                else
+                                                {
+                                                    <span class="muted">—</span>
+                                                }
+                                            </td>
+
+                                            <td>
+                                                €@line.VatAmount.ToString("F2")
+
+                                                <small class="muted detail-product-barcode">
+                                                    @line.VatRate.ToString("0.##")%
+                                                </small>
+                                            </td>
+
+                                            <td>
+                                                <strong>
+                                                    €@line.LineTotal.ToString("F2")
+                                                </strong>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </section>
+
+                <div class="details-bottom-grid">
+                    <section class="details-section payments-section">
+                        <div class="details-section-header">
+                            <div>
+                                <span class="details-eyebrow">
+                                    Transaction
+                                </span>
+
+                                <h3>Payments</h3>
+                            </div>
+
+                            <span class="details-count">
+                                @selectedSaleDetails.Payments.Count
+                            </span>
+                        </div>
+
+                        @if (selectedSaleDetails.Payments.Count == 0)
+                        {
+                            <div class="details-empty-state">
+                                No local payment registered.
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="payment-details-list">
+                                @foreach (var payment in
+                                                        selectedSaleDetails.Payments)
+                                {
+                                    <div class="payment-detail-row">
+                                        <div>
+                                            <strong>
+                                                @payment.Method
+                                            </strong>
+
+                                            <span class="muted">
+                                                @(payment.PaidAtUtc
+                                                                                    .ToLocalTime()
+                                                                                    .ToString("dd/MM/yyyy HH:mm"))
+                                </span>
+
+                                @if (!string.IsNullOrWhiteSpace(
+                                                                payment.TransactionReference))
+                                            {
+                                                <small class="muted">
+                                                    @payment.TransactionReference
+                                                </small>
+                                            }
+                                        </div>
+
+                                        <strong class="payment-detail-amount">
+                                            €@payment.Amount.ToString("F2")
+                                        </strong>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </section>
+
+                    <section class="details-totals-card">
+                        <div class="details-total-row">
+                            <span>Subtotal</span>
+                            <strong>
+                                €@selectedSaleDetails.SubtotalAmount.ToString("F2")
+                            </strong>
+                        </div>
+
+                        <div class="details-total-row">
+                            <span>Discount</span>
+                            <strong class="detail-discount">
+                                − €@selectedSaleDetails.DiscountAmount.ToString("F2")
+                            </strong>
+                        </div>
+
+                        <div class="details-total-row">
+                            <span>VAT</span>
+                            <strong>
+                                €@selectedSaleDetails.VatAmount.ToString("F2")
+                            </strong>
+                        </div>
+
+                        <div class="details-total-row details-grand-total">
+                            <span>Total</span>
+                            <strong>
+                                €@selectedSaleDetails.TotalAmount.ToString("F2")
+                            </strong>
+                        </div>
+
+                        <div class="details-total-row">
+                            <span>Paid</span>
+                            <strong>
+                                €@selectedSaleDetails.PaidAmount.ToString("F2")
+                            </strong>
+                        </div>
+
+                        <div class="details-total-row">
+                            <span>Change</span>
+                            <strong>
+                                €@selectedSaleDetails.ChangeAmount.ToString("F2")
+                            </strong>
+                        </div>
+                    </section>
+                </div>
+            </div>
+
+            <div class="modal-footer sale-details-footer">
+                <button type="button"
+                        class="btn btn-secondary"
+                        @onclick="CloseSaleDetails">
+                    Close
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+
 @code {
     private string? errorMessage;
     private string? infoMessage;
@@ -427,6 +740,54 @@
 
     private LocalSalesHistoryCustomerResult? selectedCustomer;
 
+    private LocalSalesHistoryDetailsResult? selectedSaleDetails;
+
+    private bool isLoadingDetails;
+
+    private async Task OpenSaleDetailsAsync(
+        Guid localSaleId)
+    {
+        if (isLoadingDetails)
+        {
+            return;
+        }
+
+        isLoadingDetails = true;
+        errorMessage = null;
+
+        try
+        {
+            selectedSaleDetails =
+                await LocalHistory.GetByIdAsync(
+                    localSaleId);
+
+            if (selectedSaleDetails == null)
+            {
+                errorMessage =
+                    "The selected local sale was not found.";
+            }
+        }
+        catch (Exception exception)
+        {
+            errorMessage =
+                "Error loading sale details: " +
+                exception.GetBaseException().Message;
+
+            Logger.LogError(
+                exception,
+                "Failed to load local sale {LocalSaleId}.",
+                localSaleId);
+        }
+        finally
+        {
+            isLoadingDetails = false;
+        }
+    }
+
+    private void CloseSaleDetails()
+    {
+        selectedSaleDetails = null;
+    }
     private readonly List<string> paymentStatusOptions =
         new()
         {

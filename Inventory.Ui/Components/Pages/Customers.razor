@@ -6,7 +6,6 @@
 @using Inventory.LocalDB.Services.Interfaces
 @inject ILocalCustomerService LocalCustomerService
 
-@inject NavigationManager Nav
 @inject AppState State
 @implements IDisposable
 
@@ -14,15 +13,35 @@
 
 <div class="page-container">
 
-    @if (ShowCustomer)
+    @if (showCustomerModal)
     {
         <div class="customer-modal-overlay" @onclick="CloseCustomerModal">
-            <div class="customer-modal" @onclick:stopPropagation="true">
+            <div class="customer-modal"
+                 role="dialog"
+                 aria-modal="true"
+                 aria-labelledby="customer-modal-title"
+                 @onclick:stopPropagation="true">
                 <!-- CREATE / EDIT -->
                 <div class="card">
-                    <h4>@(editingId == null ? "Create customer" : "Edit customer")</h4>
+                    <div class="customer-modal-header">
+                        <h4 id="customer-modal-title">
+                            @(editingId == null
+                                ? "Create customer"
+                                : "Edit customer")
+                        </h4>
 
-                    <EditForm Model="form" OnValidSubmit="HandleSubmit">
+                        <button type="button"
+                                class="btn small ghost"
+                                disabled="@isLoading"
+                                aria-label="Close customer form"
+                                @onclick="CloseCustomerModal">
+                            &#10005;
+                        </button>
+                    </div>
+
+                    <EditForm @key="editorVersion"
+                              Model="form"
+                              OnValidSubmit="HandleSubmit">
                         <DataAnnotationsValidator />
 
                         <div class="form-grid">
@@ -71,9 +90,50 @@
                                     <label>Credit Limit</label>
                                     <InputNumber @bind-Value="form.CreditLimit"
                                                  class="inputText"
-                                                 disabled="@isLoading" />
+                                                 min="0"
+                                                 disabled="@(isLoading ||
+                                                             !form.AllowCredit ||
+                                                             form.HasUnlimitedCredit)" />
                                 </div>
                             </div>
+
+                            <div class="form-row">
+                                <div class="form-field">
+                                    <label class="checkbox-label">
+                                        <InputCheckbox
+                                            @bind-Value="form.AllowCredit"
+                                            disabled="@isLoading" />
+
+                                        <span>Allow purchases on credit</span>
+                                    </label>
+                                </div>
+
+                                <div class="form-field">
+                                    <label class="checkbox-label">
+                                        <InputCheckbox
+                                            @bind-Value="form.HasUnlimitedCredit"
+                                            disabled="@(isLoading ||
+                                                        !form.AllowCredit)" />
+
+                                        <span>Unlimited credit</span>
+                                    </label>
+                                </div>
+                            </div>
+
+                            @if (form.AllowCredit &&
+                                 !form.HasUnlimitedCredit)
+                            {
+                                <div class="credit-policy-info">
+                                    Credit purchases are limited to
+                                    @form.CreditLimit.ToString("0.00").
+                                </div>
+                            }
+                            else if (form.AllowCredit)
+                            {
+                                <div class="credit-policy-info">
+                                    This customer has unlimited credit.
+                                </div>
+                            }
 
                             <div class="form-row">
                                 <div class="form-field">
@@ -85,21 +145,26 @@
 
                                 <div class="form-field">
                                     <label class="checkbox-label">
-                                        <InputCheckbox @bind-Value="form.IsActive" />
+                                        <InputCheckbox @bind-Value="form.IsActive"
+                                                       disabled="@isLoading" />
                                         <span>Active</span>
                                     </label>
                                 </div>
                             </div>
 
                             <div class="actions-end">
-                                <button class="btn primary" type="submit" disabled="@isLoading">
+                                <button class="btn primary"
+                                        type="submit"
+                                        disabled="@isLoading">
                                     @(editingId == null ? "Create" : "Update")
                                 </button>
 
-                                @if (editingId != null)
-                                {
-                                    <button class="btn ghost" type="button" @onclick="CancelEdit">Cancel</button>
-                                }
+                                <button class="btn ghost"
+                                        type="button"
+                                        disabled="@isLoading"
+                                        @onclick="CloseCustomerModal">
+                                    Cancel
+                                </button>
                             </div>
                         </div>
                     </EditForm>
@@ -120,9 +185,9 @@
                    @onkeyup="OnSearchKeyUp" />
 
             <div class="search-actions">
-                <button class="btn primary" @onclick="Search">Search</button>
-                <button class="btn ghost" @onclick="ClearSearch">Clear</button>
-                <button class="btn danger" @onclick="AddCustomer">Add</button>
+                <button type="button" class="btn primary" @onclick="Search">Search</button>
+                <button type="button" class="btn ghost" @onclick="ClearSearch">Clear</button>
+                <button type="button" class="btn danger" @onclick="AddCustomer">Add</button>
             </div>
         </div>
     </div>
@@ -154,7 +219,7 @@
             </button>
         </div>
         <div class="results-header">
-            <span>@items.Count product(s) found</span>
+            <span>@items.Count customer(s) found</span>
             @if (isSearching)
             {
                 <button class="btn small ghost" @onclick="ClearSearch">Show All</button>
@@ -186,8 +251,17 @@
                             </span>
                         </td>
                         <td class="actions-end">
-                            <button class="btn small ghost" @onclick="() => StartEdit(c)">Edit</button>
-                            <button class="btn small danger" @onclick="() => AskDelete(c)">Delete</button>
+                            <button type="button"
+                                    class="btn small ghost"
+                                    @onclick="() => StartEdit(c)">
+                                Edit
+                            </button>
+
+                            <button type="button"
+                                    class="btn small danger"
+                                    @onclick="() => AskDelete(c)">
+                                Delete
+                            </button>
                         </td>
                     </tr>
                 }
@@ -202,8 +276,19 @@
                 <h4>Confirm Delete</h4>
                 <p>Delete <strong>@customerToDelete.Name</strong>?</p>
                 <div class="modal-actions">
-                    <button class="btn ghost" @onclick="CancelDelete">Cancel</button>
-                    <button class="btn danger" @onclick="ConfirmDelete">Delete</button>
+                    <button type="button"
+                            class="btn ghost"
+                            disabled="@isDeleting"
+                            @onclick="CancelDelete">
+                        Cancel
+                    </button>
+
+                    <button type="button"
+                            class="btn danger"
+                            disabled="@isDeleting"
+                            @onclick="ConfirmDelete">
+                        @(isDeleting ? "Deleting..." : "Delete")
+                    </button>
                 </div>
             </div>
         </div>
@@ -237,17 +322,22 @@
 
     private bool isLoading;
     private bool isLoadingData;
+    private bool isDeleting;
     private bool isSearching;
     private bool showDelete;
-    private bool ShowCustomer;
+    private bool showCustomerModal;
+
+    private int editorVersion;
+
+    private CancellationTokenSource? toastCancellation;
 
     private string? errorMessage;
     private string? successMessage;
     private string searchTerm = string.Empty;
 
-    int Page = 1;
-    int PageSize = 10;
-    int TotalCount;
+    private int Page = 1;
+    private int PageSize = 10;
+    private int TotalCount;
 
     private CustomerResult? customerToDelete;
 
@@ -261,6 +351,9 @@
     public void Dispose()
     {
         State.OnChange -= HandleStateChange;
+
+        toastCancellation?.Cancel();
+        toastCancellation?.Dispose();
     }
 
     protected override async Task OnInitializedAsync()
@@ -288,89 +381,72 @@
     }
     private void AddCustomer()
     {
-        ShowCustomer = true;
+        ResetEditor();
+        showDelete = false;
+        customerToDelete = null;
+        showCustomerModal = true;
     }
 
     private void CloseCustomerModal()
     {
-        ShowCustomer = false;
-    }
-
-    private async Task ShowError(string message)
-    {
-        errorMessage = null;
-        StateHasChanged();
-
-        errorMessage = message;
-        StateHasChanged();
-
-        await Task.Delay(3000).ContinueWith(_ =>
+        if (isLoading)
         {
-            errorMessage = null;
-            InvokeAsync(StateHasChanged);
-        });
+            return;
+        }
+
+        showCustomerModal = false;
+        ResetEditor();
     }
 
-    private async Task ShowSuccess(string message)
+    private void ShowError(string message)
     {
         successMessage = null;
-        StateHasChanged();
+        errorMessage = message;
 
-        successMessage = message;
-        StateHasChanged();
-
-        await Task.Delay(3000).ContinueWith(_ =>
-        {
-            successMessage = null;
-            InvokeAsync(StateHasChanged);
-        });
+        RestartToastTimer();
     }
 
-    // private async Task LoadData()
-    // {
-    //     try
-    //     {
-    //         if (!State.IsCashSessionLoaded)
-    //         {
-    //             try
-    //             {
-    //                 var active = await CashSessionApi.GetActive();
-    //                 await State.SetCashSessionAsync(active);
-    //             }
-    //             catch
-    //             {
-    //                 await ShowError("No active cash session.");
-    //                 Nav.NavigateTo("/cashsessions");
-    //                 return;
-    //             }
-    //         }
+    private void ShowSuccess(string message)
+    {
+        errorMessage = null;
+        successMessage = message;
 
-    //         isLoadingData = true;
-    //         errorMessage = null;
+        RestartToastTimer();
+    }
 
-    //         var query = new CustomerQuery
-    //         {
-    //             Page = Page,
-    //             PageSize = PageSize,
-    //             Search = isSearching ? searchTerm : null
-    //         };
+    private void RestartToastTimer()
+    {
+        toastCancellation?.Cancel();
+        toastCancellation?.Dispose();
 
-    //         var response = await Api.Search(query);
+        toastCancellation =
+            new CancellationTokenSource();
 
-    //         items = response.Items?.ToList() ?? new List<CustomerResult>();
-    //         TotalCount = response.TotalCount;
-    //     }
-    //     catch (Exception ex)
-    //     {
-    //         errorMessage = $"Failed to load Customers : {ex.Message}";
-    //         items = new List<CustomerResult>();
-    //         throw;
-    //     }
-    //     finally
-    //     {
-    //         isLoadingData = false;
-    //     }
-    // }
+        _ = ClearToastAfterDelayAsync(
+            toastCancellation.Token);
+    }
+
+    private async Task ClearToastAfterDelayAsync(
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await Task.Delay(
+                TimeSpan.FromSeconds(3),
+                cancellationToken);
+
+            await InvokeAsync(() =>
+            {
+                errorMessage = null;
+                successMessage = null;
+                StateHasChanged();
+            });
+        }
+        catch (OperationCanceledException)
+        {
+            // A newer message replaced the current toast.
+        }
+    }
 
     private async Task LoadData()
     {
@@ -402,49 +478,45 @@
         }
     }
 
-    // private async Task HandleSubmit()
-    // {
-    //     if (editingId == null)
-    //         await Api.Create(form.ToCreate());
-    //     else
-    //         await Api.Update(editingId.Value, form.ToUpdate(editingId.Value));
-
-    //     // Invalide le cache customers pour que Sales/POS voient les nouveaux clients
-    //     State.InvalidateCustomers();
-    //     _ = Bootstrap.EnsureLoadedAsync();
-
-    //     Reset();
-    //     ShowCustomer = false;
-    //     await LoadData();
-    // }
-
     private async Task HandleSubmit()
     {
+        var isCreate =
+            editingId == null;
+
         try
         {
             isLoading = true;
             errorMessage = null;
 
-            if (editingId == null)
+            if (isCreate)
             {
                 await LocalCustomerService.CreateAsync(form.ToCreate());
-                await ShowSuccess("Customer created locally.");
             }
             else
             {
-                await LocalCustomerService.UpdateAsync(editingId.Value, form.ToUpdate(editingId.Value));
-                await ShowSuccess("Customer updated locally.");
+                var customerId =
+                    editingId!.Value;
+
+                await LocalCustomerService.UpdateAsync(
+                    customerId,
+                    form.ToUpdate(customerId));
             }
 
             State.InvalidateCustomers();
 
-            Reset();
-            ShowCustomer = false;
+            showCustomerModal = false;
+            ResetEditor();
+
             await LoadData();
+
+            ShowSuccess(
+                isCreate
+                    ? "Customer created locally."
+                    : "Customer updated locally.");
         }
         catch (Exception ex)
         {
-            await ShowError(ex.Message);
+            ShowError(ex.Message);
         }
         finally
         {
@@ -454,34 +526,37 @@
 
     private void StartEdit(CustomerResult c)
     {
+        ArgumentNullException.ThrowIfNull(c);
+
         editingId = c.Id;
         form = CustomerForm.From(c);
+        editorVersion++;
+
+        showDelete = false;
+        customerToDelete = null;
+        showCustomerModal = true;
     }
 
     private void AskDelete(CustomerResult c)
     {
+        ArgumentNullException.ThrowIfNull(c);
+
         customerToDelete = c;
         showDelete = true;
     }
 
-    // private async Task ConfirmDelete()
-    // {
-    //     await Api.Delete(customerToDelete!.Id);
-    //     showDelete = false;
-
-    //     State.InvalidateCustomers();
-    //     _ = Bootstrap.EnsureLoadedAsync();
-
-    //     await LoadData();
-    // }
-
     private async Task ConfirmDelete()
     {
-        if (customerToDelete == null)
+        if (customerToDelete == null ||
+            isDeleting)
+        {
             return;
+        }
 
         try
         {
+            isDeleting = true;
+
             await LocalCustomerService.DeleteAsync(customerToDelete.Id);
 
             showDelete = false;
@@ -489,12 +564,17 @@
 
             State.InvalidateCustomers();
 
-            await ShowSuccess("Customer deleted locally.");
             await LoadData();
+
+            ShowSuccess("Customer deleted locally.");
         }
         catch (Exception ex)
         {
-            await ShowError(ex.Message);
+            ShowError(ex.Message);
+        }
+        finally
+        {
+            isDeleting = false;
         }
     }
 
@@ -509,14 +589,29 @@
     private async Task ClearSearch()
     {
         searchTerm = string.Empty;
+        isSearching = false;
+        Page = 1;
+
         await LoadData();
     }
 
-    private void CancelDelete() => showDelete = false;
-    private void CancelEdit() => Reset();
-    private void Reset() { editingId = null; form = new(); }
-    private void ClearError() => errorMessage = null;
-    private void ClearSuccess() => successMessage = null;
+    private void CancelDelete()
+    {
+        if (isDeleting)
+        {
+            return;
+        }
+
+        showDelete = false;
+        customerToDelete = null;
+    }
+
+    private void ResetEditor()
+    {
+        editingId = null;
+        form = new CustomerForm();
+        editorVersion++;
+    }
 
     private sealed class CustomerForm
     {
@@ -526,6 +621,8 @@
         public string? Address { get; set; }
         public string? TaxNumber { get; set; }
         public decimal CreditLimit { get; set; }
+        public bool AllowCredit { get; set; }
+        public bool HasUnlimitedCredit { get; set; }
         public bool IsActive { get; set; } = true;
         public string? Notes { get; set; }
 
@@ -536,7 +633,11 @@
             Phone = Phone,
             Address = Address,
             TaxNumber = TaxNumber,
-            CreditLimit = CreditLimit,
+            CreditLimit = EffectiveCreditLimit,
+            AllowCredit = AllowCredit,
+            HasUnlimitedCredit =
+                AllowCredit &&
+                HasUnlimitedCredit,
             IsActive = IsActive,
             Notes = Notes
         };
@@ -549,7 +650,11 @@
             Phone = Phone,
             Address = Address,
             TaxNumber = TaxNumber,
-            CreditLimit = CreditLimit,
+            CreditLimit = EffectiveCreditLimit,
+            AllowCredit = AllowCredit,
+            HasUnlimitedCredit =
+                AllowCredit &&
+                HasUnlimitedCredit,
             IsActive = IsActive,
             Notes = Notes
         };
@@ -559,10 +664,22 @@
             Name = c.Name,
             Email = c.Email,
             Phone = c.Phone,
+            Address = c.Address,
             TaxNumber = c.TaxNumber,
             CreditLimit = c.CreditLimit,
+            AllowCredit = c.AllowCredit,
+            HasUnlimitedCredit =
+                c.HasUnlimitedCredit,
             IsActive = c.IsActive,
             Notes = c.Notes
         };
+
+        private decimal EffectiveCreditLimit =>
+            !AllowCredit ||
+            HasUnlimitedCredit
+                ? 0m
+                : Math.Max(
+                    0m,
+                    CreditLimit);
     }
 }

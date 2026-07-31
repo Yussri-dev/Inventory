@@ -9,6 +9,10 @@ namespace Inventory.LocalDB.Services.Interfaces
             LocalSalesHistoryQuery query,
             CancellationToken cancellationToken = default);
 
+        Task<LocalSalesHistoryDetailsResult?> GetByIdAsync(
+            Guid localSaleId,
+            CancellationToken cancellationToken = default);
+
         Task<IReadOnlyList<LocalSalesHistoryCustomerResult>>
             SearchCustomersAsync(
                 string? search,

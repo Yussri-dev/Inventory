@@ -48,6 +48,16 @@
     }
 
 /* Card Styles */
+.credit-policy-info {
+    margin: -4px 0 16px;
+    padding: 12px 14px;
+    border: 1px solid rgba(79, 70, 229, .3);
+    border-radius: 10px;
+    color: #c7d2fe;
+    background: rgba(79, 70, 229, .12);
+    font-size: 13px;
+}
+
 .card {
     background: var(--panel);
     border: 1px solid var(--border);

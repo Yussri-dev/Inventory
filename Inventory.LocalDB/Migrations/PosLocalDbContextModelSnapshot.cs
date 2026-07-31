@@ -362,6 +362,9 @@ namespace Inventory.LocalDB.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("TEXT");
 
+                    b.Property<bool>("AllowCredit")
+                        .HasColumnType("INTEGER");
+
                     b.Property<DateTime>("CreatedAtUtc")
                         .HasColumnType("TEXT");
 
@@ -377,6 +380,9 @@ namespace Inventory.LocalDB.Migrations
                     b.Property<string>("Email")
                         .HasMaxLength(200)
                         .HasColumnType("TEXT");
+
+                    b.Property<bool>("HasUnlimitedCredit")
+                        .HasColumnType("INTEGER");
 
                     b.Property<bool>("IsActive")
                         .HasColumnType("INTEGER");
@@ -490,6 +496,12 @@ namespace Inventory.LocalDB.Migrations
                     b.Property<string>("Origin")
                         .IsRequired()
                         .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("ReturnLocalId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("ReturnServerId")
                         .HasColumnType("TEXT");
 
                     b.Property<Guid?>("SaleLocalId")
@@ -640,6 +652,117 @@ namespace Inventory.LocalDB.Migrations
                         .HasFilter("ServerId IS NOT NULL");
 
                     b.ToTable("Damages");
+                });
+
+            modelBuilder.Entity("Inventory.LocalDB.Models.LocalInventoryLine", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("CountedQuantity")
+                        .HasPrecision(18, 3)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("ExpectedQuantity")
+                        .HasPrecision(18, 3)
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("IsAdjusted")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<Guid>("LocalInventorySessionId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(1000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ProductBarcode")
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("ProductLocalId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ProductName")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("ProductServerId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("LocalInventorySessionId", "ProductLocalId")
+                        .IsUnique();
+
+                    b.HasIndex("TenantId", "ProductLocalId");
+
+                    b.ToTable("InventoryLines", (string)null);
+                });
+
+            modelBuilder.Entity("Inventory.LocalDB.Models.LocalInventorySession", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("ClientOperationId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ClosedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(1000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("ServerId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SessionNumber")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("StartedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SyncStatus")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ValidatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "SessionNumber")
+                        .IsUnique();
+
+                    b.HasIndex("TenantId", "Status");
+
+                    b.ToTable("InventorySessions", (string)null);
                 });
 
             modelBuilder.Entity("Inventory.LocalDB.Models.LocalPackComponent", b =>
@@ -1118,6 +1241,100 @@ namespace Inventory.LocalDB.Migrations
                     b.HasIndex("TenantId", "SyncStatus", "PurchaseDateUtc");
 
                     b.ToTable("Purchases");
+                });
+
+            modelBuilder.Entity("Inventory.LocalDB.Models.LocalPurchaseDraft", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("SupplierLocalId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "Status");
+
+                    b.ToTable("PurchaseDrafts", (string)null);
+                });
+
+            modelBuilder.Entity("Inventory.LocalDB.Models.LocalPurchaseDraftAdjustment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("DisplayOrder")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<Guid>("PurchaseDraftLineId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("Value")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PurchaseDraftLineId", "DisplayOrder");
+
+                    b.ToTable("PurchaseDraftAdjustments", (string)null);
+                });
+
+            modelBuilder.Entity("Inventory.LocalDB.Models.LocalPurchaseDraftLine", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("BasePurchasePrice")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("DisplayOrder")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<decimal>("EffectiveUnitPrice")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("ProductLocalId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("PurchaseDraftId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("Quantity")
+                        .HasPrecision(18, 3)
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("VatRate")
+                        .HasPrecision(5, 2)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PurchaseDraftId", "DisplayOrder");
+
+                    b.ToTable("PurchaseDraftLines", (string)null);
                 });
 
             modelBuilder.Entity("Inventory.LocalDB.Models.LocalPurchaseLine", b =>
@@ -1605,6 +1822,10 @@ namespace Inventory.LocalDB.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("ReceiptBarcodeValue")
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
                     b.Property<DateTime>("SaleDateUtc")
                         .HasColumnType("TEXT");
 
@@ -1658,13 +1879,17 @@ namespace Inventory.LocalDB.Migrations
                     b.HasIndex("TenantId", "LocalInvoiceNumber")
                         .IsUnique();
 
+                    b.HasIndex("TenantId", "ReceiptBarcodeValue")
+                        .IsUnique()
+                        .HasFilter("\"ReceiptBarcodeValue\" IS NOT NULL AND trim(\"ReceiptBarcodeValue\") <> ''");
+
                     b.HasIndex("TenantId", "ServerId")
                         .IsUnique()
-                        .HasFilter("ServerId IS NOT NULL");
+                        .HasFilter("\"ServerId\" IS NOT NULL");
 
                     b.HasIndex("TenantId", "SyncStatus", "SaleDateUtc");
 
-                    b.ToTable("Sales");
+                    b.ToTable("Sales", (string)null);
                 });
 
             modelBuilder.Entity("Inventory.LocalDB.Models.LocalSaleLine", b =>
@@ -1910,6 +2135,146 @@ namespace Inventory.LocalDB.Migrations
                     b.HasIndex("TenantId", "Type");
 
                     b.ToTable("StockMovements");
+                });
+
+            modelBuilder.Entity("Inventory.LocalDB.Models.LocalStoreProfile", b =>
+                {
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Address")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("City")
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Country")
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(3)
+                        .HasColumnType("TEXT")
+                        .HasDefaultValue("EUR");
+
+                    b.Property<string>("CurrencySymbol")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(10)
+                        .HasColumnType("TEXT")
+                        .HasDefaultValue("€");
+
+                    b.Property<string>("Email")
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("LastSyncedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("LegalName")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Locale")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(10)
+                        .HasColumnType("TEXT")
+                        .HasDefaultValue("fr-BE");
+
+                    b.Property<string>("LogoUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Mobile")
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Phone")
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("PostalCode")
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ReceiptConfigurationUpdatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ReceiptCurrencyCode")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(10)
+                        .HasColumnType("TEXT")
+                        .HasDefaultValue("EUR");
+
+                    b.Property<string>("ReceiptDefaultCashierName")
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ReceiptExtraAddressLine")
+                        .HasMaxLength(300)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ReceiptFooter")
+                        .HasMaxLength(2000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ReceiptHeader")
+                        .HasMaxLength(2000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ReceiptHeaderTagLine")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<byte[]>("ReceiptLogoBytes")
+                        .HasColumnType("BLOB");
+
+                    b.Property<string>("ReceiptLogoContentType")
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ReceiptLogoFileName")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ReceiptSocialLine")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RegistrationNumber")
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("State")
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TaxNumber")
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TradeName")
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Website")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("TenantId");
+
+                    b.ToTable("StoreProfiles", (string)null);
                 });
 
             modelBuilder.Entity("Inventory.LocalDB.Models.LocalSupplier", b =>
@@ -2261,6 +2626,17 @@ namespace Inventory.LocalDB.Migrations
                     b.Navigation("Product");
                 });
 
+            modelBuilder.Entity("Inventory.LocalDB.Models.LocalInventoryLine", b =>
+                {
+                    b.HasOne("Inventory.LocalDB.Models.LocalInventorySession", "Session")
+                        .WithMany("Lines")
+                        .HasForeignKey("LocalInventorySessionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Session");
+                });
+
             modelBuilder.Entity("Inventory.LocalDB.Models.LocalPackComponent", b =>
                 {
                     b.HasOne("Inventory.LocalDB.Models.LocalProductCatalog", "ProductCatalog")
@@ -2289,6 +2665,28 @@ namespace Inventory.LocalDB.Migrations
                         .WithMany()
                         .HasForeignKey("CatalogProductId")
                         .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("Inventory.LocalDB.Models.LocalPurchaseDraftAdjustment", b =>
+                {
+                    b.HasOne("Inventory.LocalDB.Models.LocalPurchaseDraftLine", "PurchaseDraftLine")
+                        .WithMany("Adjustments")
+                        .HasForeignKey("PurchaseDraftLineId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("PurchaseDraftLine");
+                });
+
+            modelBuilder.Entity("Inventory.LocalDB.Models.LocalPurchaseDraftLine", b =>
+                {
+                    b.HasOne("Inventory.LocalDB.Models.LocalPurchaseDraft", "PurchaseDraft")
+                        .WithMany("Lines")
+                        .HasForeignKey("PurchaseDraftId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("PurchaseDraft");
                 });
 
             modelBuilder.Entity("Inventory.LocalDB.Models.LocalPurchaseLine", b =>
@@ -2352,6 +2750,11 @@ namespace Inventory.LocalDB.Migrations
                     b.Navigation("Sales");
                 });
 
+            modelBuilder.Entity("Inventory.LocalDB.Models.LocalInventorySession", b =>
+                {
+                    b.Navigation("Lines");
+                });
+
             modelBuilder.Entity("Inventory.LocalDB.Models.LocalProductCatalog", b =>
                 {
                     b.Navigation("PackComponents");
@@ -2362,6 +2765,16 @@ namespace Inventory.LocalDB.Migrations
                     b.Navigation("Lines");
 
                     b.Navigation("Payments");
+                });
+
+            modelBuilder.Entity("Inventory.LocalDB.Models.LocalPurchaseDraft", b =>
+                {
+                    b.Navigation("Lines");
+                });
+
+            modelBuilder.Entity("Inventory.LocalDB.Models.LocalPurchaseDraftLine", b =>
+                {
+                    b.Navigation("Adjustments");
                 });
 
             modelBuilder.Entity("Inventory.LocalDB.Models.LocalReturn", b =>

@@ -6,10 +6,12 @@
 @using Inventory.LocalDB.Services.Interfaces
 @using Inventory.Ui.Services
 @using Microsoft.EntityFrameworkCore
+@using Microsoft.Extensions.Options
+@using System.Security.Cryptography
+@using Microsoft.JSInterop
 
 @attribute [Microsoft.AspNetCore.Authorization.Authorize]
 @implements IDisposable
-
 @inject PosLocalDbContext Db
 @inject ILocalSaleService LocalSaleService
 @inject ILocalCashSessionService LocalCashSessionService
@@ -18,6 +20,9 @@
 @inject NavigationManager Nav
 @inject ILogger<Sales> Logger
 @inject IReceiptService ReceiptService
+@inject IOptions<ReceiptPrinterOptions> PrinterOptions
+@inject IJSRuntime JS
+@inject CustomerDisplayState CustomerDisplay
 
 @if (!string.IsNullOrWhiteSpace(successMessage))
 {
@@ -96,11 +101,11 @@
                             line.Quantity > availableQuantity;
 
                             <tr class="@(ReferenceEquals(line, SelectedLine) ? "selected" : string.Empty)
-                                                                       @(isOverStock ? "overstock" : string.Empty)"
+                                                                                                                                                                                                                                                                                       @(isOverStock ? "overstock" : string.Empty)"
                                 @onclick="() => OnLineClicked(line)"
                                 title="@(isOverStock
-                                                                                                                                                                    ? $"Only {FormatQuantity(availableQuantity)} available"
-                                                                                                                                                                    : string.Empty)">
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    ? $"Only {FormatQuantity(availableQuantity)} available"
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    : string.Empty)">
 
                         <td>
                             <div class="qty-controls">
@@ -255,6 +260,7 @@
         </div>
 
         <div class="actions-footer">
+
             <div class="tax-info">
                 <strong>
                     Excl. VAT: €@SubtotalExclVat.ToString("F2")
@@ -263,55 +269,101 @@
                 </strong>
             </div>
 
-            <button type="button"
-                    class="btn btn-warning"
-                    @onclick="OpenPendingModalAsync"
-                    @onclick:stopPropagation="true"
-                    disabled="@IsSaving">
-                Pending tickets
-            </button>
+            <div class="pos-footer-buttons">
 
-            <button type="button"
-                    class="btn btn-warning"
-                    @onclick="SavePendingSaleAsync"
-                    @onclick:stopPropagation="true"
-                    disabled="@(IsSaving || Lines.Count == 0)">
-                @(CurrentPendingSaleId.HasValue
-                                ? "Update pending"
-                                : "Save pending")
-            </button>
+                <!-- Tickets en attente -->
+                <button type="button"
+                        class="pos-icon-btn warning"
+                        title="Tickets en attente"
+                        aria-label="Tickets en attente"
+                        @onclick="OpenPendingModalAsync"
+                        @onclick:stopPropagation="true"
+                        disabled="@IsSaving">
+                    <span aria-hidden="true">🕒</span>
+                </button>
 
-            <button type="button"
-                    class="btn btn-secondary"
-                    @onclick="ResetSale"
-                    @onclick:stopPropagation="true"
-                    disabled="@(IsSaving || Lines.Count == 0)">
-                Reset
-            </button>
+                <!-- Enregistrer en attente -->
+                <button type="button"
+                        class="pos-icon-btn warning"
+                        title="@(CurrentPendingSaleId.HasValue
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        ? "Mettre à jour le ticket en attente"
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        : "Enregistrer comme ticket en attente")"
+                        aria-label="Enregistrer comme ticket en attente"
+                        @onclick="SavePendingSaleAsync"
+                        @onclick:stopPropagation="true"
+                        disabled="@(IsSaving || Lines.Count == 0)">
+                    <span aria-hidden="true">
+                        @(CurrentPendingSaleId.HasValue ? "💾" : "📥")
+                    </span>
+                </button>
 
-            <button type="button"
-                    class="btn btn-secondary"
-                    @onclick="RemoveSelected"
-                    @onclick:stopPropagation="true"
-                    disabled="@(IsSaving || SelectedLine == null)">
-                Delete
-            </button>
+                <!-- Réinitialiser la vente -->
+                <button type="button"
+                        class="pos-icon-btn secondary"
+                        title="Réinitialiser la vente"
+                        aria-label="Réinitialiser la vente"
+                        @onclick="ResetSale"
+                        @onclick:stopPropagation="true"
+                        disabled="@(IsSaving || Lines.Count == 0)">
+                    <span aria-hidden="true">↺</span>
+                </button>
 
-            <button type="button"
-                    class="btn btn-primary"
-                    @onclick="OpenPaymentModal"
-                    @onclick:stopPropagation="true"
-                    disabled="@(IsSaving || Lines.Count == 0)">
-                Complete sale
-            </button>
+                <!-- Action principale -->
+                <button type="button"
+                        class="btn btn-primary pos-complete-sale-btn"
+                        @onclick="OpenPaymentModal"
+                        @onclick:stopPropagation="true"
+                        disabled="@(IsSaving || Lines.Count == 0)">
+                    <span aria-hidden="true">💳</span>
+                    <span>Encaisser</span>
+                </button>
 
-            <button type="button"
-                    class="btn btn-secondary"
-                    @onclick="NavigateToDashboard"
-                    @onclick:stopPropagation="true"
-                    disabled="@IsSaving">
-                Close
-            </button>
+                <!-- Duplicata du dernier ticket -->
+                @if (LastCompletedReceiptId.HasValue &&
+                                LastReceiptDelivered)
+                {
+                    <button type="button"
+                            class="pos-icon-btn duplicate"
+                            title="@GetDuplicateButtonTitle()"
+                            aria-label="@GetDuplicateButtonTitle()"
+                            @onclick="DeliverLastDuplicateAsync"
+                            @onclick:stopPropagation="true"
+                            disabled="@(IsSaving || IsDeliveringDuplicate)">
+
+                        @if (IsDeliveringDuplicate)
+                        {
+                            <span class="mini-spinner"
+                                  aria-hidden="true"></span>
+                        }
+                        else if (PhysicalPrinterConfigured &&
+                        OriginalReceiptPrinted)
+                        {
+                            <span aria-hidden="true">🖨️</span>
+                        }
+                        else
+                        {
+                            <span aria-hidden="true">📄</span>
+                        }
+
+                        <span class="duplicate-indicator"
+                              aria-hidden="true">
+                            2×
+                        </span>
+                    </button>
+                }
+
+                <!-- Fermer -->
+                <button type="button"
+                        class="pos-icon-btn secondary"
+                        title="Fermer la page de vente"
+                        aria-label="Fermer la page de vente"
+                        @onclick="NavigateToDashboard"
+                        @onclick:stopPropagation="true"
+                        disabled="@IsSaving">
+                    <span aria-hidden="true">✕</span>
+                </button>
+
+            </div>
         </div>
     </div>
 
@@ -342,6 +394,7 @@
                        @bind="SearchText"
                        @bind:event="oninput"
                        @bind:after="UpdateProductFilter"
+                       @onclick:stopPropagation="true"
                        disabled="@IsSaving" />
 
                 <span class="search-icon">🔍</span>
@@ -381,8 +434,8 @@
                         ResolveUnitProduct(product) != null;
 
                         <li class="product-item @((isOutOfStock || !packValid)
-                                                                                                                                                ? "out-of-stock"
-                                                                                                                                                : string.Empty)"
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        ? "out-of-stock"
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        : string.Empty)"
                     @onclick="() => SelectAndAddProduct(product)"
                     @onclick:stopPropagation="true"
                     title="@GetProductTitle(product, available, packValid)">
@@ -410,10 +463,10 @@
                         </span>
 
                         <span class="stock-indicator @((isOutOfStock || !packValid)
-                                                                                                                                                        ? "out"
-                                                                                                                                                        : lowStock
-                                                                                                                                                            ? "low"
-                                                                                                                                                            : "in")">
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    ? "out"
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    : lowStock
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        ? "low"
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        : "in")">
 
                         @if (!packValid)
                                 {
@@ -489,11 +542,11 @@
                 {
                     <button type="button"
                             class="category-btn @(string.Equals(
-                                            SelectedCategory,
-                                            category,
-                                            StringComparison.OrdinalIgnoreCase)
-                                                ? "active"
-                                                : string.Empty)"
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            SelectedCategory,
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            category,
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            StringComparison.OrdinalIgnoreCase)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                ? "active"
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                : string.Empty)"
                         @onclick="() => SelectCategory(category)"
                         @onclick:stopPropagation="true"
                         disabled="@IsSaving">
@@ -709,7 +762,7 @@
             </div>
 
             <div class="modal-body">
-                @if (SaleCompleted)
+                @* @if (SaleCompleted)
                 {
                     <div class="summary-badge success"
                          style="margin-bottom:16px;padding:14px;">
@@ -727,53 +780,69 @@
                             The sale is queued for synchronization.
                         </div>
                     </div>
-
-                    <button type="button"
-                            class="btn btn-primary"
-                            style="width:100%;margin-bottom:16px;"
-                            @onclick="ShareCompletedReceiptAsync"
-                            disabled="@(!CompletedReceiptId.HasValue)">
-                        Download / share ticket PDF
-                    </button>
-                }
+                } *@
 
                 <div class="payment-layout">
 
                     <div class="payment-left">
 
                         <div class="payment-summary">
+
                             <div class="summary-item">
-                                <span class="label">Total:</span>
+                                <span class="label">Total :</span>
+
                                 <span class="value total">
-                                    €@TotalAmount.ToString("F2")
+                                    €@DisplayPaymentTotal.ToString("F2")
                                 </span>
                             </div>
 
                             <div class="summary-item">
-                                <span class="label">Applied:</span>
+                                <span class="label">Appliqué :</span>
+
                                 <span class="value paid">
-                                    €@AppliedPaymentTotal.ToString("F2")
+                                    €@DisplayAppliedPaymentTotal.ToString("F2")
                                 </span>
                             </div>
 
                             <div class="summary-item">
-                                <span class="label">Remaining:</span>
-                                <span class="value remaining">
-                                    €@RemainingAmount.ToString("F2")
+                                <span class="label">Reçu :</span>
+
+                                <span class="value received">
+                                    €@DisplayReceivedPaymentTotal.ToString("F2")
                                 </span>
                             </div>
 
-                            @if (ChangeAmount > 0m)
-                            {
-                                <div class="summary-item">
-                                    <span class="label">Change:</span>
-                                    <span class="value"
-                                          style="color:#28a745;">
-                                        €@ChangeAmount.ToString("F2")
-                                    </span>
-                                </div>
-                            }
+                            <div class="summary-item">
+                                <span class="label">Restant :</span>
+
+                                <span class="value remaining">
+                                    €@DisplayRemainingAmount.ToString("F2")
+                                </span>
+                            </div>
+
                         </div>
+
+                        @if (DisplayChangeAmount > 0m)
+                        {
+                            <div class="change-due-panel">
+
+                                <span class="change-due-label">
+                                    💶 À rendre au client
+                                </span>
+
+                                <strong class="change-due-value">
+                                    €@DisplayChangeAmount.ToString("F2")
+                                </strong>
+
+                                @if (SaleCompleted)
+                                {
+                                    <span class="change-due-message">
+                                        Remettez la monnaie avant de fermer cette fenêtre.
+                                    </span>
+                                }
+
+                            </div>
+                        }
 
                         <div class="method-selection">
                             <h4>Payment method</h4>
@@ -875,7 +944,7 @@
                                        value="@PaymentInput"
                                        @oninput="HandlePaymentInput"
                                        placeholder="0.00"
-                                       disabled="@IsSaving" />
+                                       disabled="@(IsSaving || SaleCompleted)" />
 
                                 <button type="button"
                                         class="btn-clear"
@@ -884,21 +953,6 @@
                                     ×
                                 </button>
                             </div>
-
-                            <div class="quick-amount-grid">
-                                <button type="button"
-                                        class="quick-btn"
-                                        @onclick="() => SetPaymentAmount(RemainingAmount / 2m)">
-                                    1/2
-                                </button>
-
-                                <button type="button"
-                                        class="quick-btn"
-                                        @onclick="() => SetPaymentAmount(RemainingAmount)">
-                                    Full
-                                </button>
-                            </div>
-
                             <div class="numpad-grid">
                                 @foreach (var key in PaymentKeys)
                                 {
@@ -910,51 +964,84 @@
                                     </button>
                                 }
 
-                            <button type="button"
-                                    class="numpad-btn clear"
-                                    @onclick="ClearPaymentInput"
-                                    disabled="@IsSaving">
-                                C
-                            </button>
-                        </div>
+                                <button type="button"
+                                        class="numpad-btn clear"
+                                        @onclick="ClearPaymentInput"
+                                        disabled="@IsSaving">
+                                    C
+                                </button>
+                            </div>
 
-                        <button type="button"
-                                class="exact-payment-btn"
-                                @onclick="PayExactAmount"
-                                disabled="@(RemainingAmount <= 0m || IsSaving)">
-                            Pay €@RemainingAmount.ToString("F2")
-                        </button>
+                            @*    <div class="quick-amount-grid">
+                                <button type="button"
+                                        class="quick-btn"
+                                        @onclick="() => SetPaymentAmount(RemainingAmount / 2m)">
+                                    1/2
+                                </button>
+
+                                <button type="button"
+                                        class="quick-btn"
+                                        @onclick="() => SetPaymentAmount(RemainingAmount)">
+                                    Full
+                                </button>
+
+                               
+                            </div> *@
+
+                            <button type="button"
+                                    class="exact-payment-btn quick-btn"
+                                    @onclick="PayExactAmount"
+                                    disabled="@(RemainingAmount <= 0m || IsSaving)">
+                                Pay €@RemainingAmount.ToString("F2")
+                            </button>
+
+                        </div>
                     </div>
                 </div>
             </div>
-        </div>
 
-        <div class="modal-footer">
-            <button type="button"
-                    class="btn btn-secondary"
-                    @onclick="ResetPayments"
-                    disabled="@IsSaving">
-                Reset payments
-            </button>
+            <div class="modal-footer">
+                <button type="button"
+                        class="btn btn-secondary"
+                        @onclick="ResetPayments"
+                        disabled="@(IsSaving || SaleCompleted)">
+                    Reset payments
+                </button>
 
-            <button type="button"
-                    class="btn btn-secondary"
-                    @onclick="ClosePaymentModal"
-                    disabled="@IsSaving">
-                Close
-            </button>
+                <button type="button"
+                        class="btn btn-secondary"
+                        @onclick="ClosePaymentModal"
+                        disabled="@IsSaving">
+                    Close
+                </button>
 
-            <button type="button"
-                    class="btn btn-success btn-complete"
-                    @onclick="HandleCompleteOrAddPayment"
-                    disabled="@(IsSaving || SaleCompleted)">
-                @(IsSaving
-                                ? "Saving locally..."
-                                : GetCompleteButtonLabel())
-            </button>
+                <button type="button"
+                        class="btn btn-secondary btn-complete"
+                        @onclick="HandleCompleteWithoutReceiptAsync"
+                        disabled="@(IsSaving || SaleCompleted)">
+                    <span aria-hidden="true">✓</span>
+                    <span>Valider sans ticket</span>
+                </button>
+
+                <button type="button"
+                        class="btn btn-success btn-complete"
+                        @onclick="HandleCompleteWithReceiptAsync"
+                        disabled="@(IsSaving || SaleCompleted)">
+
+                    @if (PhysicalPrinterConfigured)
+                    {
+                        <span aria-hidden="true">🖨️</span>
+                        <span>Valider et imprimer</span>
+                    }
+                    else
+                    {
+                        <span aria-hidden="true">📄</span>
+                        <span>Valider et générer PDF</span>
+                    }
+                </button>
+            </div>
         </div>
     </div>
-</div>
 }
 
 @code {
@@ -988,6 +1075,27 @@
     private string? errorMessage;
     private string? CompletedInvoiceNumber;
 
+    private decimal CompletedSaleTotalAmount;
+    private decimal CompletedAppliedAmount;
+    private decimal CompletedReceivedAmount;
+    private decimal CompletedRemainingAmount;
+    private decimal CompletedChangeAmount;
+
+    private bool OriginalReceiptPrinted;
+
+    private Guid? LastCompletedReceiptId;
+
+    private string? LastCompletedInvoiceNumber;
+
+    private bool LastReceiptDelivered;
+
+    private bool IsDeliveringDuplicate;
+
+    private bool PhysicalPrinterConfigured =>
+        PrinterOptions.Value.Enabled &&
+        !string.IsNullOrWhiteSpace(
+            PrinterOptions.Value.PrinterName);
+
     private bool IsLoading;
     private bool IsLoadingPending;
     private bool IsSaving;
@@ -998,12 +1106,20 @@
 
     private Guid? CompletedReceiptId;
 
+
+    private bool IsPrintingDuplicate;
+    private bool IsSharingDuplicate;
+
     private PaymentType CurrentPaymentType =
         PaymentType.Cash;
 
     private ElementReference barcodeInputRef;
     private CancellationTokenSource? toastCancellation;
     private CancellationTokenSource? closeModalCancellation;
+    private IJSObjectReference? barcodeScannerModule;
+    private DotNetObjectReference<Sales>? barcodeScannerReference;
+
+    private readonly SemaphoreSlim barcodeScanGate = new(1, 1);
 
     private static readonly string[] NumpadKeys =
     {
@@ -1083,19 +1199,44 @@
          .ToList();
 
 
+    private decimal DisplayPaymentTotal =>
+SaleCompleted
+   ? CompletedSaleTotalAmount
+   : TotalAmount;
+
+    private decimal DisplayAppliedPaymentTotal =>
+        SaleCompleted
+            ? CompletedAppliedAmount
+            : AppliedPaymentTotal;
+
+    private decimal DisplayReceivedPaymentTotal =>
+        SaleCompleted
+            ? CompletedReceivedAmount
+            : ReceivedPaymentTotal;
+
+    private decimal DisplayRemainingAmount =>
+        SaleCompleted
+            ? CompletedRemainingAmount
+            : RemainingAmount;
+
+    private decimal DisplayChangeAmount =>
+        SaleCompleted
+            ? CompletedChangeAmount
+            : ChangeAmount;
+
     private static bool IsGlobalCategory(
     string? category)
-{
-    return string.IsNullOrWhiteSpace(category) ||
-           string.Equals(
-               category.Trim(),
-               "All",
-               StringComparison.OrdinalIgnoreCase) ||
-           string.Equals(
-               category.Trim(),
-               "Global",
-               StringComparison.OrdinalIgnoreCase);
-}
+    {
+        return string.IsNullOrWhiteSpace(category) ||
+               string.Equals(
+                   category.Trim(),
+                   "All",
+                   StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(
+                   category.Trim(),
+                   "Global",
+                   StringComparison.OrdinalIgnoreCase);
+    }
 
     private List<LocalCustomer> FilteredCustomers =>
         string.IsNullOrWhiteSpace(
@@ -1119,13 +1260,203 @@
         await LoadLocalDataAsync();
     }
 
-    protected override async Task OnAfterRenderAsync(
-        bool firstRender)
+    private string GetDuplicateButtonTitle()
     {
-        if (firstRender)
+        if (IsDeliveringDuplicate)
         {
-            await FocusBarcodeInput();
+            return "Préparation du duplicata";
         }
+
+        return PhysicalPrinterConfigured &&
+               OriginalReceiptPrinted
+            ? "Imprimer un duplicata du dernier ticket"
+            : "Générer un duplicata PDF du dernier ticket";
+    }
+
+    private async Task<string> DeliverOriginalReceiptAsync(
+    Guid receiptId,
+    string invoiceNumber)
+    {
+        OriginalReceiptPrinted =
+            false;
+
+        /*
+        * Aucun périphérique configuré :
+         * le PDF devient automatiquement la sortie du ticket.
+         */
+        if (!PhysicalPrinterConfigured)
+        {
+            await GenerateAndShareReceiptPdfAsync(
+                receiptId,
+                invoiceNumber,
+                duplicate: false);
+
+            LastReceiptDelivered =
+                true;
+
+            Logger.LogInformation(
+                "Original PDF generated for sale {InvoiceNumber} because " +
+                "no physical printer is configured.",
+                invoiceNumber);
+
+            return "Le ticket PDF a été généré.";
+        }
+
+        try
+        {
+            var result =
+                await ReceiptService.PrintOriginalAsync(
+                    receiptId);
+
+            if (result.Success)
+            {
+                OriginalReceiptPrinted =
+                    true;
+
+                LastReceiptDelivered =
+                    true;
+
+                Logger.LogInformation(
+                    "Original receipt printed for sale {InvoiceNumber}.",
+                    invoiceNumber);
+
+                return "Le ticket a été imprimé.";
+            }
+
+            Logger.LogWarning(
+                "Receipt printing failed for sale {InvoiceNumber}: {Error}",
+                invoiceNumber,
+                result.ErrorMessage);
+        }
+        catch (Exception exception)
+        {
+            Logger.LogWarning(
+                exception,
+                "Physical printing failed for sale {InvoiceNumber}. " +
+                "Generating PDF fallback.",
+                invoiceNumber);
+        }
+
+        /*
+        * Une imprimante est configurée, mais elle est indisponible :
+         * erreur 1801, appareil déconnecté, pilote absent, etc.
+         */
+        await GenerateAndShareReceiptPdfAsync(
+            receiptId,
+            invoiceNumber,
+            duplicate: false);
+
+        LastReceiptDelivered =
+            true;
+
+        return
+            "L’imprimante est indisponible. Un PDF a été généré.";
+    }
+
+    private async Task<string> GenerateAndShareReceiptPdfAsync(
+    Guid receiptId,
+    string? invoiceNumber,
+    bool duplicate)
+    {
+        var pdfBytes =
+            await ReceiptService.GeneratePdfAsync(
+                receiptId,
+                duplicate);
+
+        var prefix =
+            duplicate
+                ? "DUPLICATA"
+                : "TICKET";
+
+        var safeInvoiceNumber =
+            SanitizeReceiptFileName(
+                invoiceNumber);
+
+        var fileName =
+            $"{prefix}-{safeInvoiceNumber}.pdf";
+
+        var filePath =
+            Path.Combine(
+                FileSystem.CacheDirectory,
+                fileName);
+
+        await File.WriteAllBytesAsync(
+            filePath,
+            pdfBytes);
+
+        await Share.Default.RequestAsync(
+            new ShareFileRequest
+            {
+                Title =
+                    duplicate
+                        ? $"Duplicata {invoiceNumber}"
+                        : $"Ticket {invoiceNumber}",
+
+                File =
+                    new ShareFile(
+                        filePath,
+                        "application/pdf")
+            });
+
+        return filePath;
+    }
+
+    private static string SanitizeReceiptFileName(
+        string? invoiceNumber)
+    {
+        var result =
+            string.IsNullOrWhiteSpace(invoiceNumber)
+                ? DateTime.Now.ToString(
+                    "yyyyMMdd-HHmmss")
+                : invoiceNumber.Trim();
+
+        foreach (var invalidCharacter
+                 in Path.GetInvalidFileNameChars())
+        {
+            result =
+                result.Replace(
+                    invalidCharacter,
+                    '-');
+        }
+
+        return string.IsNullOrWhiteSpace(result)
+            ? DateTime.Now.ToString(
+                "yyyyMMdd-HHmmss")
+            : result;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        try
+        {
+            barcodeScannerReference =
+                DotNetObjectReference.Create(this);
+
+            barcodeScannerModule =
+                await JS.InvokeAsync<IJSObjectReference>(
+                    "import",
+                    "./js/barcodeScanner.js");
+
+            await barcodeScannerModule.InvokeVoidAsync(
+                "initialize",
+                barcodeScannerReference);
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(
+                exception,
+                "Failed to initialize the barcode scanner listener.");
+
+            await ShowErrorAsync(
+                "The barcode scanner could not be initialized.");
+        }
+
+        await FocusBarcodeInput();
     }
 
     public void Dispose()
@@ -1148,8 +1479,8 @@
                 LocalTenantContext.GetRequiredTenantId();
 
             /*
-             * Use the same local cash-session service as the
-             * CashSessions page. This prevents two screens from using
+            * Use the same local cash-session service as the
+            * CashSessions page. This prevents two screens from using
              * different definitions of an open session.
              */
             var openSession =
@@ -1354,27 +1685,102 @@
      string? category)
     {
         /*
-         * All et Global représentent l'ensemble des produits.
-         */
+        * All et Global représentent l'ensemble des produits.
+        */
         SelectedCategory =
             IsGlobalCategory(category)
                 ? null
                 : category?.Trim();
 
         /*
-         * Un ancien texte de recherche ne doit pas continuer à masquer
+        * Un ancien texte de recherche ne doit pas continuer à masquer
          * les produits après un changement de catégorie.
          */
         SearchText =
-            string.Empty;
+        string.Empty;
 
         UpdateProductFilter();
 
         StateHasChanged();
     }
 
-    private async Task OnBarcodeKeyDown(
-        KeyboardEventArgs args)
+    [JSInvokable]
+    public async Task OnHardwareScan(string? rawBarcode)
+    {
+        if (string.IsNullOrWhiteSpace(
+                rawBarcode))
+        {
+            return;
+        }
+
+        var barcode =
+            rawBarcode.Trim();
+
+        await barcodeScanGate.WaitAsync();
+
+        try
+        {
+            BarcodeInput =
+                string.Empty;
+
+            if (IsLoading)
+            {
+                await ShowErrorAsync(
+                    "Product data is still loading.");
+
+                return;
+            }
+
+            if (IsSaving)
+            {
+                await ShowErrorAsync(
+                    "A sale operation is currently in progress.");
+
+                return;
+            }
+
+            if (SaleCompleted)
+            {
+                await ShowErrorAsync(
+                    "The current sale is already completed.");
+
+                return;
+            }
+
+            if (ShowCustomerModal ||
+                ShowPendingModal ||
+                ShowPaymentModal)
+            {
+                await ShowErrorAsync(
+                    "Product scanning is unavailable while a dialog is open.");
+
+                return;
+            }
+
+            Logger.LogDebug(
+                "Barcode scanned: {Barcode}",
+                barcode);
+
+            await AddProductByBarcodeAsync(
+                barcode);
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(
+                exception,
+                "Failed to process barcode {Barcode}.",
+                barcode);
+
+            await ShowErrorAsync(
+                "The barcode could not be processed.");
+        }
+        finally
+        {
+            barcodeScanGate.Release();
+        }
+    }
+
+    private async Task OnBarcodeKeyDown(KeyboardEventArgs args)
     {
         if (!string.Equals(
                 args.Key,
@@ -1392,8 +1798,7 @@
         BarcodeInput =
             string.Empty;
 
-        await AddProductByBarcodeAsync(
-            barcode);
+        await OnHardwareScan(barcode);
     }
 
     private async Task AddProductByBarcodeAsync(
@@ -1492,11 +1897,11 @@
                 requested;
         }
 
-        SelectedLine =
-            existingLine;
+        SelectedLine = existingLine;
 
-        NumpadValue =
-            string.Empty;
+        NumpadValue = string.Empty;
+
+        PublishCustomerDisplay(product.Name);
 
         await FocusBarcodeInput();
     }
@@ -1516,8 +1921,7 @@
         {
             line.Quantity =
                 RoundQuantity(
-                    line.Quantity -
-                    1m);
+                    line.Quantity - 1m);
         }
         else
         {
@@ -1527,9 +1931,17 @@
                     SelectedLine,
                     line))
             {
-                SelectedLine =
-                    null;
+                SelectedLine = null;
             }
+        }
+
+        if (Lines.Count == 0)
+        {
+            CustomerDisplay.Reset();
+        }
+        else
+        {
+            PublishCustomerDisplay();
         }
 
         _ = FocusBarcodeInput();
@@ -1548,6 +1960,15 @@
         SelectedLine =
             null;
 
+        if (Lines.Count == 0)
+        {
+            CustomerDisplay.Reset();
+        }
+        else
+        {
+            PublishCustomerDisplay();
+        }
+
         _ = FocusBarcodeInput();
     }
 
@@ -1565,6 +1986,8 @@
             null;
 
         ResetPayments();
+
+        CustomerDisplay.Reset();
 
         _ = FocusBarcodeInput();
     }
@@ -1617,8 +2040,9 @@
                 AdjustmentType.PriceOverride,
                 RoundMoney(value)));
 
-        NumpadValue =
-            string.Empty;
+        PublishCustomerDisplay();
+
+        NumpadValue = string.Empty;
     }
 
     private void AddDiscountPercent(
@@ -1642,8 +2066,9 @@
                 AdjustmentType.DiscountPercent,
                 RoundPercentage(value)));
 
-        NumpadValue =
-            string.Empty;
+        PublishCustomerDisplay();
+
+        NumpadValue = string.Empty;
     }
 
     private void AddDiscountAmount(
@@ -1675,8 +2100,9 @@
                 AdjustmentType.DiscountAmount,
                 RoundMoney(value)));
 
-        NumpadValue =
-            string.Empty;
+        PublishCustomerDisplay();
+
+        NumpadValue = string.Empty;
     }
 
     private static void RemoveDiscountAdjustments(
@@ -1687,14 +2113,18 @@
                 AdjustmentType.DiscountPercent ||
             adjustment.Type ==
                 AdjustmentType.DiscountAmount);
+
+
     }
 
     private void RemoveAdjustment(
         CartLine line,
         CartAdjustment adjustment)
     {
-        line.Adjustments.Remove(
-            adjustment);
+        line.Adjustments.Remove(adjustment);
+
+        PublishCustomerDisplay();
+
     }
 
     private void OpenCustomerModal()
@@ -1719,6 +2149,8 @@
 
         CustomerSearchText =
             string.Empty;
+
+        _ = FocusBarcodeInput();
     }
 
     private void ConfirmCustomerSelection()
@@ -1803,6 +2235,8 @@
                     .SavePendingAsync(
                         pendingSale);
 
+
+
             var invoiceNumber =
                 savedSale.LocalInvoiceNumber;
 
@@ -1813,6 +2247,8 @@
             ResetSale();
 
             await LoadPendingSalesAsync();
+
+            PublishCustomerDisplay();
 
             await ShowSuccessAsync(
                 $"Pending ticket {invoiceNumber} saved locally.");
@@ -1833,6 +2269,51 @@
             IsSaving =
                 false;
         }
+    }
+
+    private void PublishCustomerDisplay(
+    string? lastScannedProduct = null)
+    {
+        var displayLines =
+            Lines
+                .Select(line =>
+                    new CustomerDisplayLine(
+                        line.Product.Id,
+                        line.Product.Name,
+                        line.Quantity,
+                        line.EffectiveUnitPrice,
+                        line.NetAmountInclVat))
+                .ToList();
+
+        var subtotal =
+            RoundMoney(
+                Lines.Sum(line =>
+                    line.NetAmountExclVat));
+
+        var vat =
+            RoundMoney(
+                Lines.Sum(line =>
+                    line.VatAmount));
+
+        var discount =
+            RoundMoney(
+                Lines.Sum(line =>
+                    line.TotalDiscount));
+
+        var total =
+            RoundMoney(
+                Lines.Sum(line =>
+                    line.NetAmountInclVat));
+
+        CustomerDisplay.Publish(
+            new CustomerDisplaySnapshot(
+                displayLines,
+                subtotal,
+                vat,
+                discount,
+                total,
+                lastScannedProduct,
+                CustomerDisplayMode.Sale));
     }
 
     private async Task ResumePendingSaleAsync(
@@ -2007,6 +2488,21 @@
         CompletedReceiptId =
             null;
 
+        CompletedSaleTotalAmount =
+        0m;
+
+        CompletedAppliedAmount =
+            0m;
+
+        CompletedReceivedAmount =
+            0m;
+
+        CompletedRemainingAmount =
+            0m;
+
+        CompletedChangeAmount =
+            0m;
+
         PaymentEntries.Clear();
 
         PaymentInput =
@@ -2039,7 +2535,24 @@
         CompletedReceiptId =
             null;
 
+        CompletedSaleTotalAmount =
+            0m;
+
+        CompletedAppliedAmount =
+            0m;
+
+        CompletedReceivedAmount =
+            0m;
+
+        CompletedRemainingAmount =
+            0m;
+
+        CompletedChangeAmount =
+            0m;
+
         ResetPayments();
+
+        _ = FocusBarcodeInput();
     }
 
     private void HandlePaymentInput(
@@ -2101,7 +2614,20 @@
             paymentType;
     }
 
-    private async Task HandleCompleteOrAddPayment()
+    private Task HandleCompleteWithoutReceiptAsync()
+    {
+        return HandleCompleteOrAddPaymentAsync(
+            deliverReceipt: false);
+    }
+
+    private Task HandleCompleteWithReceiptAsync()
+    {
+        return HandleCompleteOrAddPaymentAsync(
+            deliverReceipt: true);
+    }
+
+    private async Task HandleCompleteOrAddPaymentAsync(
+        bool deliverReceipt)
     {
         if (SaleCompleted ||
             IsSaving)
@@ -2122,10 +2648,8 @@
                 return;
             }
 
-            if (CurrentPaymentType !=
-                    PaymentType.Cash &&
-                receivedAmount >
-                    RemainingAmount)
+            if (CurrentPaymentType != PaymentType.Cash &&
+                receivedAmount > RemainingAmount)
             {
                 await ShowErrorAsync(
                     "A non-cash payment cannot exceed the remaining amount.");
@@ -2138,6 +2662,10 @@
                 receivedAmount);
         }
 
+        /*
+         * Le montant restant devient un crédit uniquement
+         * lorsqu'un client a été sélectionné.
+         */
         if (RemainingAmount > 0m)
         {
             if (SelectedCustomer == null)
@@ -2153,7 +2681,8 @@
                 RemainingAmount);
         }
 
-        await CompleteSaleAsync();
+        await CompleteSaleAsync(
+            deliverReceipt);
     }
 
     private void AddPayment(
@@ -2215,16 +2744,112 @@
             PaymentType.Cash;
     }
 
-    private async Task CompleteSaleAsync()
+    private async Task DeliverLastDuplicateAsync()
+    {
+        if (IsDeliveringDuplicate)
+        {
+            return;
+        }
+
+        if (!LastCompletedReceiptId.HasValue ||
+            LastCompletedReceiptId.Value == Guid.Empty)
+        {
+            await ShowErrorAsync(
+                "Aucun ticket terminé n’est disponible.");
+
+            return;
+        }
+
+        if (!LastReceiptDelivered)
+        {
+            await ShowErrorAsync(
+                "Aucun ticket original n’a été remis pour cette vente.");
+
+            return;
+        }
+
+        try
+        {
+            IsDeliveringDuplicate =
+                true;
+
+            /*
+             * L’original a été imprimé physiquement et une imprimante
+             * est toujours configurée.
+             */
+            if (PhysicalPrinterConfigured &&
+                OriginalReceiptPrinted)
+            {
+                try
+                {
+                    var result =
+                        await ReceiptService.PrintDuplicateAsync(
+                            LastCompletedReceiptId.Value,
+                            "Duplicata demandé depuis la page de vente.");
+
+                    if (result.Success)
+                    {
+                        await ShowSuccessAsync(
+                            $"Duplicata n°{result.CopyNumber} imprimé pour " +
+                            $"{LastCompletedInvoiceNumber}.");
+
+                        return;
+                    }
+
+                    Logger.LogWarning(
+                        "Duplicate printing failed for receipt {ReceiptId}: {Error}",
+                        LastCompletedReceiptId.Value,
+                        result.ErrorMessage);
+                }
+                catch (Exception printException)
+                {
+                    Logger.LogWarning(
+                        printException,
+                        "Duplicate printing failed for receipt {ReceiptId}. " +
+                        "Generating a PDF fallback.",
+                        LastCompletedReceiptId.Value);
+                }
+            }
+
+            /*
+             * Pas d’imprimante, original PDF ou erreur d’impression :
+             * générer un duplicata PDF.
+             */
+            await GenerateAndShareReceiptPdfAsync(
+                LastCompletedReceiptId.Value,
+                LastCompletedInvoiceNumber,
+                duplicate: true);
+
+            await ShowSuccessAsync(
+                $"Duplicata PDF généré pour {LastCompletedInvoiceNumber}.");
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(
+                exception,
+                "Failed to deliver duplicate receipt {ReceiptId}.",
+                LastCompletedReceiptId.Value);
+
+            await ShowErrorAsync(
+                exception
+                    .GetBaseException()
+                    .Message);
+        }
+        finally
+        {
+            IsDeliveringDuplicate =
+                false;
+        }
+    }
+
+    private async Task CompleteSaleAsync(
+    bool deliverReceipt)
     {
         if (IsSaving)
         {
             return;
         }
 
-        /*
-         * Bloquer immédiatement un deuxième clic.
-         */
         IsSaving =
             true;
 
@@ -2254,12 +2879,31 @@
                 return;
             }
 
+            var completedSaleTotalAmount =
+                TotalAmount;
+
+            var completedAppliedAmount =
+                AppliedPaymentTotal;
+
+            var completedReceivedAmount =
+                ReceivedPaymentTotal;
+
+            var completedRemainingAmount =
+                RemainingAmount;
+
+            var completedChangeAmount =
+                ChangeAmount;
+
             var pendingSaleId =
                 CurrentPendingSaleId;
 
             var localSale =
                 BuildLocalSale();
 
+            /*
+             * La vente est enregistrée avant toute opération
+             * d’impression ou de génération PDF.
+             */
             var savedSale =
                 pendingSaleId.HasValue
                     ? await LocalSaleService
@@ -2270,29 +2914,100 @@
                         .CreateAsync(
                             localSale);
 
-            var receipt =
-                await ReceiptService.CreateReceiptAsync(
-                    savedSale.Id);
+            CompletedSaleTotalAmount =
+            completedSaleTotalAmount;
 
-            CompletedReceiptId =
-                receipt.Id;
+            CompletedAppliedAmount =
+                completedAppliedAmount;
+
+            CompletedReceivedAmount =
+                completedReceivedAmount;
+
+            CompletedRemainingAmount =
+                completedRemainingAmount;
+
+            CompletedChangeAmount =
+                completedChangeAmount;
+
+            CompletedInvoiceNumber =
+                savedSale.LocalInvoiceNumber;
+
+            LastCompletedInvoiceNumber =
+                savedSale.LocalInvoiceNumber;
+
+            OriginalReceiptPrinted =
+                false;
+
+            LastReceiptDelivered =
+                false;
+
+            string receiptMessage =
+                string.Empty;
+
+            /*
+             * Le snapshot est toujours créé, même lorsque
+             * l'utilisateur choisit "Valider sans ticket".
+             *
+             * Cela permet de générer ou réimprimer le ticket plus tard.
+             */
+            try
+            {
+                var receipt =
+                    await ReceiptService.CreateReceiptAsync(
+                        savedSale.Id);
+
+                CompletedReceiptId =
+                    receipt.Id;
+
+                LastCompletedReceiptId =
+                    receipt.Id;
+
+                if (deliverReceipt)
+                {
+                    receiptMessage =
+                        await DeliverOriginalReceiptAsync(
+                            receipt.Id,
+                            savedSale.LocalInvoiceNumber);
+                }
+                else
+                {
+                    Logger.LogInformation(
+                        "Sale {InvoiceNumber} completed without customer " +
+                        "receipt output.",
+                        savedSale.LocalInvoiceNumber);
+
+                    receiptMessage =
+                        "Aucun ticket n’a été demandé.";
+                }
+            }
+            catch (Exception receiptException)
+            {
+                Logger.LogError(
+                    receiptException,
+                    "Sale {InvoiceNumber} was saved, but its receipt " +
+                    "snapshot could not be prepared.",
+                    savedSale.LocalInvoiceNumber);
+
+                receiptMessage =
+                    "La vente est enregistrée, mais le ticket n’a pas pu être préparé.";
+            }
 
             await ReloadStockAsync();
 
             State.InvalidatePos();
 
-            CompletedInvoiceNumber =
-                savedSale.LocalInvoiceNumber;
-
             SaleCompleted =
                 true;
 
             Logger.LogInformation(
-                "Local sale {InvoiceNumber} saved with " +
-                "{LineCount} lines. PendingSaleId: {PendingSaleId}",
-                savedSale.LocalInvoiceNumber,
-                savedSale.Lines.Count,
-                pendingSaleId);
+                        "Local sale {InvoiceNumber} saved. " +
+                        "Total={Total}, Received={Received}, Change={Change}, " +
+                        "DeliverReceipt={DeliverReceipt}.",
+                        savedSale.LocalInvoiceNumber,
+                        completedSaleTotalAmount,
+                        completedReceivedAmount,
+                        completedChangeAmount,
+                        deliverReceipt);
 
             Lines.Clear();
 
@@ -2305,16 +3020,19 @@
             CurrentPendingSaleId =
                 null;
 
-            PaymentEntries.Clear();
-
             PaymentInput =
                 string.Empty;
 
             await ShowSuccessAsync(
-                $"Sale {savedSale.LocalInvoiceNumber} saved locally " +
-                "and queued for synchronization.");
+                $"Vente {savedSale.LocalInvoiceNumber} enregistrée localement. " +
+                receiptMessage);
 
-            StartClosePaymentModalTimer();
+            CustomerDisplay.Reset();
+
+            if (CompletedChangeAmount <= 0m)
+            {
+                StartClosePaymentModalTimer();
+            }
         }
         catch (Exception exception)
         {
@@ -2324,11 +3042,6 @@
                 "PendingSaleId: {PendingSaleId}",
                 CurrentPendingSaleId);
 
-            /*
-             * Important :
-             * ne pas utiliser GetBaseException(), sinon le détail
-             * Entity/State/Key du conflit est perdu.
-             */
             await ShowErrorAsync(
                 exception.Message);
         }
@@ -2337,6 +3050,171 @@
             IsSaving =
                 false;
         }
+    }
+
+    private async Task PrintLastDuplicateAsync()
+    {
+        if (IsPrintingDuplicate)
+        {
+            return;
+        }
+
+        if (!LastCompletedReceiptId.HasValue ||
+            LastCompletedReceiptId.Value == Guid.Empty)
+        {
+            await ShowErrorAsync(
+                "No completed receipt is available.");
+
+            return;
+        }
+
+        if (!OriginalReceiptPrinted)
+        {
+            await ShowErrorAsync(
+                "The original receipt has not been printed successfully. " +
+                "Print the original receipt before creating a duplicate.");
+
+            return;
+        }
+
+        try
+        {
+            IsPrintingDuplicate =
+                true;
+
+            var result =
+                await ReceiptService.PrintDuplicateAsync(
+                    LastCompletedReceiptId.Value,
+                    "Duplicate requested from the sale page.");
+
+            if (!result.Success)
+            {
+                await ShowErrorAsync(
+                    result.ErrorMessage ??
+                    "The duplicate receipt could not be printed.");
+
+                return;
+            }
+
+            await ShowSuccessAsync(
+                $"Duplicate copy {result.CopyNumber} printed for " +
+                $"{LastCompletedInvoiceNumber}.");
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(
+                exception,
+                "Failed to print duplicate receipt {ReceiptId}.",
+                LastCompletedReceiptId.Value);
+
+            await ShowErrorAsync(
+                exception.GetBaseException().Message);
+        }
+        finally
+        {
+            IsPrintingDuplicate =
+                false;
+        }
+    }
+
+    private async Task ShareLastDuplicatePdfAsync()
+    {
+        if (IsSharingDuplicate)
+        {
+            return;
+        }
+
+        if (!LastCompletedReceiptId.HasValue ||
+            LastCompletedReceiptId.Value == Guid.Empty)
+        {
+            await ShowErrorAsync(
+                "No completed receipt is available.");
+
+            return;
+        }
+
+        try
+        {
+            IsSharingDuplicate =
+                true;
+
+            var pdfBytes =
+                await ReceiptService.GeneratePdfAsync(
+                    LastCompletedReceiptId.Value,
+                    duplicate: true);
+
+            var safeInvoiceNumber =
+                SanitizeFileName(
+                    LastCompletedInvoiceNumber);
+
+            var fileName =
+                $"DUPLICATA-{safeInvoiceNumber}.pdf";
+
+            var filePath =
+                Path.Combine(
+                    FileSystem.CacheDirectory,
+                    fileName);
+
+            await File.WriteAllBytesAsync(
+                filePath,
+                pdfBytes);
+
+            await Share.Default.RequestAsync(
+                new ShareFileRequest
+                {
+                    Title =
+                        $"Duplicata {LastCompletedInvoiceNumber}",
+
+                    File =
+                        new ShareFile(
+                            filePath,
+                            "application/pdf")
+                });
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(
+                exception,
+                "Failed to generate duplicate PDF for receipt {ReceiptId}.",
+                LastCompletedReceiptId.Value);
+
+            await ShowErrorAsync(
+                exception.GetBaseException().Message);
+        }
+        finally
+        {
+            IsSharingDuplicate =
+                false;
+        }
+    }
+
+    private static string SanitizeFileName(
+        string? value)
+    {
+        var fallback =
+            DateTime.Now.ToString(
+                "yyyyMMdd-HHmmss");
+
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return fallback;
+        }
+
+        var result =
+            value.Trim();
+
+        foreach (var invalidCharacter
+                 in Path.GetInvalidFileNameChars())
+        {
+            result =
+                result.Replace(
+                    invalidCharacter,
+                    '-');
+        }
+
+        return string.IsNullOrWhiteSpace(result)
+            ? fallback
+            : result;
     }
 
     private async Task<string> SaveReceiptPdfAsync(
@@ -2454,8 +3332,9 @@
                 ClientOperationId =
                     Guid.NewGuid(),
 
-                LocalInvoiceNumber =
-                    string.Empty,
+                LocalInvoiceNumber = GenerateLocalInvoiceNumber(now),
+
+                ReceiptBarcodeValue = GenerateReceiptBarcodeValue(now),
 
                 CustomerLocalId =
                     SelectedCustomer?.Id,
@@ -2646,6 +3525,116 @@
         }
 
         return localSale;
+    }
+
+    private static string GenerateLocalInvoiceNumber(
+    DateTime utcNow)
+    {
+        var normalizedUtc =
+            EnsureUtc(
+                utcNow);
+
+        var suffix =
+            RandomNumberGenerator.GetInt32(
+                0,
+                1_000_000);
+
+        return
+            $"LOC-{normalizedUtc:yyyyMMdd-HHmmss}-{suffix:D6}";
+    }
+
+    private static string GenerateReceiptBarcodeValue(
+    DateTime utcNow)
+    {
+        var normalizedUtc =
+            EnsureUtc(
+                utcNow);
+
+        var randomPart =
+            RandomNumberGenerator.GetInt32(
+                0,
+                1_000_000);
+
+        var body =
+            $"{normalizedUtc:yyyyMMddHHmmssfff}" +
+            $"{randomPart:D6}";
+
+        var checkDigit =
+            CalculateLuhnCheckDigit(
+                body);
+
+        return
+            $"{body}{checkDigit}";
+    }
+
+    private static int CalculateLuhnCheckDigit(
+        string digits)
+    {
+        if (string.IsNullOrWhiteSpace(digits) ||
+            digits.Any(character =>
+                !char.IsDigit(character)))
+        {
+            throw new ArgumentException(
+                "The value must contain digits only.",
+                nameof(digits));
+        }
+
+        var sum =
+            0;
+
+        /*
+         * Comme le chiffre de contrôle sera ajouté à droite,
+         * le chiffre le plus à droite du corps doit être doublé.
+         */
+        var shouldDouble =
+            true;
+
+        for (var index = digits.Length - 1;
+             index >= 0;
+             index--)
+        {
+            var digit =
+                digits[index] - '0';
+
+            if (shouldDouble)
+            {
+                digit *=
+                    2;
+
+                if (digit > 9)
+                {
+                    digit -=
+                        9;
+                }
+            }
+
+            sum +=
+                digit;
+
+            shouldDouble =
+                !shouldDouble;
+        }
+
+        return
+            (10 - sum % 10) % 10;
+    }
+
+    private static DateTime EnsureUtc(
+        DateTime value)
+    {
+        return value.Kind switch
+        {
+            DateTimeKind.Utc =>
+                value,
+
+            DateTimeKind.Local =>
+                value.ToUniversalTime(),
+
+            _ =>
+                DateTime.SpecifyKind(
+                    value,
+                    DateTimeKind.Utc)
+        };
     }
 
     private LocalProduct? ResolveUnitProduct(
@@ -2924,6 +3913,7 @@
 
     private void NavigateToDashboard()
     {
+        CustomerDisplay.Reset();
         Nav.NavigateTo("/");
     }
 
@@ -3207,5 +4197,12 @@
                         Product.UnitsPerPack))
                 : RoundQuantity(
                     Quantity);
+
+        public decimal EffectiveUnitPrice =>
+            Quantity > 0m
+            ? RoundMoney(
+            NetAmountInclVat /
+            Quantity)
+            : 0m;
     }
 }

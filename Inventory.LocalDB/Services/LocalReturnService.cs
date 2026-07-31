@@ -25,10 +25,10 @@ public sealed class LocalReturnService : ILocalReturnService
     }
 
     public async Task<IReadOnlyList<LocalReturnableSaleResult>>
-        SearchSalesAsync(
-            string search,
-            int maximumResults = 20,
-            CancellationToken cancellationToken = default)
+    SearchSalesAsync(
+        string search,
+        int maximumResults = 20,
+        CancellationToken cancellationToken = default)
     {
         var tenantId =
             _tenantContext.GetRequiredTenantId();
@@ -49,19 +49,37 @@ public sealed class LocalReturnService : ILocalReturnService
                     sale.Status ==
                         LocalSaleStatus.Completed);
 
-        if (!string.IsNullOrWhiteSpace(
-                search))
+        if (!string.IsNullOrWhiteSpace(search))
         {
             var term =
                 search.Trim();
+
+            var barcodeTerm =
+                new string(
+                    term
+                        .Where(char.IsDigit)
+                        .ToArray());
+
+            var isBarcodeSearch =
+                barcodeTerm.Length >= 12;
 
             query =
                 query.Where(sale =>
                     sale.LocalInvoiceNumber.Contains(
                         term) ||
+
                     (sale.ServerInvoiceNumber != null &&
                      sale.ServerInvoiceNumber.Contains(
-                         term)));
+                         term)) ||
+
+                    (sale.ReceiptBarcodeValue != null &&
+                     (
+                         sale.ReceiptBarcodeValue == term ||
+
+                         (isBarcodeSearch &&
+                          sale.ReceiptBarcodeValue ==
+                              barcodeTerm)
+                     )));
         }
 
         var sales =

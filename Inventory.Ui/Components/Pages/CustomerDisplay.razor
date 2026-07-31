@@ -1,56 +1,305 @@
-﻿@page "/customer-display"
-@inject PosState Pos
+﻿@namespace Inventory.Ui.Components.Pages
+@implements IDisposable
+@inject CustomerDisplayState DisplayState
 
-<div class="display-container">
-    <div class="header">
-        <h1>Current Sale</h1>
-    </div>
+<div class="customer-display">
+    <header class="display-header">
+        <div class="brand">
+            <div class="brand-logo">
+                INV
+            </div>
 
-    @if (Pos.Lines.Count == 0)
-    {
-        <div class="empty">
-            Waiting for products...
+            <div>
+                <div class="enterprise-name">
+                    @EnterpriseName
+                </div>
+
+                <div class="enterprise-subtitle">
+                    @EnterpriseSubtitle
+                </div>
+            </div>
         </div>
+
+        <div class="status-badge">
+            <span class="status-dot"></span>
+            @GetModeLabel()
+        </div>
+    </header>
+
+    @if (DisplayState.Snapshot.Mode ==
+        CustomerDisplayMode.Idle)
+    {
+        <main class="idle-content">
+            <div class="idle-decoration decoration-one"></div>
+            <div class="idle-decoration decoration-two"></div>
+
+            <div class="welcome-card">
+                <div class="welcome-icon">
+                    <span>INV</span>
+                </div>
+
+                <p class="welcome-label">
+                    @EnterpriseName
+                </p>
+
+                <h1>Bienvenue</h1>
+
+                <p class="welcome-message">
+                    Vos articles apparaîtront ici pendant
+                    votre passage en caisse.
+                </p>
+
+                <div class="welcome-divider"></div>
+
+                <p class="welcome-footer">
+                    Merci pour votre visite
+                </p>
+            </div>
+        </main>
+    }
+    else if (DisplayState.Snapshot.Mode ==
+    CustomerDisplayMode.Completed)
+    {
+        <main class="completed-content">
+            <div class="completed-card">
+                <div class="completed-icon">✓</div>
+
+                <p class="completed-label">
+                    Paiement accepté
+                </p>
+
+                <h1>Merci pour votre achat</h1>
+
+                <div class="completed-total">
+                    €@DisplayState.Snapshot.Total.ToString("F2")
+                </div>
+
+                <p>
+                    @EnterpriseName vous remercie pour votre visite.
+                </p>
+            </div>
+        </main>
     }
     else
     {
-        <table class="display-table">
-            <thead>
-                <tr>
-                    <th>Product</th>
-                    <th>Qty</th>
-                    <th>Price</th>
-                    <th>Total</th>
-                </tr>
-            </thead>
-            <tbody>
-                @foreach (var line in Pos.Lines)
-                {
-                    <tr>
-                        <td>@line.ProductName</td>
-                        <td>@line.Quantity</td>
-                        <td>€@line.EffectiveUnitPrice.ToString("F2")</td>
-                        <td>€@line.Amount.ToString("F2")</td>
-                    </tr>
-                }
-            </tbody>
-        </table>
+        <main class="sale-content">
+            <section class="basket-panel">
+                <div class="section-header">
+                    <div>
+                        <p class="section-label">
+                            Achat en cours
+                        </p>
 
-        <div class="total">
-            <span>Total</span>
-            <strong>€@Pos.TotalAmount.ToString("F2")</strong>
-        </div>
+                        <h1>Votre panier</h1>
+                    </div>
+
+                    <div class="article-count">
+                        <strong>
+                            @DisplayState.Snapshot.Lines.Count
+                        </strong>
+
+                        <span>
+                            @(DisplayState.Snapshot.Lines.Count > 1
+                                                    ? "articles"
+                                                    : "article")
+                    </span>
+                </div>
+            </div>
+
+            @if (!string.IsNullOrWhiteSpace(
+                        DisplayState.Snapshot.LastScannedProduct))
+                {
+                    <div class="last-scanned">
+                        <div class="last-scanned-icon">
+                            ✓
+                        </div>
+
+                        <div>
+                            <span>Article ajouté</span>
+
+                            <strong>
+                                @DisplayState.Snapshot.LastScannedProduct
+                            </strong>
+                        </div>
+                    </div>
+                }
+
+                <div class="lines-container">
+                    <div class="line-grid line-header">
+                        <span>Article</span>
+                        <span class="text-center">Quantité</span>
+                        <span class="text-right">Prix unitaire</span>
+                        <span class="text-right">Total</span>
+                    </div>
+
+                    <div class="lines-list">
+                        @foreach (var line in
+                                            DisplayState.Snapshot.Lines)
+                        {
+                            <div class="line-grid line-row"
+                                 @key="line.ProductId">
+
+                                <div class="product-column">
+                                    <div class="product-icon" hidden>
+                                        @GetProductInitial(
+                                        line.ProductName)
+                            </div>
+
+                            <div class="product-name">
+                                @line.ProductName
+                            </div>
+                        </div>
+
+                        <div class="quantity-cell">
+                            @line.Quantity.ToString("0.###")
+                        </div>
+
+                        <div class="price-cell">
+                            €@line.UnitPrice.ToString("F2")
+                        </div>
+
+                        <div class="line-total">
+                            €@line.LineTotal.ToString("F2")
+                        </div>
+                    </div>
+                                        }
+                    </div>
+                </div>
+            </section>
+
+            <aside class="summary-panel">
+                <div>
+                    <p class="summary-label">
+                        Résumé de votre achat
+                    </p>
+
+                    <h2>Montant à payer</h2>
+                </div>
+
+                <div class="summary-lines">
+                    <div class="summary-row">
+                        <span>Sous-total HT</span>
+
+                        <strong>
+                            €@DisplayState.Snapshot.Subtotal.ToString("F2")
+                        </strong>
+                    </div>
+
+                    <div class="summary-row">
+                        <span>TVA</span>
+
+                        <strong>
+                            €@DisplayState.Snapshot.Vat.ToString("F2")
+                        </strong>
+                    </div>
+
+                    @if (DisplayState.Snapshot.Discount > 0m)
+                    {
+                        <div class="summary-row discount-row">
+                            <span>Réduction</span>
+
+                            <strong>
+                                − €@DisplayState.Snapshot.Discount.ToString("F2")
+                            </strong>
+                        </div>
+                    }
+                </div>
+
+                <div class="total-card">
+                    <span>Total TTC</span>
+
+                    <strong>
+                        €@DisplayState.Snapshot.Total.ToString("F2")
+                    </strong>
+
+                    <small>TVA comprise</small>
+                </div>
+
+                <div class="payment-message">
+                    @if (DisplayState.Snapshot.Mode ==
+                                    CustomerDisplayMode.Payment)
+                    {
+                        <span class="payment-icon">⌛</span>
+
+                        <div>
+                            <strong>Paiement en cours</strong>
+                            <span>Suivez les instructions de la caisse.</span>
+                        </div>
+                    }
+                    else
+                    {
+                        <span class="payment-icon">●</span>
+
+                        <div>
+                            <strong>Vérifiez votre panier</strong>
+                            <span>Signalez toute erreur au caissier.</span>
+                        </div>
+                    }
+                </div>
+            </aside>
+        </main>
     }
+
+    <footer class="display-footer">
+        <span>@EnterpriseName</span>
+        <span>Merci pour votre confiance</span>
+    </footer>
 </div>
 
 @code {
+    private const string EnterpriseName =
+        "Inventory";
+
+    private const string EnterpriseSubtitle =
+        "Votre commerce de proximité";
+
     protected override void OnInitialized()
     {
-        Pos.OnChange += StateHasChanged;
+        DisplayState.Changed +=
+            HandleDisplayChanged;
+    }
+
+    private void HandleDisplayChanged()
+    {
+        _ = InvokeAsync(
+            StateHasChanged);
+    }
+
+    private string GetModeLabel()
+    {
+        return DisplayState.Snapshot.Mode switch
+        {
+            CustomerDisplayMode.Idle =>
+                "Caisse disponible",
+
+            CustomerDisplayMode.Sale =>
+                "Achat en cours",
+
+            CustomerDisplayMode.Payment =>
+                "Paiement",
+
+            CustomerDisplayMode.Completed =>
+                "Terminé",
+
+            _ =>
+                string.Empty
+        };
+    }
+
+    private static string GetProductInitial(
+        string productName)
+    {
+        return string.IsNullOrWhiteSpace(productName)
+            ? "?"
+            : productName
+                .Trim()[0]
+                .ToString()
+                .ToUpperInvariant();
     }
 
     public void Dispose()
     {
-        Pos.OnChange -= StateHasChanged;
+        DisplayState.Changed -=
+            HandleDisplayChanged;
     }
 }

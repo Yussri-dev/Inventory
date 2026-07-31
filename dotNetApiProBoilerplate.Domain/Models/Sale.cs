@@ -11,6 +11,7 @@ namespace Inventory.Domain.Entities
     {
         [Key]
         public Guid Id { get; set; }
+        public Guid ClientOperationId { get; set; }
 
         [Required, MaxLength(100)]
         public string InvoiceNumber { get; set; } = null!;

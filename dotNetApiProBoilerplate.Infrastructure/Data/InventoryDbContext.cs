@@ -47,7 +47,14 @@ namespace Inventory.Infrastructure.Data
             builder.Entity<Customer>().HasIndex(e => e.TenantId);
             builder.Entity<Supplier>().HasIndex(e => e.TenantId);
             builder.Entity<Sale>().HasIndex(e => e.TenantId);
-
+            builder.Entity<Sale>()
+            .HasIndex(sale =>
+                new
+                {
+                    sale.TenantId,
+                    sale.ClientOperationId
+                })
+            .IsUnique();
             builder.Entity<Purchase>()
             .HasIndex(purchase => new
             {

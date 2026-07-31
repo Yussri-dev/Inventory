@@ -160,11 +160,98 @@
                     <span>Cash Sessions</span>
                 </NavLink>
 
-                <NavLink class="nav-link"
-                         href="/configuration"
-                         Match="NavLinkMatch.Prefix">
-                    <i class="bi bi-gear"></i>
+                <NavLink href="/configuration"
+                         class="inv-link"
+                         Match="NavLinkMatch.All"
+                         @onclick="CloseSidebar">
+
+                    <!-- Configuration / paramètres -->
+                    <svg class="inv-ico"
+                         viewBox="0 0 24 24"
+                         fill="none"
+                         stroke="currentColor"
+                         stroke-width="2"
+                         stroke-linecap="round"
+                         stroke-linejoin="round">
+
+                        <circle cx="12" cy="12" r="3" />
+
+                        <path d="M19.4 15
+                     a1.7 1.7 0 0 0 .34 1.88
+                     l.06.06
+                     a2 2 0 1 1-2.83 2.83
+                     l-.06-.06
+                     a1.7 1.7 0 0 0-1.88-.34
+                     a1.7 1.7 0 0 0-1.03 1.55
+                     V21
+                     a2 2 0 1 1-4 0
+                     v-.08
+                     a1.7 1.7 0 0 0-1.03-1.55
+                     a1.7 1.7 0 0 0-1.88.34
+                     l-.06.06
+                     a2 2 0 1 1-2.83-2.83
+                     l.06-.06
+                     A1.7 1.7 0 0 0 4.6 15
+                     A1.7 1.7 0 0 0 3.08 14
+                     H3
+                     a2 2 0 1 1 0-4
+                     h.08
+                     A1.7 1.7 0 0 0 4.6 9
+                     a1.7 1.7 0 0 0-.34-1.88
+                     l-.06-.06
+                     a2 2 0 1 1 2.83-2.83
+                     l.06.06
+                     A1.7 1.7 0 0 0 8.97 4.6
+                     A1.7 1.7 0 0 0 10 3.08
+                     V3
+                     a2 2 0 1 1 4 0
+                     v.08
+                     a1.7 1.7 0 0 0 1.03 1.55
+                     a1.7 1.7 0 0 0 1.88-.34
+                     l.06-.06
+                     a2 2 0 1 1 2.83 2.83
+                     l-.06.06
+                     A1.7 1.7 0 0 0 19.4 9
+                     A1.7 1.7 0 0 0 20.92 10
+                     H21
+                     a2 2 0 1 1 0 4
+                     h-.08
+                     A1.7 1.7 0 0 0 19.4 15Z" />
+                    </svg>
+
                     <span>Configuration</span>
+                </NavLink>
+
+
+                <NavLink href="/configuration/receipt"
+                         class="inv-link"
+                         Match="NavLinkMatch.Prefix"
+                         @onclick="CloseSidebar">
+
+                    <!-- Ticket de caisse -->
+                    <svg class="inv-ico"
+                         viewBox="0 0 24 24"
+                         fill="none"
+                         stroke="currentColor"
+                         stroke-width="2"
+                         stroke-linecap="round"
+                         stroke-linejoin="round">
+
+                        <path d="M6 2h12a2 2 0 0 1 2 2v18
+                     l-3-2
+                     l-3 2
+                     l-3-2
+                     l-3 2
+                     l-4-2
+                     V4
+                     a2 2 0 0 1 2-2Z" />
+
+                        <path d="M8 7h8" />
+                        <path d="M8 11h8" />
+                        <path d="M8 15h5" />
+                    </svg>
+
+                    <span>Ticket de caisse</span>
                 </NavLink>
             </div>
         }

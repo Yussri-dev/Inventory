@@ -1,0 +1,635 @@
+﻿/* ============================================================
+   ReceiptConfiguration.razor.css — scoped styles
+   Uses global variables from app.css:
+   --bg, --panel, --border, --text, --muted, --primary,
+   --danger, --success
+   ============================================================ */
+
+/* ── Page layout ────────────────────────────────────────── */
+.receipt-config-page {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    height: calc(100vh - 60px);
+    padding: 16px;
+    overflow: hidden;
+    box-sizing: border-box;
+    background: var(--bg);
+    color: var(--text);
+}
+
+    /*
+ * EditForm génère un élément <form> enfant.
+ * Il doit participer au layout flex pour que la colonne de gauche
+ * reçoive une hauteur limitée et puisse défiler.
+ */
+    .receipt-config-page ::deep form {
+        display: flex;
+        flex: 1;
+        min-width: 0;
+        min-height: 0;
+        overflow: hidden;
+    }
+
+/* ── Page header ────────────────────────────────────────── */
+.page-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-shrink: 0;
+    padding: 16px 20px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+}
+
+    .page-header > div {
+        min-width: 0;
+    }
+
+    .page-header h1 {
+        margin: 2px 0 4px;
+        color: var(--text);
+        font-size: 22px;
+        line-height: 1.2;
+    }
+
+    .page-header p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.5;
+    }
+
+.page-eyebrow {
+    display: inline-block;
+    color: var(--primary);
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+}
+
+/* ── Alerts ─────────────────────────────────────────────── */
+.alert {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-shrink: 0;
+    padding: 11px 14px;
+    border: 1px solid;
+    border-radius: 10px;
+    font-size: 13px;
+}
+
+.alert-success {
+    color: #86efac;
+    background: rgba(34, 197, 94, 0.12);
+    border-color: rgba(34, 197, 94, 0.32);
+}
+
+.alert-error {
+    color: #fca5a5;
+    background: rgba(239, 68, 68, 0.12);
+    border-color: rgba(239, 68, 68, 0.32);
+}
+
+.alert-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: none;
+    border-radius: 7px;
+    background: transparent;
+    color: inherit;
+    font-size: 20px;
+    line-height: 1;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+    .alert-close:hover {
+        background: rgba(255, 255, 255, 0.08);
+    }
+
+/* ── Main configuration layout ──────────────────────────── */
+.configuration-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1.55fr) minmax(310px, 0.75fr);
+    gap: 16px;
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
+    flex: 1;
+    overflow: hidden;
+}
+
+.configuration-card,
+.preview-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    color: var(--text);
+    box-sizing: border-box;
+}
+
+.configuration-card {
+    min-width: 0;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+    scrollbar-width: thin;
+    scrollbar-color: var(--primary) var(--panel);
+}
+
+.preview-card {
+    min-width: 0;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+    padding: 16px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--primary) var(--panel);
+}
+
+    .preview-card > h2 {
+        margin: 0 0 14px;
+        color: var(--text);
+        font-size: 17px;
+    }
+
+/* ── Store card header ──────────────────────────────────── */
+.card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+}
+
+    .card-header h2 {
+        margin: 3px 0 0;
+        color: var(--text);
+        font-size: 18px;
+    }
+
+.tenant-id {
+    display: inline-block;
+    max-width: 280px;
+    padding: 5px 10px;
+    overflow: hidden;
+    border: 1px solid rgba(79, 70, 229, 0.28);
+    border-radius: 20px;
+    background: rgba(79, 70, 229, 0.1);
+    color: var(--primary);
+    font-size: 11px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* ── Form sections ──────────────────────────────────────── */
+.form-section {
+    padding: 18px 20px;
+    border-bottom: 1px solid var(--border);
+}
+
+    .form-section:last-of-type {
+        border-bottom: none;
+    }
+
+    .form-section h3 {
+        margin: 0 0 15px;
+        color: var(--text);
+        font-size: 15px;
+    }
+
+/* ── Logo editor ────────────────────────────────────────── */
+.logo-editor {
+    display: grid;
+    grid-template-columns: 180px minmax(0, 1fr);
+    gap: 18px;
+    align-items: center;
+}
+
+.logo-preview {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 145px;
+    padding: 12px;
+    overflow: hidden;
+    border: 1px dashed var(--border);
+    border-radius: 10px;
+    background: var(--bg);
+    box-sizing: border-box;
+}
+
+    .logo-preview img {
+        display: block;
+        max-width: 100%;
+        max-height: 125px;
+        object-fit: contain;
+    }
+
+.logo-placeholder {
+    color: var(--muted);
+    font-size: 13px;
+    text-align: center;
+}
+
+.logo-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+
+.help-text {
+    flex-basis: 100%;
+    margin: 3px 0 0;
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.5;
+    word-break: break-word;
+}
+
+/* ── Form fields ────────────────────────────────────────── */
+.form-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+}
+
+.form-group {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    gap: 6px;
+}
+
+.form-group-full {
+    grid-column: 1 / -1;
+}
+
+.form-group label {
+    color: var(--text);
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.form-control {
+    width: 100%;
+    min-height: 40px;
+    padding: 9px 11px;
+    box-sizing: border-box;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    outline: none;
+    background: var(--bg);
+    color: var(--text);
+    font-family: inherit;
+    font-size: 13px;
+    transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
+}
+
+textarea.form-control {
+    min-height: 82px;
+    resize: vertical;
+    line-height: 1.45;
+}
+
+.form-control::placeholder {
+    color: var(--muted);
+}
+
+.form-control:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
+}
+
+.form-control:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+.currency-select {
+    cursor: pointer;
+    appearance: auto;
+}
+
+    .currency-select option {
+        background: var(--panel);
+        color: var(--text);
+    }
+
+/*
+ * ValidationMessage est rendu par un composant enfant.
+ * ::deep garantit que le style scoped lui est appliqué.
+ */
+::deep .validation-message,
+.validation-message {
+    margin-top: 1px;
+    color: #fca5a5;
+    font-size: 11px;
+    line-height: 1.35;
+}
+
+/* ── Form actions ───────────────────────────────────────── */
+.form-actions {
+    position: sticky;
+    bottom: 0;
+    z-index: 5;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 14px 20px;
+    border-top: 1px solid var(--border);
+    background: var(--panel);
+    box-shadow: 0 -8px 18px rgba(0, 0, 0, 0.08);
+}
+
+/* ── Buttons ────────────────────────────────────────────── */
+.btn-primary,
+.btn-secondary,
+.btn-danger {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 38px;
+    padding: 8px 15px;
+    border-radius: 8px;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s, border-color 0.2s, color 0.2s, transform 0.1s;
+}
+
+    .btn-primary:active:not(:disabled),
+    .btn-secondary:active:not(:disabled),
+    .btn-danger:active:not(:disabled) {
+        transform: translateY(1px);
+    }
+
+.btn-primary {
+    border: 1px solid var(--primary);
+    background: var(--primary);
+    color: white;
+}
+
+    .btn-primary:hover:not(:disabled) {
+        background: #4338ca;
+        border-color: #4338ca;
+    }
+
+.btn-secondary {
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text);
+}
+
+    .btn-secondary:hover:not(:disabled) {
+        background: rgba(255, 255, 255, 0.05);
+        border-color: var(--primary);
+    }
+
+.btn-danger {
+    border: 1px solid rgba(239, 68, 68, 0.4);
+    background: rgba(239, 68, 68, 0.1);
+    color: #fca5a5;
+}
+
+    .btn-danger:hover:not(:disabled) {
+        background: rgba(239, 68, 68, 0.18);
+        border-color: rgba(239, 68, 68, 0.65);
+    }
+
+    .btn-primary:disabled,
+    .btn-secondary:disabled,
+    .btn-danger:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+/* ── Receipt preview ────────────────────────────────────── */
+.receipt-preview {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    width: min(100%, 290px);
+    margin: 0 auto;
+    padding: 20px 15px 24px;
+    box-sizing: border-box;
+    border: 1px solid #d7d7d7;
+    border-radius: 3px;
+    background: #ffffff;
+    color: #111111;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+    font-family: "Courier New", Consolas, monospace;
+    font-size: 10px;
+    line-height: 1.28;
+    text-align: center;
+}
+
+.receipt-logo {
+    display: block;
+    align-self: center;
+    max-width: 120px;
+    max-height: 82px;
+    margin-bottom: 4px;
+    object-fit: contain;
+}
+
+.receipt-company {
+    font-size: 14px;
+    line-height: 1.2;
+    text-transform: uppercase;
+}
+
+.preserve-lines {
+    white-space: pre-line;
+}
+
+.receipt-preview hr {
+    width: 100%;
+    margin: 5px 0;
+    border: none;
+    border-top: 1px dashed #555555;
+}
+
+.preview-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+    width: 100%;
+    text-align: left;
+}
+
+    .preview-row > :last-child {
+        text-align: right;
+    }
+
+.preview-total {
+    font-size: 13px;
+}
+
+.preview-table-header,
+.preview-table-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 28px 48px 52px;
+    gap: 3px;
+    width: 100%;
+    text-align: left;
+}
+
+.preview-table-header {
+    font-size: 9px;
+    font-weight: 700;
+}
+
+.preview-table-row {
+    font-size: 9px;
+}
+
+    .preview-table-header > span:not(:first-child),
+    .preview-table-row > span:not(:first-child) {
+        text-align: right;
+    }
+
+.barcode-placeholder {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    margin: 8px 0 4px;
+}
+
+    .barcode-placeholder > span {
+        font-size: 17px;
+        font-weight: 900;
+        letter-spacing: 1px;
+        line-height: 1;
+    }
+
+    .barcode-placeholder small {
+        font-size: 7px;
+    }
+
+/* ── Scrollbars ─────────────────────────────────────────── */
+.configuration-card::-webkit-scrollbar,
+.preview-card::-webkit-scrollbar {
+    width: 7px;
+}
+
+.configuration-card::-webkit-scrollbar-track,
+.preview-card::-webkit-scrollbar-track {
+    background: var(--panel);
+}
+
+.configuration-card::-webkit-scrollbar-thumb,
+.preview-card::-webkit-scrollbar-thumb {
+    border-radius: 8px;
+    background: var(--primary);
+}
+
+/* ── Responsive ─────────────────────────────────────────── */
+@media (max-width: 1050px) {
+    .receipt-config-page {
+        height: auto;
+        min-height: calc(100vh - 60px);
+        overflow-y: auto;
+    }
+
+        .receipt-config-page ::deep form {
+            display: block;
+            overflow: visible;
+        }
+
+    .configuration-layout {
+        display: grid;
+        grid-template-columns: 1fr;
+        height: auto;
+        overflow: visible;
+    }
+
+    .configuration-card,
+    .preview-card {
+        min-height: auto;
+        overflow: visible;
+    }
+
+    .form-actions {
+        position: static;
+        box-shadow: none;
+    }
+
+    .preview-card {
+        order: 2;
+    }
+}
+
+@media (max-width: 700px) {
+    .receipt-config-page {
+        padding: 10px;
+    }
+
+    .page-header,
+    .card-header {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+        .page-header .btn-secondary {
+            width: 100%;
+        }
+
+    .tenant-id {
+        max-width: 100%;
+    }
+
+    .logo-editor,
+    .form-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .form-group-full {
+        grid-column: auto;
+    }
+
+    .logo-preview {
+        min-height: 125px;
+    }
+
+    .form-actions {
+        flex-direction: column-reverse;
+    }
+
+        .form-actions button {
+            width: 100%;
+        }
+}
+
+@media (max-width: 420px) {
+    .receipt-preview {
+        padding-inline: 10px;
+        font-size: 9px;
+    }
+
+    .preview-table-header,
+    .preview-table-row {
+        grid-template-columns: minmax(0, 1fr) 24px 42px 46px;
+    }
+}

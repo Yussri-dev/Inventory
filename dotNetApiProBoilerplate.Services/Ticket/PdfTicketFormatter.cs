@@ -32,7 +32,6 @@ namespace Inventory.Services.Ticket
                 {
                     page.Size(227, 800);
                     page.Margin(10);
-                    page.Background(Colors.White);
 
                     page.Content().Column(col =>
                     {

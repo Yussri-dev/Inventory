@@ -2,6 +2,7 @@
 using Inventory.LocalDB.Models;
 using Inventory.LocalDB.Services.Interfaces;
 using Microsoft.EntityFrameworkCore;
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -159,9 +160,23 @@ public sealed class LocalSaleService : ILocalSaleService
                 openSession.Id,
                 openSession.ServerId);
 
+            await ApplyCustomerCreditAsync(
+                sale,
+                tenantId,
+                cancellationToken);
+
             CreateSyncQueueItem(
                 sale,
                 tenantId);
+
+            if (string.IsNullOrWhiteSpace(sale.ReceiptBarcodeValue))
+            {
+                sale.ReceiptBarcodeValue =
+                    await GenerateUniqueReceiptBarcodeAsync(
+                        sale.TenantId,
+                        sale.SaleDateUtc,
+                        cancellationToken);
+            }
 
             await _db.SaveChangesAsync(
                 cancellationToken);
@@ -181,6 +196,81 @@ public sealed class LocalSaleService : ILocalSaleService
 
             throw;
         }
+    }
+
+    private async Task<string> GenerateUniqueReceiptBarcodeAsync(
+    Guid tenantId,
+    DateTime saleDateUtc,
+    CancellationToken cancellationToken)
+    {
+        const int maximumAttempts =
+            10;
+
+        for (var attempt = 1;
+             attempt <= maximumAttempts;
+             attempt++)
+        {
+            var candidate =
+                GenerateReceiptBarcodeValue(
+                    saleDateUtc);
+
+            var alreadyExists =
+                await _db.Sales
+                    .AsNoTracking()
+                    .AnyAsync(
+                        sale =>
+                            sale.TenantId == tenantId &&
+                            sale.ReceiptBarcodeValue == candidate,
+                        cancellationToken);
+
+            if (!alreadyExists)
+            {
+                return candidate;
+            }
+        }
+
+        throw new InvalidOperationException(
+            "Unable to generate a unique receipt barcode.");
+    }
+
+    private static string GenerateReceiptBarcodeValue(
+    DateTime saleDateUtc)
+    {
+        var utcDate =
+            saleDateUtc.Kind switch
+            {
+                DateTimeKind.Utc =>
+                    saleDateUtc,
+
+                DateTimeKind.Local =>
+                    saleDateUtc.ToUniversalTime(),
+
+                _ =>
+                    DateTime.SpecifyKind(
+                        saleDateUtc,
+                        DateTimeKind.Utc)
+            };
+
+        /*
+         * 17 chiffres :
+         * yyyyMMddHHmmssfff
+         */
+        var datePart =
+            utcDate.ToString(
+                "yyyyMMddHHmmssfff");
+
+        /*
+         * 6 chiffres aléatoires.
+         */
+        var randomPart =
+            RandomNumberGenerator
+                .GetInt32(
+                    0,
+                    1_000_000)
+                .ToString("D6");
+
+        return datePart +
+               randomPart;
     }
 
     private static void ValidateSaleStructure(
@@ -502,9 +592,9 @@ public sealed class LocalSaleService : ILocalSaleService
                 totalDiscount);
 
         sale.PaidAmount =
-            RoundMoney(
-                sale.Payments.Sum(payment =>
-                    payment.Amount));
+    RoundMoney(
+        sale.Payments.Sum(payment =>
+            payment.Amount));
 
         sale.ChangeAmount =
             sale.PaidAmount >
@@ -514,13 +604,47 @@ public sealed class LocalSaleService : ILocalSaleService
                     sale.TotalAmount)
                 : 0m;
 
+        var creditAmount =
+            RoundMoney(
+                sale.Payments
+                    .Where(payment =>
+                        string.Equals(
+                            payment.Method,
+                            "Credit",
+                            StringComparison.OrdinalIgnoreCase))
+                    .Sum(payment =>
+                        payment.Amount));
+
+        var cashAndCardAmount =
+            RoundMoney(
+                sale.Payments
+                    .Where(payment =>
+                        !string.Equals(
+                            payment.Method,
+                            "Credit",
+                            StringComparison.OrdinalIgnoreCase))
+                    .Sum(payment =>
+                        payment.Amount));
+
+        var realCashAndCardPaid =
+            RoundMoney(
+                Math.Max(
+                    0m,
+                    cashAndCardAmount -
+                    sale.ChangeAmount));
+
         sale.PaymentStatus =
-            sale.PaidAmount <= 0m
-                ? LocalPaymentStatus.Unpaid
-                : sale.PaidAmount <
-                  sale.TotalAmount
-                    ? LocalPaymentStatus.Partial
-                    : LocalPaymentStatus.Paid;
+            creditAmount > 0m &&
+            realCashAndCardPaid > 0m
+                ? LocalPaymentStatus.Partial
+                : creditAmount > 0m
+                    ? LocalPaymentStatus.Unpaid
+                    : realCashAndCardPaid >=
+                      sale.TotalAmount
+                        ? LocalPaymentStatus.Paid
+                        : realCashAndCardPaid > 0m
+                            ? LocalPaymentStatus.Partial
+                            : LocalPaymentStatus.Unpaid;
     }
 
     private static void ValidatePaymentAmount(
@@ -1044,8 +1168,7 @@ public sealed class LocalSaleService : ILocalSaleService
             : notes[..500];
     }
 
-    private static string GenerateLocalInvoiceNumber(
-        DateTime utcNow)
+    private static string GenerateLocalInvoiceNumber(DateTime utcNow)
     {
         return
             $"LOC-{utcNow:yyyyMMdd-HHmmssfff}-" +
@@ -1545,6 +1668,11 @@ public sealed class LocalSaleService : ILocalSaleService
                 stockResolutions,
                 cancellationToken);
 
+            await ApplyCustomerCreditAsync(
+                pendingSale,
+                tenantId,
+                cancellationToken);
+
             CreateCashMovementIfNeeded(
                 pendingSale,
                 tenantId,
@@ -1806,6 +1934,178 @@ public sealed class LocalSaleService : ILocalSaleService
                     "unit product.");
             }
         }
+    }
+
+    private async Task ApplyCustomerCreditAsync(
+    LocalSale sale,
+    Guid tenantId,
+    CancellationToken cancellationToken)
+    {
+        var creditAmount =
+            RoundMoney(
+                sale.Payments
+                    .Where(payment =>
+                        string.Equals(
+                            payment.Method,
+                            "Credit",
+                            StringComparison.OrdinalIgnoreCase))
+                    .Sum(payment =>
+                        payment.Amount));
+
+        if (creditAmount <= 0m)
+        {
+            return;
+        }
+
+        if (!sale.CustomerLocalId.HasValue ||
+            sale.CustomerLocalId.Value == Guid.Empty)
+        {
+            throw new InvalidOperationException(
+                "A customer is required for a credit sale.");
+        }
+
+        /*
+         * Protection contre une double application du crédit
+         * pour la même vente.
+         */
+        var trackedTransactionExists =
+            _db.CustomerTransactions.Local
+                .Any(transaction =>
+                    transaction.TenantId == tenantId &&
+                    transaction.SaleLocalId == sale.Id &&
+                    transaction.Origin ==
+                        LocalCustomerTransactionOrigin.Sale);
+
+        var transactionAlreadyExists =
+            trackedTransactionExists ||
+            await _db.CustomerTransactions
+                .AsNoTracking()
+                .AnyAsync(
+                    transaction =>
+                        transaction.TenantId == tenantId &&
+                        transaction.SaleLocalId == sale.Id &&
+                        transaction.Origin ==
+                            LocalCustomerTransactionOrigin.Sale,
+                    cancellationToken);
+
+        if (transactionAlreadyExists)
+        {
+            return;
+        }
+
+        var customer =
+            await _db.Customers
+                .FirstOrDefaultAsync(
+                    customer =>
+                        customer.TenantId == tenantId &&
+                        customer.Id ==
+                            sale.CustomerLocalId.Value &&
+                        !customer.IsDeleted,
+                    cancellationToken)
+            ?? throw new KeyNotFoundException(
+                $"The local customer " +
+                $"'{sale.CustomerLocalId.Value}' was not found.");
+
+        if (!customer.AllowCredit)
+        {
+            throw new InvalidOperationException(
+                "Credit is not enabled for this customer.");
+        }
+
+        var balanceBefore =
+            RoundMoney(
+                customer.CurrentBalance);
+
+        var balanceAfter =
+            RoundMoney(
+                balanceBefore +
+                creditAmount);
+
+        /*
+         * HasUnlimitedCredit désactive la limite.
+         * Sinon CreditLimit contient la dette maximale autorisée.
+         */
+        if (!customer.HasUnlimitedCredit &&
+            balanceAfter > customer.CreditLimit)
+        {
+            throw new InvalidOperationException(
+                $"The customer credit limit would be exceeded. " +
+                $"Limit: {customer.CreditLimit:0.00}, " +
+                $"new balance: {balanceAfter:0.00}.");
+        }
+
+        var now =
+     DateTime.UtcNow;
+
+        customer.CurrentBalance =
+            balanceAfter;
+
+        customer.ModifiedAtUtc =
+            now;
+
+        var customerTransaction =
+            new LocalCustomerTransaction
+            {
+                Id =
+                    Guid.NewGuid(),
+
+                TenantId =
+                    tenantId,
+
+                ServerId =
+                    null,
+
+                ClientOperationId =
+                    Guid.NewGuid(),
+
+                CustomerLocalId =
+                    customer.Id,
+
+                CustomerServerId =
+                    customer.ServerId,
+
+                SaleLocalId =
+                    sale.Id,
+
+                SaleServerId =
+                    sale.ServerId,
+
+                Type =
+                    LocalCustomerTransactionType.Credit,
+
+                Origin =
+                    LocalCustomerTransactionOrigin.Sale,
+
+                UploadRequired =
+                    false,
+
+                IsCash =
+                    false,
+
+                Amount =
+                    creditAmount,
+
+                BalanceBefore =
+                    balanceBefore,
+
+                BalanceAfter =
+                    balanceAfter,
+
+                Description =
+                    $"Credit sale {sale.LocalInvoiceNumber}",
+
+                TransactionDateUtc =
+                    sale.SaleDateUtc,
+
+                SyncStatus =
+                    SyncQueueStatus.Pending,
+
+                CreatedAtUtc =
+                    now
+            };
+
+        _db.CustomerTransactions.Add(
+            customerTransaction);
     }
 
     private static void PreparePendingHeader(

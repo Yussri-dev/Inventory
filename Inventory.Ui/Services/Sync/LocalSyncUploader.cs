@@ -775,6 +775,9 @@ namespace Inventory.Ui.Services.Sync
                 Address = customer.Address,
                 TaxNumber = customer.TaxNumber,
                 CreditLimit = customer.CreditLimit,
+                AllowCredit = customer.AllowCredit,
+                HasUnlimitedCredit =
+                    customer.HasUnlimitedCredit,
                 IsActive = customer.IsActive,
                 Notes = customer.Notes
             };
@@ -827,6 +830,9 @@ namespace Inventory.Ui.Services.Sync
                 Address = customer.Address,
                 TaxNumber = customer.TaxNumber,
                 CreditLimit = customer.CreditLimit,
+                AllowCredit = customer.AllowCredit,
+                HasUnlimitedCredit =
+                    customer.HasUnlimitedCredit,
                 IsActive = customer.IsActive,
                 Notes = customer.Notes
             };
@@ -1506,9 +1512,9 @@ namespace Inventory.Ui.Services.Sync
         }
 
         private async Task SyncSaleCoreAsync(
-    SyncQueueItem queueItem,
-    LocalSyncUploadResult uploadResult,
-    CancellationToken cancellationToken)
+     SyncQueueItem queueItem,
+     LocalSyncUploadResult uploadResult,
+     CancellationToken cancellationToken)
         {
             ArgumentNullException.ThrowIfNull(
                 queueItem);
@@ -1523,6 +1529,9 @@ namespace Inventory.Ui.Services.Sync
                 SyncQueueStatus.Processing;
 
             queueItem.Attempts++;
+
+            queueItem.LastAttemptAtUtc =
+                DateTime.UtcNow;
 
             queueItem.ErrorMessage =
                 null;
@@ -1539,7 +1548,8 @@ namespace Inventory.Ui.Services.Sync
                     .FirstOrDefaultAsync(
                         item =>
                             item.TenantId == tenantId &&
-                            item.Id == queueItem.LocalEntityId,
+                            item.Id ==
+                                queueItem.LocalEntityId,
                         cancellationToken);
 
             if (sale == null)
@@ -1563,8 +1573,8 @@ namespace Inventory.Ui.Services.Sync
             }
 
             /*
-             * Un ticket suspendu ne doit jamais être envoyé comme
-             * une vente terminée.
+             * Une vente suspendue ne doit jamais être envoyée
+             * comme une vente terminée.
              */
             if (!string.Equals(
                     sale.Status,
@@ -1577,6 +1587,9 @@ namespace Inventory.Ui.Services.Sync
                 queueItem.ErrorMessage =
                     $"Sale {sale.LocalInvoiceNumber} is not completed. " +
                     $"Current status: {sale.Status}.";
+
+                sale.SyncStatus =
+                    SyncQueueStatus.Conflict;
 
                 uploadResult.Skipped++;
 
@@ -1591,19 +1604,24 @@ namespace Inventory.Ui.Services.Sync
             }
 
             /*
-             * Une vente est réellement synchronisée uniquement lorsque :
+             * Une vente est synchronisée uniquement lorsque :
              *
              * - SyncStatus = Done
-             * - ServerId existe
+             * - ServerId est renseigné
              */
-            if (sale.SyncStatus == SyncQueueStatus.Done &&
+            if (sale.SyncStatus ==
+                    SyncQueueStatus.Done &&
                 sale.ServerId.HasValue &&
                 sale.ServerId.Value != Guid.Empty)
             {
                 queueItem.Status =
                     SyncQueueStatus.Done;
 
+                queueItem.ServerEntityId =
+                    sale.ServerId.Value;
+
                 queueItem.ProcessedAtUtc =
+                    sale.LastSyncedAtUtc ??
                     DateTime.UtcNow;
 
                 queueItem.ErrorMessage =
@@ -1612,7 +1630,8 @@ namespace Inventory.Ui.Services.Sync
                 uploadResult.Skipped++;
 
                 uploadResult.Messages.Add(
-                    $"Sale {sale.LocalInvoiceNumber} already synced.");
+                    $"Sale {sale.LocalInvoiceNumber} already synchronized " +
+                    $"with server id {sale.ServerId.Value}.");
 
                 await _db.SaveChangesAsync(
                     cancellationToken);
@@ -1621,15 +1640,13 @@ namespace Inventory.Ui.Services.Sync
             }
 
             /*
-             * Réparation des anciennes données incorrectes :
+             * Réparation des anciennes données :
              *
              * SyncStatus = Done
-             * ServerId = null
-             *
-             * La vente doit être renvoyée avec le même ClientOperationId.
-             * L'endpoint serveur doit donc être idempotent.
+             * ServerId absent
              */
-            if (sale.SyncStatus == SyncQueueStatus.Done &&
+            if (sale.SyncStatus ==
+                    SyncQueueStatus.Done &&
                 (!sale.ServerId.HasValue ||
                  sale.ServerId.Value == Guid.Empty))
             {
@@ -1640,7 +1657,7 @@ namespace Inventory.Ui.Services.Sync
                     SyncQueueStatus.Processing;
 
                 queueItem.ErrorMessage =
-                    "Repairing sale marked Done without a ServerId.";
+                    null;
 
                 uploadResult.Messages.Add(
                     $"Sale {sale.LocalInvoiceNumber} was marked Done without " +
@@ -1650,14 +1667,19 @@ namespace Inventory.Ui.Services.Sync
                     cancellationToken);
             }
 
+            /*
+             * La session de caisse doit déjà exister
+             * sur le serveur.
+             */
             if (!sale.CashSessionServerId.HasValue ||
-                sale.CashSessionServerId.Value == Guid.Empty)
+                sale.CashSessionServerId.Value ==
+                    Guid.Empty)
             {
                 queueItem.Status =
                     SyncQueueStatus.Pending;
 
                 queueItem.ErrorMessage =
-                    "Cash session is not synced yet.";
+                    "Cash session is not synchronized yet.";
 
                 sale.SyncStatus =
                     SyncQueueStatus.Pending;
@@ -1665,8 +1687,8 @@ namespace Inventory.Ui.Services.Sync
                 uploadResult.Skipped++;
 
                 uploadResult.Messages.Add(
-                    $"Sale {sale.LocalInvoiceNumber} skipped: " +
-                    "cash session is not synced yet.");
+                    $"Sale {sale.LocalInvoiceNumber} skipped because its " +
+                    "cash session is not synchronized yet.");
 
                 await _db.SaveChangesAsync(
                     cancellationToken);
@@ -1674,7 +1696,11 @@ namespace Inventory.Ui.Services.Sync
                 return;
             }
 
-            if (sale.ClientOperationId == Guid.Empty)
+            /*
+             * ClientOperationId garantit l’idempotence.
+             */
+            if (sale.ClientOperationId ==
+                Guid.Empty)
             {
                 queueItem.Status =
                     SyncQueueStatus.Conflict;
@@ -1698,7 +1724,8 @@ namespace Inventory.Ui.Services.Sync
             }
 
             /*
-             * Le ClientOperationId de la vente est la valeur officielle.
+             * Le ClientOperationId de la vente
+             * est la valeur officielle.
              */
             if (queueItem.ClientOperationId !=
                 sale.ClientOperationId)
@@ -1770,52 +1797,62 @@ namespace Inventory.Ui.Services.Sync
                         sale);
 
             /*
-             * Le serveur doit utiliser ClientOperationId pour rendre cet
-             * endpoint idempotent. Une nouvelle tentative ne doit pas créer
-             * une deuxième vente.
+             * Le serveur doit utiliser ClientOperationId
+             * pour rendre cet endpoint idempotent.
              */
             var serverResult =
                 await _saleApi.CreateComplete(
                     request);
 
-            if (serverResult.Id == Guid.Empty)
+            if (serverResult == null)
             {
-                queueItem.Status =
-                    SyncQueueStatus.Failed;
-
-                queueItem.ErrorMessage =
-                    "The server returned an empty sale id.";
-
-                sale.SyncStatus =
-                    SyncQueueStatus.Pending;
-
-                uploadResult.Failed++;
-
-                uploadResult.Messages.Add(
-                    $"Sale {sale.LocalInvoiceNumber} was accepted by the API, " +
-                    "but the response contained an empty Id.");
-
-                await _db.SaveChangesAsync(
-                    cancellationToken);
-
-                return;
+                throw new InvalidOperationException(
+                    "The sale API returned an empty response.");
             }
+
+            var serverSale =
+                serverResult.Sale
+                ?? throw new InvalidOperationException(
+                    "The sale API response does not contain " +
+                    "the created sale.");
+
+            if (serverSale.Id == Guid.Empty)
+            {
+                throw new InvalidOperationException(
+                    $"Sale '{sale.LocalInvoiceNumber}' was accepted by the API, " +
+                    "but serverResult.Sale.Id is empty.");
+            }
+
+            var serverSaleId =
+                serverSale.Id;
 
             var synchronizedAtUtc =
                 DateTime.UtcNow;
 
             /*
-             * Cette affectation est indispensable pour les analytics
-             * et pour établir le lien local-vers-serveur.
+             * Mise à jour de la vente locale.
              */
             sale.ServerId =
-                serverResult.Id;
+                serverSaleId;
+
+            if (!string.IsNullOrWhiteSpace(
+                    serverSale.InvoiceNumber))
+            {
+                sale.ServerInvoiceNumber =
+                    serverSale.InvoiceNumber.Trim();
+            }
 
             sale.SyncStatus =
                 SyncQueueStatus.Done;
 
             sale.LastSyncedAtUtc =
                 synchronizedAtUtc;
+
+            /*
+             * Mise à jour de l’élément de la queue.
+             */
+            queueItem.ServerEntityId =
+                serverSaleId;
 
             queueItem.Status =
                 SyncQueueStatus.Done;
@@ -1826,10 +1863,13 @@ namespace Inventory.Ui.Services.Sync
             queueItem.ErrorMessage =
                 null;
 
+            /*
+             * Mise à jour des paiements locaux.
+             */
             foreach (var payment in sale.Payments)
             {
                 payment.ServerSaleId =
-                    serverResult.Id;
+                    serverSaleId;
 
                 payment.SyncStatus =
                     SyncQueueStatus.Done;
@@ -1838,18 +1878,22 @@ namespace Inventory.Ui.Services.Sync
                     synchronizedAtUtc;
             }
 
+            /*
+             * Mise à jour des mouvements de stock associés.
+             */
             var stockMovements =
                 await _db.StockMovements
                     .Where(movement =>
                         movement.TenantId == tenantId &&
-                        movement.LocalReferenceId == sale.Id)
+                        movement.LocalReferenceId ==
+                            sale.Id)
                     .ToListAsync(
                         cancellationToken);
 
             foreach (var movement in stockMovements)
             {
                 movement.ServerReferenceId =
-                    serverResult.Id;
+                    serverSaleId;
 
                 movement.SyncStatus =
                     SyncQueueStatus.Done;
@@ -1858,18 +1902,22 @@ namespace Inventory.Ui.Services.Sync
                     synchronizedAtUtc;
             }
 
+            /*
+             * Mise à jour des mouvements de caisse associés.
+             */
             var cashMovements =
                 await _db.CashMovements
                     .Where(movement =>
                         movement.TenantId == tenantId &&
-                        movement.LocalReferenceId == sale.Id)
+                        movement.LocalReferenceId ==
+                            sale.Id)
                     .ToListAsync(
                         cancellationToken);
 
             foreach (var movement in cashMovements)
             {
                 movement.ServerReferenceId =
-                    serverResult.Id;
+                    serverSaleId;
 
                 movement.SyncStatus =
                     SyncQueueStatus.Done;
@@ -1878,6 +1926,42 @@ namespace Inventory.Ui.Services.Sync
                     synchronizedAtUtc;
             }
 
+            /*
+             * La transaction de crédit locale a été créée
+             * avec la vente.
+             *
+             * Le serveur crée sa propre transaction financière
+             * pendant CreateComplete.
+             *
+             * La transaction locale ne doit donc pas être
+             * uploadée séparément.
+             */
+            var customerCreditTransactions =
+                await _db.CustomerTransactions
+                    .Where(transaction =>
+                        transaction.TenantId == tenantId &&
+                        transaction.SaleLocalId ==
+                            sale.Id &&
+                        transaction.Origin ==
+                            LocalCustomerTransactionOrigin.Sale &&
+                        !transaction.UploadRequired)
+                    .ToListAsync(
+                        cancellationToken);
+
+            foreach (var customerTransaction
+                     in customerCreditTransactions)
+            {
+                customerTransaction.SaleServerId =
+                    serverSaleId;
+
+                customerTransaction.SyncStatus =
+                    SyncQueueStatus.Done;
+            }
+
+            /*
+             * La vente, les paiements, les mouvements et
+             * les transactions client sont enregistrés ensemble.
+             */
             await _db.SaveChangesAsync(
                 cancellationToken);
 
@@ -1885,7 +1969,8 @@ namespace Inventory.Ui.Services.Sync
 
             uploadResult.Messages.Add(
                 $"Sale {sale.LocalInvoiceNumber} synchronized successfully " +
-                $"with server id {serverResult.Id}.");
+                $"with server id {serverSaleId} and invoice " +
+                $"{serverSale.InvoiceNumber}.");
         }
 
         #endregion

@@ -370,6 +370,218 @@ namespace Inventory.LocalDB.Services
                     cancellationToken);
         }
 
+        public async Task<LocalSalesHistoryDetailsResult?> GetByIdAsync(
+    Guid localSaleId,
+    CancellationToken cancellationToken = default)
+        {
+            if (localSaleId == Guid.Empty)
+            {
+                throw new ArgumentException(
+                    "The local sale ID is required.",
+                    nameof(localSaleId));
+            }
+
+            var tenantId =
+                _tenantContext.GetRequiredTenantId();
+
+            var sale =
+                await _db.Sales
+                    .AsNoTracking()
+                    .Include(item => item.Lines)
+                    .Include(item => item.Payments)
+                    .SingleOrDefaultAsync(
+                        item =>
+                            item.Id == localSaleId &&
+                            item.TenantId == tenantId,
+                        cancellationToken);
+
+            if (sale == null)
+            {
+                return null;
+            }
+
+            string? customerName = null;
+
+            if (sale.CustomerLocalId.HasValue)
+            {
+                customerName =
+                    await _db.Customers
+                        .AsNoTracking()
+                        .Where(customer =>
+                            customer.Id ==
+                                sale.CustomerLocalId.Value &&
+                            customer.TenantId == tenantId)
+                        .Select(customer =>
+                            customer.Name)
+                        .FirstOrDefaultAsync(
+                            cancellationToken);
+            }
+
+            var lines =
+                sale.Lines
+                    .Select(line =>
+                    {
+                        var grossAmount =
+                            RoundMoney(
+                                line.Quantity *
+                                line.UnitPrice);
+
+                        var percentageDiscount =
+                            RoundMoney(
+                                grossAmount *
+                                line.DiscountPercent /
+                                100m);
+
+                        var totalDiscount =
+                            RoundMoney(
+                                Math.Clamp(
+                                    percentageDiscount +
+                                    line.DiscountAmount,
+                                    0m,
+                                    grossAmount));
+
+                        var lineTotal =
+                            RoundMoney(
+                                grossAmount -
+                                totalDiscount);
+
+                        var divisor =
+                            1m +
+                            line.VatRate /
+                            100m;
+
+                        var amountExclVat =
+                            divisor > 0m
+                                ? RoundMoney(
+                                    lineTotal /
+                                    divisor)
+                                : lineTotal;
+
+                        var vatAmount =
+                            RoundMoney(
+                                lineTotal -
+                                amountExclVat);
+
+                        return new LocalSalesHistoryLineResult
+                        {
+                            LocalId =
+                                line.Id,
+
+                            ProductName =
+                                line.ProductName,
+
+                            ProductBarcode =
+                                line.ProductBarcode,
+
+                            Quantity =
+                                line.Quantity,
+
+                            UnitPrice =
+                                line.UnitPrice,
+
+                            DiscountPercent =
+                                line.DiscountPercent,
+
+                            DiscountAmount =
+                                totalDiscount,
+
+                            VatRate =
+                                line.VatRate,
+
+                            VatAmount =
+                                vatAmount,
+
+                            LineTotal =
+                                lineTotal
+                        };
+                    })
+                    .ToList();
+
+            return new LocalSalesHistoryDetailsResult
+            {
+                LocalId =
+                    sale.Id,
+
+                InvoiceNumber =
+                    string.IsNullOrWhiteSpace(
+                        sale.ServerInvoiceNumber)
+                        ? sale.LocalInvoiceNumber
+                        : sale.ServerInvoiceNumber,
+
+                SaleDateUtc =
+                    sale.SaleDateUtc,
+
+                CustomerName =
+                    customerName,
+
+                SubtotalAmount =
+                    sale.SubtotalAmount,
+
+                DiscountAmount =
+                    sale.DiscountAmount,
+
+                VatAmount =
+                    sale.VatAmount,
+
+                TotalAmount =
+                    sale.TotalAmount,
+
+                PaidAmount =
+                    sale.PaidAmount,
+
+                ChangeAmount =
+                    sale.ChangeAmount,
+
+                Status =
+                    sale.Status,
+
+                PaymentStatus =
+                    sale.PaymentStatus,
+
+                SyncStatus =
+                    sale.SyncStatus,
+
+                Lines =
+                    lines,
+
+                Payments =
+                    sale.Payments
+                        .OrderBy(payment =>
+                            payment.PaidAtUtc)
+                        .Select(payment =>
+                            new LocalSalesHistoryPaymentResult
+                            {
+                                LocalId =
+                                    payment.Id,
+
+                                Method =
+                                    payment.Method,
+
+                                Amount =
+                                    payment.Amount,
+
+                                PaidAtUtc =
+                                    payment.PaidAtUtc,
+
+                                TransactionReference =
+                                    payment.TransactionRef,
+
+                                SyncStatus =
+                                    payment.SyncStatus
+                            })
+                        .ToList()
+            };
+        }
+
+        private static decimal RoundMoney(
+            decimal value)
+        {
+            return Math.Round(
+                value,
+                2,
+                MidpointRounding.AwayFromZero);
+        }
+
         private static void ValidatePaging(
             int page,
             int pageSize)
