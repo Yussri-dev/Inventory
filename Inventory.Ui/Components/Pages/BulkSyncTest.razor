@@ -1,0 +1,138 @@
+﻿@page "/bulk-sync-test"
+
+@using Inventory.Ui.Interfaces
+@using Inventory.Ui.Services.Sync.Results
+
+@inject ILocalBulkSyncUploader BulkSyncUploader
+
+<PageTitle>Bulk Sync Test</PageTitle>
+
+<div style="padding: 24px;">
+    <h1>Bulk Sync Test</h1>
+
+    <p>
+        Créez d’abord un client local, puis lancez ce test.
+    </p>
+
+    <button class="btn btn-primary"
+            disabled="@isRunning"
+            @onclick="RunTestAsync">
+        @(isRunning
+                ? "Synchronisation..."
+                : "Synchroniser les clients")
+    </button>
+
+    @if (!string.IsNullOrWhiteSpace(errorMessage))
+    {
+        <div class="alert alert-danger mt-3">
+            @errorMessage
+        </div>
+    }
+
+    @if (result != null)
+    {
+        <div class="card mt-3">
+            <div class="card-body">
+                <h2>Résultat</h2>
+
+                <table class="table">
+                    <tbody>
+                        <tr>
+                            <th>Lots traités</th>
+                            <td>@result.BatchesProcessed</td>
+                        </tr>
+
+                        <tr>
+                            <th>Éléments réclamés</th>
+                            <td>@result.Claimed</td>
+                        </tr>
+
+                        <tr>
+                            <th>Terminés</th>
+                            <td>@result.Done</td>
+                        </tr>
+
+                        <tr>
+                            <th>Doublons</th>
+                            <td>@result.Duplicates</td>
+                        </tr>
+
+                        <tr>
+                            <th>Échecs</th>
+                            <td>@result.Failed</td>
+                        </tr>
+
+                        <tr>
+                            <th>Conflits</th>
+                            <td>@result.Conflicts</td>
+                        </tr>
+
+                        <tr>
+                            <th>Annulé</th>
+                            <td>@result.WasCancelled</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                @if (result.Messages.Count > 0)
+                {
+                    <h3>Messages</h3>
+
+                    <ul>
+                        @foreach (var message in result.Messages)
+                        {
+                            <li>@message</li>
+                        }
+                    </ul>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private bool isRunning;
+
+    private string? errorMessage;
+
+    private LocalBulkSyncResult? result;
+
+    private async Task RunTestAsync()
+    {
+        if (isRunning)
+        {
+            return;
+        }
+
+        isRunning =
+            true;
+
+        errorMessage =
+            null;
+
+        result =
+            null;
+
+        try
+        {
+            result =
+                await BulkSyncUploader.SyncPendingAsync(
+                    new[]
+                    {
+                        "Customer"
+                    },
+                    batchSize: 250,
+                    maximumBatches: 20);
+        }
+        catch (Exception exception)
+        {
+            errorMessage =
+                exception.ToString();
+        }
+        finally
+        {
+            isRunning =
+                false;
+        }
+    }
+}

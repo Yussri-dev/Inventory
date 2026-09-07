@@ -5,8 +5,8 @@
 @using Inventory.LocalDB.Models
 @using Inventory.LocalDB.Services.Interfaces
 @using Inventory.Ui.Services
+@using Inventory.Ui.Services.Sync
 @using Microsoft.EntityFrameworkCore
-@using Microsoft.Extensions.Options
 @using System.Security.Cryptography
 @using Microsoft.JSInterop
 
@@ -20,9 +20,10 @@
 @inject NavigationManager Nav
 @inject ILogger<Sales> Logger
 @inject IReceiptService ReceiptService
-@inject IOptions<ReceiptPrinterOptions> PrinterOptions
+@inject IReceiptPrinterResolver PrinterResolver
 @inject IJSRuntime JS
 @inject CustomerDisplayState CustomerDisplay
+@inject SyncCoordinator SyncCoordinator
 
 @if (!string.IsNullOrWhiteSpace(successMessage))
 {
@@ -101,11 +102,11 @@
                             line.Quantity > availableQuantity;
 
                             <tr class="@(ReferenceEquals(line, SelectedLine) ? "selected" : string.Empty)
-                                                                                                                                                                                                                                                                                       @(isOverStock ? "overstock" : string.Empty)"
+                                                                                                                                                                                                                                                                                                       @(isOverStock ? "overstock" : string.Empty)"
                                 @onclick="() => OnLineClicked(line)"
                                 title="@(isOverStock
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    ? $"Only {FormatQuantity(availableQuantity)} available"
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    : string.Empty)">
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    ? $"Only {FormatQuantity(availableQuantity)} available"
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    : string.Empty)">
 
                         <td>
                             <div class="qty-controls">
@@ -286,8 +287,8 @@
                 <button type="button"
                         class="pos-icon-btn warning"
                         title="@(CurrentPendingSaleId.HasValue
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        ? "Mettre à jour le ticket en attente"
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        : "Enregistrer comme ticket en attente")"
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        ? "Mettre à jour le ticket en attente"
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        : "Enregistrer comme ticket en attente")"
                         aria-label="Enregistrer comme ticket en attente"
                         @onclick="SavePendingSaleAsync"
                         @onclick:stopPropagation="true"
@@ -434,8 +435,8 @@
                         ResolveUnitProduct(product) != null;
 
                         <li class="product-item @((isOutOfStock || !packValid)
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        ? "out-of-stock"
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        : string.Empty)"
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                ? "out-of-stock"
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                : string.Empty)"
                     @onclick="() => SelectAndAddProduct(product)"
                     @onclick:stopPropagation="true"
                     title="@GetProductTitle(product, available, packValid)">
@@ -463,10 +464,10 @@
                         </span>
 
                         <span class="stock-indicator @((isOutOfStock || !packValid)
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    ? "out"
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    : lowStock
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        ? "low"
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        : "in")">
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                ? "out"
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                : lowStock
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    ? "low"
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    : "in")">
 
                         @if (!packValid)
                                 {
@@ -542,11 +543,11 @@
                 {
                     <button type="button"
                             class="category-btn @(string.Equals(
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            SelectedCategory,
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            category,
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            StringComparison.OrdinalIgnoreCase)
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                ? "active"
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                : string.Empty)"
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    SelectedCategory,
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    category,
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    StringComparison.OrdinalIgnoreCase)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        ? "active"
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        : string.Empty)"
                         @onclick="() => SelectCategory(category)"
                         @onclick:stopPropagation="true"
                         disabled="@IsSaving">
@@ -1091,10 +1092,7 @@
 
     private bool IsDeliveringDuplicate;
 
-    private bool PhysicalPrinterConfigured =>
-        PrinterOptions.Value.Enabled &&
-        !string.IsNullOrWhiteSpace(
-            PrinterOptions.Value.PrinterName);
+   private bool PhysicalPrinterConfigured;
 
     private bool IsLoading;
     private bool IsLoadingPending;
@@ -1257,8 +1255,33 @@ SaleCompleted
 
     protected override async Task OnInitializedAsync()
     {
+        await RefreshPrinterStateAsync();
         await LoadLocalDataAsync();
     }
+
+    private async Task RefreshPrinterStateAsync()
+{
+    try
+    {
+        var printerName =
+            await PrinterResolver
+                .ResolvePrinterNameAsync();
+
+        PhysicalPrinterConfigured =
+            !string.IsNullOrWhiteSpace(
+                printerName);
+    }
+    catch (Exception exception)
+    {
+        PhysicalPrinterConfigured =
+            false;
+
+        Logger.LogWarning(
+            exception,
+            "Receipt printer detection failed. " +
+            "PDF delivery will be used.");
+    }
+}
 
     private string GetDuplicateButtonTitle()
     {
@@ -1279,6 +1302,9 @@ SaleCompleted
     {
         OriginalReceiptPrinted =
             false;
+
+                await RefreshPrinterStateAsync();
+
 
         /*
         * Aucun périphérique configuré :
@@ -1310,8 +1336,7 @@ SaleCompleted
 
             if (result.Success)
             {
-                OriginalReceiptPrinted =
-                    true;
+                OriginalReceiptPrinted =                    true;
 
                 LastReceiptDelivered =
                     true;
@@ -2768,6 +2793,8 @@ SaleCompleted
             return;
         }
 
+        await RefreshPrinterStateAsync();
+
         try
         {
             IsDeliveringDuplicate =
@@ -2819,6 +2846,8 @@ SaleCompleted
                 LastCompletedReceiptId.Value,
                 LastCompletedInvoiceNumber,
                 duplicate: true);
+
+               await FocusBarcodeInput();
 
             await ShowSuccessAsync(
                 $"Duplicata PDF généré pour {LastCompletedInvoiceNumber}.");
@@ -3026,6 +3055,9 @@ SaleCompleted
             await ShowSuccessAsync(
                 $"Vente {savedSale.LocalInvoiceNumber} enregistrée localement. " +
                 receiptMessage);
+
+            // SyncCoordinator.RequestSync();
+            SyncCoordinator.SyncNow();
 
             CustomerDisplay.Reset();
 

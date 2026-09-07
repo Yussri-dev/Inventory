@@ -14,502 +14,1407 @@ namespace Inventory.Services
 {
     public class CustomerTransactionService
     {
-        private readonly IRepository<CustomerTransaction> _customerTransactionRepository;
-        private readonly IRepository<Customer> _customerRepository;
-        private readonly IRepository<Sale> _saleRepository;
-        private readonly IRepository<CashMovement> _cashMovementRepository;
-        private readonly ICashSessionService _cashSessionService;
+        private readonly IRepository<CustomerTransaction>
+            _customerTransactionRepository;
 
-        private readonly IUnitOfWork _unitOfWork;
-        private readonly IMapper _mapper;
-        private readonly ITenantContext _tenantContext;
+        private readonly IRepository<Customer>
+            _customerRepository;
+
+        private readonly IRepository<Sale>
+            _saleRepository;
+
+        private readonly IRepository<CashMovement>
+            _cashMovementRepository;
+
+        private readonly IRepository<CashSession>
+            _cashSessionRepository;
+
+        private readonly IUnitOfWork
+            _unitOfWork;
+
+        private readonly IMapper
+            _mapper;
+
+        private readonly ITenantContext
+            _tenantContext;
 
         public CustomerTransactionService(
-            IRepository<CustomerTransaction> customerTransactionRepository,
-            IRepository<Customer> customerRepository,
-            IRepository<Sale> saleRepository,
-            IRepository<CashMovement> cashMovementRepository,
-            ICashSessionService cashSessionService,
+            IRepository<CustomerTransaction>
+                customerTransactionRepository,
+            IRepository<Customer>
+                customerRepository,
+            IRepository<Sale>
+                saleRepository,
+            IRepository<CashMovement>
+                cashMovementRepository,
+            IRepository<CashSession>
+                cashSessionRepository,
             IUnitOfWork unitOfWork,
             IMapper mapper,
             ITenantContext tenantContext)
         {
-            _customerTransactionRepository = customerTransactionRepository;
-            _customerRepository = customerRepository;
-            _saleRepository = saleRepository;
-            _unitOfWork = unitOfWork;
-            _mapper = mapper;
-            _tenantContext = tenantContext;
-            _cashMovementRepository = cashMovementRepository;
-            _cashSessionService = cashSessionService;
+            ArgumentNullException.ThrowIfNull(
+                customerTransactionRepository);
+
+            ArgumentNullException.ThrowIfNull(
+                customerRepository);
+
+            ArgumentNullException.ThrowIfNull(
+                saleRepository);
+
+            ArgumentNullException.ThrowIfNull(
+                cashMovementRepository);
+
+            ArgumentNullException.ThrowIfNull(
+                cashSessionRepository);
+
+            ArgumentNullException.ThrowIfNull(
+                unitOfWork);
+
+            ArgumentNullException.ThrowIfNull(
+                mapper);
+
+            ArgumentNullException.ThrowIfNull(
+                tenantContext);
+
+            _customerTransactionRepository =
+                customerTransactionRepository;
+
+            _customerRepository =
+                customerRepository;
+
+            _saleRepository =
+                saleRepository;
+
+            _cashMovementRepository =
+                cashMovementRepository;
+
+            _cashSessionRepository =
+                cashSessionRepository;
+
+            _unitOfWork =
+                unitOfWork;
+
+            _mapper =
+                mapper;
+
+            _tenantContext =
+                tenantContext;
         }
 
-        public async Task<CustomerTransactionResult> CreateAsync(CreateCustomerTransactionRequest request)
+        public async Task<CustomerTransactionResult>
+            CreateAsync(
+                CreateCustomerTransactionRequest request)
         {
-            var tenantId = _tenantContext.TenantId;
-            var userId = _tenantContext.UserId;
+            ArgumentNullException.ThrowIfNull(
+                request);
 
-            var transaction = _mapper.Map<CustomerTransaction>(request);
+            var tenantId =
+                _tenantContext.TenantId;
 
-            transaction.Id = Guid.NewGuid();
-            transaction.TenantId = tenantId;
-            transaction.CreatedByUserId = userId;
-            transaction.TransactionDate = DateTime.UtcNow;
-            transaction.CreatedAt = DateTime.UtcNow;
+            var userId =
+                _tenantContext.UserId;
 
-            await _customerTransactionRepository.AddAsync(transaction);
+            var now =
+                DateTime.UtcNow;
+
+            var transaction =
+                _mapper.Map<CustomerTransaction>(
+                    request);
+
+            transaction.Id =
+                Guid.NewGuid();
+
+            transaction.ClientOperationId =
+                transaction.Id;
+
+            transaction.TenantId =
+                tenantId;
+
+            transaction.CreatedByUserId =
+                userId;
+
+            transaction.TransactionDate =
+                now;
+
+            transaction.CreatedAt =
+                now;
+
+            await _customerTransactionRepository.AddAsync(
+                transaction);
+
             await _unitOfWork.SaveChangesAsync();
-            return _mapper.Map<CustomerTransactionResult>(transaction);
+
+            return _mapper.Map<CustomerTransactionResult>(
+                transaction);
         }
 
-        public async Task<CustomerTransactionResult> GetByIdAsync(Guid id)
+        public async Task<CustomerTransactionResult>
+            GetByIdAsync(
+                Guid id)
         {
-            var tenantId = _tenantContext.TenantId;
-            var transaction = await _customerTransactionRepository.GetByIdAsync(id);
+            var tenantId =
+                _tenantContext.TenantId;
 
-            if (transaction == null || transaction.IsDeleted || transaction.TenantId != tenantId)
+            var transaction =
+                await _customerTransactionRepository
+                    .GetByIdAsync(id);
+
+            if (transaction == null ||
+                transaction.IsDeleted ||
+                transaction.TenantId != tenantId)
             {
-                throw new NotFoundException("CustomerTransaction", id);
+                throw new NotFoundException(
+                    "CustomerTransaction",
+                    id);
             }
 
-            return _mapper.Map<CustomerTransactionResult>(transaction);
+            var result =
+                _mapper.Map<CustomerTransactionResult>(
+                    transaction);
+
+            var customer =
+                await _customerRepository.GetByIdAsync(
+                    transaction.CustomerId);
+
+            result.CustomerName =
+                customer != null &&
+                !customer.IsDeleted &&
+                customer.TenantId == tenantId
+                    ? customer.Name
+                    : string.Empty;
+
+            return result;
         }
 
-        public async Task<List<CustomerTransactionResult>> GetAllAsync()
+        public async Task<List<CustomerTransactionResult>>
+            GetAllAsync()
         {
-            var tenantId = _tenantContext.TenantId;
-            var transactions = await _customerTransactionRepository.GetAsync(
-                t => !t.IsDeleted && t.TenantId == tenantId);
+            var tenantId =
+                _tenantContext.TenantId;
 
-            return _mapper.Map<List<CustomerTransactionResult>>(transactions);
-        }
+            var transactions =
+                await _customerTransactionRepository.GetAsync(
+                    transaction =>
+                        !transaction.IsDeleted &&
+                        transaction.TenantId == tenantId);
 
-        /*
-        public async Task<List<CustomerTransactionResult>> GetAllAsync()
-        {
-            var tenantId = _tenantContext.TenantId;
-            var transactions = await _customerTransactionRepository.GetAllAsync();
+            var customers =
+                await _customerRepository.GetAsync(
+                    customer =>
+                        !customer.IsDeleted &&
+                        customer.TenantId == tenantId);
 
-            var activeTransactions = transactions
-                .Where(c => !c.IsDeleted && c.TenantId == tenantId)
-                .ToList();
+            var customerNames =
+                customers.ToDictionary(
+                    customer => customer.Id,
+                    customer => customer.Name);
 
-            return _mapper.Map<List<CustomerTransactionResult>>(activeTransactions);
-        }
-        */
+            var results =
+                _mapper.Map<List<CustomerTransactionResult>>(
+                    transactions);
 
-        public async Task<CustomerTransactionResult> UpdateAsync(Guid id, UpdateCustomerTransactionRequest request)
-        {
-            var tenantId = _tenantContext.TenantId;
-            var userId = _tenantContext.UserId;
-
-            var transaction = await _customerTransactionRepository.GetByIdAsync(id);
-            if (transaction == null || transaction.IsDeleted || transaction.TenantId != tenantId)
+            foreach (var result in results)
             {
-                throw new NotFoundException("CustomerTransaction", id);
+                result.CustomerName =
+                    customerNames.TryGetValue(
+                        result.CustomerId,
+                        out var customerName)
+                        ? customerName
+                        : string.Empty;
             }
 
-            _mapper.Map(request, transaction);
-            transaction.ModifiedAt = DateTime.UtcNow;
-            transaction.ModifiedByUserId = userId;
-
-            _customerTransactionRepository.Update(transaction);
-            await _unitOfWork.SaveChangesAsync();
-
-            return _mapper.Map<CustomerTransactionResult>(transaction);
+            return results;
         }
 
-        public async Task<bool> DeleteAsync(Guid id)
+        public async Task<CustomerTransactionResult>
+            UpdateAsync(
+                Guid id,
+                UpdateCustomerTransactionRequest request)
         {
-            var tenantId = _tenantContext.TenantId;
-            var userId = _tenantContext.UserId;
+            ArgumentNullException.ThrowIfNull(
+                request);
 
-            var transaction = await _customerTransactionRepository.GetByIdAsync(id);
-            if (transaction == null || transaction.IsDeleted || transaction.TenantId != tenantId)
+            var tenantId =
+                _tenantContext.TenantId;
+
+            var userId =
+                _tenantContext.UserId;
+
+            var transaction =
+                await _customerTransactionRepository
+                    .GetByIdAsync(id);
+
+            if (transaction == null ||
+                transaction.IsDeleted ||
+                transaction.TenantId != tenantId)
             {
-                throw new NotFoundException("CustomerTransaction", id);
+                throw new NotFoundException(
+                    "CustomerTransaction",
+                    id);
             }
 
-            transaction.IsDeleted = true;
-            transaction.DeletedAt = DateTime.UtcNow;
-            transaction.DeletedByUserId = userId;
-            transaction.ModifiedAt = DateTime.UtcNow;
+            _mapper.Map(
+                request,
+                transaction);
 
-            _customerTransactionRepository.Update(transaction);
+            transaction.ModifiedAt =
+                DateTime.UtcNow;
+
+            transaction.ModifiedByUserId =
+                userId;
+
+            _customerTransactionRepository.Update(
+                transaction);
+
             await _unitOfWork.SaveChangesAsync();
+
+            var result =
+                _mapper.Map<CustomerTransactionResult>(
+                    transaction);
+
+            var customer =
+                await _customerRepository.GetByIdAsync(
+                    transaction.CustomerId);
+
+            result.CustomerName =
+                customer != null &&
+                !customer.IsDeleted &&
+                customer.TenantId == tenantId
+                    ? customer.Name
+                    : string.Empty;
+
+            return result;
+        }
+
+        public async Task<bool> DeleteAsync(
+            Guid id)
+        {
+            var tenantId =
+                _tenantContext.TenantId;
+
+            var userId =
+                _tenantContext.UserId;
+
+            var transaction =
+                await _customerTransactionRepository
+                    .GetByIdAsync(id);
+
+            if (transaction == null ||
+                transaction.IsDeleted ||
+                transaction.TenantId != tenantId)
+            {
+                throw new NotFoundException(
+                    "CustomerTransaction",
+                    id);
+            }
+
+            var now =
+                DateTime.UtcNow;
+
+            transaction.IsDeleted =
+                true;
+
+            transaction.DeletedAt =
+                now;
+
+            transaction.DeletedByUserId =
+                userId;
+
+            transaction.ModifiedAt =
+                now;
+
+            transaction.ModifiedByUserId =
+                userId;
+
+            _customerTransactionRepository.Update(
+                transaction);
+
+            await _unitOfWork.SaveChangesAsync();
+
             return true;
         }
 
-        public async Task<PagedResult<CustomerTransactionResult>> QueryAsync(CustomerTransactionQuery query)
+        public async Task<PagedResult<CustomerTransactionResult>>
+            QueryAsync(
+                CustomerTransactionQuery query)
         {
-            var tenantId = _tenantContext.TenantId;
+            ArgumentNullException.ThrowIfNull(
+                query);
 
-            if (query.Page < 1 || query.PageSize < 1 || query.PageSize > 100)
+            var tenantId =
+                _tenantContext.TenantId;
+
+            if (query.Page < 1 ||
+                query.PageSize < 1 ||
+                query.PageSize > 100)
             {
-                throw new ValidationException(new Dictionary<string, string[]>
-                {
-                    { "PageSize", new[] { "PageSize must be between 1 and 100." } }
-                });
+                throw new ValidationException(
+                    new Dictionary<string, string[]>
+                    {
+                        {
+                            nameof(query.PageSize),
+                            new[]
+                            {
+                                "PageSize must be between 1 and 100."
+                            }
+                        }
+                    });
             }
 
-            var all = (await _customerTransactionRepository.GetAsync(
-                p => !p.IsDeleted && p.TenantId == tenantId))
-                .AsQueryable();
-            
-            var filtered = all
-                .Where(p => !p.IsDeleted && p.TenantId == tenantId)
-                .AsQueryable();
+            var transactions =
+                await _customerTransactionRepository.GetAsync(
+                    transaction =>
+                        !transaction.IsDeleted &&
+                        transaction.TenantId == tenantId);
 
-            filtered = query.SortBy?.ToLower() switch
+            var filtered =
+                transactions.AsQueryable();
+
+            filtered =
+                query.SortBy?.ToLowerInvariant() switch
+                {
+                    "transactiondate" =>
+                        query.Desc
+                            ? filtered.OrderByDescending(
+                                transaction =>
+                                    transaction.TransactionDate)
+                            : filtered.OrderBy(
+                                transaction =>
+                                    transaction.TransactionDate),
+
+                    "type" =>
+                        query.Desc
+                            ? filtered.OrderByDescending(
+                                transaction =>
+                                    transaction.Type)
+                            : filtered.OrderBy(
+                                transaction =>
+                                    transaction.Type),
+
+                    "amount" =>
+                        query.Desc
+                            ? filtered.OrderByDescending(
+                                transaction =>
+                                    transaction.Amount)
+                            : filtered.OrderBy(
+                                transaction =>
+                                    transaction.Amount),
+
+                    _ =>
+                        query.Desc
+                            ? filtered.OrderByDescending(
+                                transaction =>
+                                    transaction.CreatedAt)
+                            : filtered.OrderBy(
+                                transaction =>
+                                    transaction.CreatedAt)
+                };
+
+            var total =
+                filtered.Count();
+
+            var items =
+                filtered
+                    .Skip(
+                        (query.Page - 1) *
+                        query.PageSize)
+                    .Take(
+                        query.PageSize)
+                    .ToList();
+
+            var customers =
+                await _customerRepository.GetAsync(
+                    customer =>
+                        !customer.IsDeleted &&
+                        customer.TenantId == tenantId);
+
+            var customerNames =
+                customers.ToDictionary(
+                    customer => customer.Id,
+                    customer => customer.Name);
+
+            var results =
+                _mapper.Map<List<CustomerTransactionResult>>(
+                    items);
+
+            foreach (var result in results)
             {
-                "transactiondate" => query.Desc
-                    ? filtered.OrderByDescending(p => p.TransactionDate)
-                    : filtered.OrderBy(p => p.TransactionDate),
-                "type" => query.Desc
-                    ? filtered.OrderByDescending(p => p.Type)
-                    : filtered.OrderBy(p => p.Type),
-                "amount" => query.Desc
-                    ? filtered.OrderByDescending(p => p.Amount)
-                    : filtered.OrderBy(p => p.Amount),
-                _ => query.Desc
-                    ? filtered.OrderByDescending(p => p.CreatedAt)
-                    : filtered.OrderBy(p => p.CreatedAt)
-            };
-
-            var total = filtered.Count();
-            var items = filtered
-                .Skip((query.Page - 1) * query.PageSize)
-                .Take(query.PageSize)
-                .ToList();
+                result.CustomerName =
+                    customerNames.TryGetValue(
+                        result.CustomerId,
+                        out var customerName)
+                        ? customerName
+                        : string.Empty;
+            }
 
             return new PagedResult<CustomerTransactionResult>
             {
-                Items = _mapper.Map<List<CustomerTransactionResult>>(items),
-                TotalCount = total,
-                Page = query.Page,
-                PageSize = query.PageSize
+                Items =
+                    results,
+
+                TotalCount =
+                    total,
+
+                Page =
+                    query.Page,
+
+                PageSize =
+                    query.PageSize
             };
         }
 
-        public async Task<CustomerTransactionResult> RegisterCustomerPaymentAsync(
-            Guid customerId,
-            decimal amount,
-            string? description = null,
-            bool isCash = true)
+        public async Task<CustomerTransactionResult>
+            RegisterCustomerPaymentAsync(
+                RegisterCustomerPaymentRequest request,
+                CancellationToken cancellationToken = default)
         {
-            var tenantId = _tenantContext.TenantId;
-            var userId = _tenantContext.UserId;
-            var customer = await _customerRepository.GetByIdAsync(customerId);
+            ArgumentNullException.ThrowIfNull(
+                request);
 
-            amount = Math.Round(amount, 2, MidpointRounding.AwayFromZero);
+            cancellationToken.ThrowIfCancellationRequested();
 
-            if (customer == null || customer.IsDeleted || customer.TenantId != tenantId)
-                throw new NotFoundException("Customer", customerId);
+            var tenantId =
+                _tenantContext.TenantId;
 
-            if (amount <= 0)
-                throw new ValidationException(new Dictionary<string, string[]>
+            var userId =
+                _tenantContext.UserId;
+
+            ValidateRequiredIdentifiers(
+                request.ClientOperationId,
+                request.CustomerId);
+
+            var amount =
+                Math.Round(
+                    request.Amount,
+                    2,
+                    MidpointRounding.AwayFromZero);
+
+            if (amount <= 0m)
+            {
+                throw new ValidationException(
+                    new Dictionary<string, string[]>
+                    {
+                        {
+                            nameof(request.Amount),
+                            new[]
+                            {
+                                "Payment amount must be greater than 0."
+                            }
+                        }
+                    });
+            }
+
+            var description =
+                string.IsNullOrWhiteSpace(
+                    request.Description)
+                    ? "Customer payment"
+                    : request.Description.Trim();
+
+            var cashSessionId =
+                ValidateAndResolveCashSessionId(
+                    request.IsCash,
+                    request.CashSessionId,
+                    "payment");
+
+            var existingTransactions =
+                await _customerTransactionRepository.GetAsync(
+                    transaction =>
+                        !transaction.IsDeleted &&
+                        transaction.TenantId == tenantId &&
+                        transaction.ClientOperationId ==
+                            request.ClientOperationId);
+
+            var existingTransaction =
+                existingTransactions.SingleOrDefault();
+
+            if (existingTransaction != null)
+            {
+                var sameOperation =
+                    string.Equals(
+                        existingTransaction.Type,
+                        "Payment",
+                        StringComparison.Ordinal) &&
+                    existingTransaction.CustomerId ==
+                        request.CustomerId &&
+                    existingTransaction.Amount ==
+                        amount &&
+                    existingTransaction.IsCash ==
+                        request.IsCash &&
+                    existingTransaction.CashSessionId ==
+                        cashSessionId &&
+                    string.Equals(
+                        existingTransaction.Description,
+                        description,
+                        StringComparison.Ordinal);
+
+                if (!sameOperation)
                 {
-                    { "Amount", new[] { "Payment amount must be greater than 0." } }
-                });
+                    throw new ConflictException(
+                        $"Client operation " +
+                        $"'{request.ClientOperationId}' " +
+                        "is already linked to a different " +
+                        "customer transaction.");
+                }
 
+                return await MapResultWithCustomerNameAsync(
+                    existingTransaction,
+                    tenantId);
+            }
 
-            // =========================
-            // CUSTOMER BALANCE
-            // =========================
-            var lastTx = await _customerTransactionRepository.GetLastAsync(
-                t => t.CustomerId == customerId
-                     && !t.IsDeleted
-                     && t.TenantId == tenantId,
-                t => t.TransactionDate
-            );
+            var customer =
+                await _customerRepository.GetByIdAsync(
+                    request.CustomerId);
 
-            var customerBalanceBefore = lastTx?.BalanceAfter ?? 0m;
+            if (customer == null ||
+                customer.IsDeleted ||
+                customer.TenantId != tenantId)
+            {
+                throw new NotFoundException(
+                    "Customer",
+                    request.CustomerId);
+            }
 
-            if (customerBalanceBefore <= 0)
-                throw new ValidationException(new Dictionary<string, string[]>
-        {
-            { "Balance", new[] { "Customer has no outstanding balance." } }
-        });
+            CashSession? selectedCashSession =
+                null;
+
+            if (cashSessionId.HasValue)
+            {
+                selectedCashSession =
+                    await _cashSessionRepository.GetByIdAsync(
+                        cashSessionId.Value);
+
+                if (selectedCashSession == null ||
+                    selectedCashSession.IsDeleted ||
+                    selectedCashSession.TenantId != tenantId)
+                {
+                    throw new NotFoundException(
+                        "CashSession",
+                        cashSessionId.Value);
+                }
+            }
+
+            var customerBalanceBefore =
+                Math.Round(
+                    customer.CurrentBalance,
+                    2,
+                    MidpointRounding.AwayFromZero);
+
+            if (customerBalanceBefore <= 0m)
+            {
+                throw new ValidationException(
+                    new Dictionary<string, string[]>
+                    {
+                        {
+                            "Balance",
+                            new[]
+                            {
+                                "Customer has no outstanding balance."
+                            }
+                        }
+                    });
+            }
 
             if (amount > customerBalanceBefore)
-                throw new ValidationException(new Dictionary<string, string[]>
-        {
-            { "Amount", new[] { "Payment amount exceeds customer balance." } }
-        });
-
-            var customerBalanceAfter = customerBalanceBefore - amount;
-
-            // =========================
-            // CUSTOMER TRANSACTION (AUTHORITATIVE)
-            // =========================
-            var paymentTx = new CustomerTransaction
             {
-                Id = Guid.NewGuid(),
-                TenantId = tenantId,
-                CustomerId = customerId,
-                Type = "Payment",
-                Amount = amount,
-                BalanceBefore = customerBalanceBefore,
-                BalanceAfter = customerBalanceAfter,
-                Description = description ?? "Customer payment",
-                TransactionDate = DateTime.UtcNow,
-                CreatedAt = DateTime.UtcNow,
-                CreatedByUserId = userId
-            };
-
-            await _customerTransactionRepository.AddAsync(paymentTx);
-
-            // =========================
-            // CASH MOVEMENT (IF CASH)
-            // =========================
-            if (isCash)
-            {
-                var cashSessionId = await _cashSessionService.EnsureActiveSessionAsync();
-
-                var lastCash = await _cashMovementRepository.GetLastAsync(
-                    m => m.CashSessionId == cashSessionId
-                         && !m.IsDeleted
-                         && m.TenantId == tenantId,
-                    m => m.MovementDate
-                );
-
-                var cashBalanceBefore = lastCash?.BalanceAfter ?? 0m;
-                var cashBalanceAfter = cashBalanceBefore + amount;
-
-                await _cashMovementRepository.AddAsync(new CashMovement
-                {
-                    Id = Guid.NewGuid(),
-                    TenantId = tenantId,
-                    CashSessionId = cashSessionId,
-                    Type = CashMovementType.Deposit,
-                    Amount = amount,
-                    BalanceBefore = cashBalanceBefore,
-                    BalanceAfter = cashBalanceAfter,
-                    Reason = $"Customer debt payment (customerId={customerId})",
-                    MovementDate = DateTime.UtcNow,
-                    CreatedAt = DateTime.UtcNow,
-                    CreatedByUserId = userId
-                });
+                throw new ValidationException(
+                    new Dictionary<string, string[]>
+                    {
+                        {
+                            nameof(request.Amount),
+                            new[]
+                            {
+                                "Payment amount exceeds customer balance."
+                            }
+                        }
+                    });
             }
+
+            var customerBalanceAfter =
+                customerBalanceBefore -
+                amount;
+
+            var now =
+                DateTime.UtcNow;
+
+            var transactionDateUtc =
+                ResolveUtcDate(
+                    request.TransactionDateUtc,
+                    now);
+
+            var paymentTransaction =
+                new CustomerTransaction
+                {
+                    Id =
+                        Guid.NewGuid(),
+
+                    TenantId =
+                        tenantId,
+
+                    ClientOperationId =
+                        request.ClientOperationId,
+
+                    CustomerId =
+                        request.CustomerId,
+
+                    Type =
+                        "Payment",
+
+                    Amount =
+                        amount,
+
+                    BalanceBefore =
+                        customerBalanceBefore,
+
+                    BalanceAfter =
+                        customerBalanceAfter,
+
+                    Description =
+                        description,
+
+                    IsCash =
+                        request.IsCash,
+
+                    CashSessionId =
+                        cashSessionId,
+
+                    TransactionDate =
+                        transactionDateUtc,
+
+                    CreatedAt =
+                        now,
+
+                    CreatedByUserId =
+                        userId
+                };
+
+            await _customerTransactionRepository.AddAsync(
+                paymentTransaction);
+
+            customer.CurrentBalance =
+                customerBalanceAfter;
+
+            customer.ModifiedAt =
+                now;
+
+            customer.ModifiedByUserId =
+                userId;
+
+            _customerRepository.Update(
+                customer);
+
+            if (cashSessionId.HasValue)
+            {
+                var lastCashMovement =
+                    await _cashMovementRepository.GetLastAsync(
+                        movement =>
+                            movement.TenantId == tenantId &&
+                            !movement.IsDeleted &&
+                            movement.CashSessionId ==
+                                cashSessionId.Value,
+                        movement =>
+                            movement.CreatedAt);
+
+                var cashBalanceBefore =
+                    Math.Round(
+                        lastCashMovement?.BalanceAfter ?? 0m,
+                        2,
+                        MidpointRounding.AwayFromZero);
+
+                var cashBalanceAfter =
+                    Math.Round(
+                        cashBalanceBefore + amount,
+                        2,
+                        MidpointRounding.AwayFromZero);
+
+                ReconcileClosedCashSession(
+                    selectedCashSession!,
+                    cashBalanceAfter,
+                    now,
+                    userId);
+
+                await _cashMovementRepository.AddAsync(
+                    new CashMovement
+                    {
+                        Id =
+                            Guid.NewGuid(),
+
+                        TenantId =
+                            tenantId,
+
+                        CashSessionId =
+                            cashSessionId.Value,
+
+                        Type =
+                            CashMovementType.Deposit,
+
+                        Amount =
+                            amount,
+
+                        BalanceBefore =
+                            cashBalanceBefore,
+
+                        BalanceAfter =
+                            cashBalanceAfter,
+
+                        Reason =
+                            $"Customer debt payment " +
+                            $"(customerId={request.CustomerId}, " +
+                            $"clientOperationId=" +
+                            $"{request.ClientOperationId})",
+
+                        MovementDate =
+                            transactionDateUtc,
+
+                        CreatedAt =
+                            now,
+
+                        CreatedByUserId =
+                            userId
+                    });
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
 
             await _unitOfWork.SaveChangesAsync();
 
-            return _mapper.Map<CustomerTransactionResult>(paymentTx);
+            var paymentResult =
+                _mapper.Map<CustomerTransactionResult>(
+                    paymentTransaction);
+
+            paymentResult.CustomerName =
+                customer.Name;
+
+            return paymentResult;
         }
 
-        /*
-        public async Task<List<CustomerCreditResult>> GetCustomersWithBalanceAsync()
+        public async Task<List<CustomerCreditResult>>
+            GetCustomersWithBalanceAsync()
         {
-            var tenantId = _tenantContext.TenantId;
+            var tenantId =
+                _tenantContext.TenantId;
 
-            var customers = await _customerRepository.GetAllAsync();
-            var transactions = await _customerTransactionRepository.GetAllAsync();
-
-            var lastBalances = transactions
-                .Where(t => !t.IsDeleted && t.TenantId == tenantId)
-                .GroupBy(t => t.CustomerId)
-                .Select(g => g.OrderByDescending(t => t.TransactionDate).First())
-                .ToDictionary(t => t.CustomerId, t => t.BalanceAfter);
+            var customers =
+                await _customerRepository.GetAsync(
+                    customer =>
+                        !customer.IsDeleted &&
+                        customer.TenantId == tenantId);
 
             return customers
-                .Where(c => !c.IsDeleted && c.TenantId == tenantId)
-                .Select(c => new CustomerCreditResult
-                {
-                    CustomerId = c.Id,
-                    Name = c.Name,
-                    Balance = lastBalances.TryGetValue(c.Id, out var b) ? b : 0m
-                })
-                .ToList();
-        }
-        */
-
-        public async Task<List<CustomerCreditResult>> GetCustomersWithBalanceAsync()
-        {
-            var tenantId = _tenantContext.TenantId;
-
-            var customers = await _customerRepository.GetAsync(
-                c => !c.IsDeleted && c.TenantId == tenantId);
-
-            var transactions = await _customerTransactionRepository.GetAsync(
-                t => !t.IsDeleted && t.TenantId == tenantId);
-
-            // Tiebreak sur Id pour garantir un ordre déterministe
-            var lastBalances = transactions
-                .GroupBy(t => t.CustomerId)
-                .Select(g => g
-                    .OrderByDescending(t => t.TransactionDate)
-                    .ThenByDescending(t => t.CreatedAt)
-                    .ThenByDescending(t => t.Id)
-                    .First())
-                .ToDictionary(t => t.CustomerId, t => t.BalanceAfter);
-
-            return customers
-                .Select(c => new CustomerCreditResult
-                {
-                    CustomerId = c.Id,
-                    Name = c.Name,
-                    Balance = lastBalances.TryGetValue(c.Id, out var b) ? b : 0m
-                })
-                .ToList();
-        }
-
-        public async Task<CustomerTransactionResult> RegisterCustomerRefundAsync(
-            Guid customerId,
-            decimal amount,
-            string? description = null,
-            bool isCash = true)
-                {
-                    var tenantId = _tenantContext.TenantId;
-                    var userId = _tenantContext.UserId;
-                    var customer = await _customerRepository.GetByIdAsync(customerId);
-
-                    amount = Math.Round(amount, 2, MidpointRounding.AwayFromZero);
-
-                    if (customer == null || customer.IsDeleted || customer.TenantId != tenantId)
-                        throw new NotFoundException("Customer", customerId);
-
-                    if (amount <= 0)
-                        throw new ValidationException(new Dictionary<string, string[]>
-                {
-                    { "Amount", new[] { "Refund amount must be greater than 0." } }
-                });
-
-                    // Get customer balance
-                    var lastTx = await _customerTransactionRepository.GetLastAsync(
-                        t => t.CustomerId == customerId
-                             && !t.IsDeleted
-                             && t.TenantId == tenantId,
-                        t => t.TransactionDate
-                    );
-
-                    var customerBalanceBefore = lastTx?.BalanceAfter ?? 0m;
-
-                    // Customer balance must be negative (we owe them)
-                    if (customerBalanceBefore >= 0)
-                        throw new ValidationException(new Dictionary<string, string[]>
-                {
-                    { "Balance", new[] { "Customer has no credit balance to refund." } }
-                });
-
-                    // Cannot refund more than we owe (balance is negative, so use absolute value)
-                    if (amount > Math.Abs(customerBalanceBefore))
-                        throw new ValidationException(new Dictionary<string, string[]>
-                {
-                    { "Amount", new[] { "Refund amount exceeds credit balance." } }
-                });
-
-                    // Refund increases the balance (makes it less negative, towards zero)
-                    var customerBalanceAfter = customerBalanceBefore + amount;
-
-                    // Create refund transaction
-                    var refundTx = new CustomerTransaction
-                    {
-                        Id = Guid.NewGuid(),
-                        TenantId = tenantId,
-                        CustomerId = customerId,
-                        Type = "Refund",
-                        Amount = amount,
-                        BalanceBefore = customerBalanceBefore,
-                        BalanceAfter = customerBalanceAfter,
-                        Description = description ?? "Customer refund",
-                        TransactionDate = DateTime.UtcNow,
-                        CreatedAt = DateTime.UtcNow,
-                        CreatedByUserId = userId
-                    };
-
-                    await _customerTransactionRepository.AddAsync(refundTx);
-
-                    // Create cash movement (withdrawal if cash)
-                    if (isCash)
-                    {
-                        var cashSessionId = await _cashSessionService.EnsureActiveSessionAsync();
-
-                        var lastCash = await _cashMovementRepository.GetLastAsync(
-                            m => m.CashSessionId == cashSessionId
-                                 && !m.IsDeleted
-                                 && m.TenantId == tenantId,
-                            m => m.MovementDate
-                        );
-
-                        var cashBalanceBefore = lastCash?.BalanceAfter ?? 0m;
-                        var cashBalanceAfter = cashBalanceBefore - amount;
-
-                        if (cashBalanceAfter < 0)
-                            throw new ValidationException(new Dictionary<string, string[]>
-                            {
-                                { "Cash", new[] { "Insufficient cash in session for refund." } }
-                            });
-
-                        await _cashMovementRepository.AddAsync(new CashMovement
+                .Select(
+                    customer =>
+                        new CustomerCreditResult
                         {
-                            Id = Guid.NewGuid(),
-                            TenantId = tenantId,
-                            CashSessionId = cashSessionId,
-                            Type = CashMovementType.Withdrawal,
-                            Amount = amount,
-                            BalanceBefore = cashBalanceBefore,
-                            BalanceAfter = cashBalanceAfter,
-                            Reason = $"Customer refund (customerId={customerId})",
-                            MovementDate = DateTime.UtcNow,
-                            CreatedAt = DateTime.UtcNow,
-                            CreatedByUserId = userId
-                        });
-                    }
+                            CustomerId =
+                                customer.Id,
 
-                    await _unitOfWork.SaveChangesAsync();
+                            Name =
+                                customer.Name,
 
-                    return _mapper.Map<CustomerTransactionResult>(refundTx);
+                            Balance =
+                                customer.CurrentBalance
+                        })
+                .ToList();
+        }
+
+        public async Task<CustomerTransactionResult>
+            RegisterCustomerRefundAsync(
+                RegisterCustomerRefundRequest request,
+                CancellationToken cancellationToken = default)
+        {
+            ArgumentNullException.ThrowIfNull(
+                request);
+
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var tenantId =
+                _tenantContext.TenantId;
+
+            var userId =
+                _tenantContext.UserId;
+
+            ValidateRequiredIdentifiers(
+                request.ClientOperationId,
+                request.CustomerId);
+
+            var amount =
+                Math.Round(
+                    request.Amount,
+                    2,
+                    MidpointRounding.AwayFromZero);
+
+            if (amount <= 0m)
+            {
+                throw new ValidationException(
+                    new Dictionary<string, string[]>
+                    {
+                        {
+                            nameof(request.Amount),
+                            new[]
+                            {
+                                "Refund amount must be greater than 0."
+                            }
+                        }
+                    });
+            }
+
+            var description =
+                string.IsNullOrWhiteSpace(
+                    request.Description)
+                    ? "Customer refund"
+                    : request.Description.Trim();
+
+            var cashSessionId =
+                ValidateAndResolveCashSessionId(
+                    request.IsCash,
+                    request.CashSessionId,
+                    "refund");
+
+            var existingTransactions =
+                await _customerTransactionRepository.GetAsync(
+                    transaction =>
+                        !transaction.IsDeleted &&
+                        transaction.TenantId == tenantId &&
+                        transaction.ClientOperationId ==
+                            request.ClientOperationId);
+
+            var existingTransaction =
+                existingTransactions.SingleOrDefault();
+
+            if (existingTransaction != null)
+            {
+                var sameOperation =
+                    string.Equals(
+                        existingTransaction.Type,
+                        "Refund",
+                        StringComparison.Ordinal) &&
+                    existingTransaction.CustomerId ==
+                        request.CustomerId &&
+                    existingTransaction.Amount ==
+                        amount &&
+                    existingTransaction.IsCash ==
+                        request.IsCash &&
+                    existingTransaction.CashSessionId ==
+                        cashSessionId &&
+                    string.Equals(
+                        existingTransaction.Description,
+                        description,
+                        StringComparison.Ordinal);
+
+                if (!sameOperation)
+                {
+                    throw new ConflictException(
+                        $"Client operation " +
+                        $"'{request.ClientOperationId}' " +
+                        "is already linked to a different " +
+                        "customer transaction.");
                 }
 
-        public async Task<CustomerDetailResult> GetCustomerDetailAsync(Guid customerId)
-        {
-            var tenantId = _tenantContext.TenantId;
+                return await MapResultWithCustomerNameAsync(
+                    existingTransaction,
+                    tenantId);
+            }
 
-            var customer = await _customerRepository.GetByIdAsync(customerId);
-            if (customer == null || customer.IsDeleted || customer.TenantId != tenantId)
-                throw new NotFoundException("Customer", customerId);
+            var customer =
+                await _customerRepository.GetByIdAsync(
+                    request.CustomerId);
 
-            //// Get all transactions
-            //var transactions = (await _customerTransactionRepository.GetAllAsync())
-            //    .Where(t => t.CustomerId == customerId && !t.IsDeleted && t.TenantId == tenantId)
-            //    .OrderByDescending(t => t.TransactionDate)
-            //    .ToList();
-
-            //// Get sales for this customer
-            //var sales = (await _saleRepository.GetAllAsync())
-            //    .Where(s => s.CustomerId == customerId && !s.IsDeleted && s.TenantId == tenantId)
-            //    .OrderByDescending(s => s.SaleDate)
-            //    .ToList();
-
-            var transactions = (await _customerTransactionRepository.GetAsync(
-                    t => t.CustomerId == customerId && !t.IsDeleted && t.TenantId == tenantId))
-                .OrderByDescending(t => t.TransactionDate)
-                .ThenByDescending(t => t.CreatedAt)
-                .ThenByDescending(t => t.Id)
-                .ToList();
-
-            var sales = (await _saleRepository.GetAsync(
-                    s => s.CustomerId == customerId && !s.IsDeleted && s.TenantId == tenantId))
-                .OrderByDescending(s => s.SaleDate)
-                .ToList();
-
-
-            var currentBalance = transactions.FirstOrDefault()?.BalanceAfter ?? 0m;
-
-            return new CustomerDetailResult
+            if (customer == null ||
+                customer.IsDeleted ||
+                customer.TenantId != tenantId)
             {
-                CustomerId = customer.Id,
-                Name = customer.Name,
-                Email = customer.Email,
-                Phone = customer.Phone,
-                CurrentBalance = currentBalance,
-                Transactions = _mapper.Map<List<CustomerTransactionResult>>(transactions),
-                Sales = _mapper.Map<List<SaleSummaryResult>>(sales),
-                TotalSales = sales.Sum(s => s.TotalAmount),
-                TotalPaid = sales.Sum(s => s.PaidAmount),
-                CreatedAt = customer.CreatedAt
+                throw new NotFoundException(
+                    "Customer",
+                    request.CustomerId);
+            }
+
+            CashSession? selectedCashSession =
+                null;
+
+            if (cashSessionId.HasValue)
+            {
+                selectedCashSession =
+                    await _cashSessionRepository.GetByIdAsync(
+                        cashSessionId.Value);
+
+                if (selectedCashSession == null ||
+                    selectedCashSession.IsDeleted ||
+                    selectedCashSession.TenantId != tenantId)
+                {
+                    throw new NotFoundException(
+                        "CashSession",
+                        cashSessionId.Value);
+                }
+            }
+
+            var customerBalanceBefore =
+                Math.Round(
+                    customer.CurrentBalance,
+                    2,
+                    MidpointRounding.AwayFromZero);
+
+            if (customerBalanceBefore >= 0m)
+            {
+                throw new ValidationException(
+                    new Dictionary<string, string[]>
+                    {
+                        {
+                            "Balance",
+                            new[]
+                            {
+                                "Customer has no credit balance to refund."
+                            }
+                        }
+                    });
+            }
+
+            if (amount >
+                Math.Abs(customerBalanceBefore))
+            {
+                throw new ValidationException(
+                    new Dictionary<string, string[]>
+                    {
+                        {
+                            nameof(request.Amount),
+                            new[]
+                            {
+                                "Refund amount exceeds customer " +
+                                "credit balance."
+                            }
+                        }
+                    });
+            }
+
+            var customerBalanceAfter =
+                customerBalanceBefore +
+                amount;
+
+            var now =
+                DateTime.UtcNow;
+
+            var transactionDateUtc =
+                ResolveUtcDate(
+                    request.TransactionDateUtc,
+                    now);
+
+            CashMovement? cashMovement =
+                null;
+
+            if (cashSessionId.HasValue)
+            {
+                var lastCashMovement =
+                    await _cashMovementRepository.GetLastAsync(
+                        movement =>
+                            movement.TenantId == tenantId &&
+                            !movement.IsDeleted &&
+                            movement.CashSessionId ==
+                                cashSessionId.Value,
+                        movement =>
+                            movement.CreatedAt);
+
+                var cashBalanceBefore =
+                    Math.Round(
+                        lastCashMovement?.BalanceAfter ?? 0m,
+                        2,
+                        MidpointRounding.AwayFromZero);
+
+                var cashBalanceAfter =
+                    Math.Round(
+                        cashBalanceBefore - amount,
+                        2,
+                        MidpointRounding.AwayFromZero);
+
+                if (cashBalanceAfter < 0m)
+                {
+                    throw new ValidationException(
+                        new Dictionary<string, string[]>
+                        {
+                            {
+                                "Cash",
+                                new[]
+                                {
+                                    "Insufficient cash in the selected " +
+                                    "session for this refund."
+                                }
+                            }
+                        });
+                }
+
+                ReconcileClosedCashSession(
+                    selectedCashSession!,
+                    cashBalanceAfter,
+                    now,
+                    userId);
+
+                cashMovement =
+                    new CashMovement
+                    {
+                        Id =
+                            Guid.NewGuid(),
+
+                        TenantId =
+                            tenantId,
+
+                        CashSessionId =
+                            cashSessionId.Value,
+
+                        Type =
+                            CashMovementType.Withdrawal,
+
+                        Amount =
+                            amount,
+
+                        BalanceBefore =
+                            cashBalanceBefore,
+
+                        BalanceAfter =
+                            cashBalanceAfter,
+
+                        Reason =
+                            $"Customer refund " +
+                            $"(customerId={request.CustomerId}, " +
+                            $"clientOperationId=" +
+                            $"{request.ClientOperationId})",
+
+                        MovementDate =
+                            transactionDateUtc,
+
+                        CreatedAt =
+                            now,
+
+                        CreatedByUserId =
+                            userId
+                    };
+            }
+
+            var refundTransaction =
+                new CustomerTransaction
+                {
+                    Id =
+                        Guid.NewGuid(),
+
+                    TenantId =
+                        tenantId,
+
+                    ClientOperationId =
+                        request.ClientOperationId,
+
+                    CustomerId =
+                        request.CustomerId,
+
+                    Type =
+                        "Refund",
+
+                    Amount =
+                        amount,
+
+                    BalanceBefore =
+                        customerBalanceBefore,
+
+                    BalanceAfter =
+                        customerBalanceAfter,
+
+                    Description =
+                        description,
+
+                    IsCash =
+                        request.IsCash,
+
+                    CashSessionId =
+                        cashSessionId,
+
+                    TransactionDate =
+                        transactionDateUtc,
+
+                    CreatedAt =
+                        now,
+
+                    CreatedByUserId =
+                        userId
+                };
+
+            await _customerTransactionRepository.AddAsync(
+                refundTransaction);
+
+            if (cashMovement != null)
+            {
+                await _cashMovementRepository.AddAsync(
+                    cashMovement);
+            }
+
+            customer.CurrentBalance =
+                customerBalanceAfter;
+
+            customer.ModifiedAt =
+                now;
+
+            customer.ModifiedByUserId =
+                userId;
+
+            _customerRepository.Update(
+                customer);
+
+            cancellationToken.ThrowIfCancellationRequested();
+
+            await _unitOfWork.SaveChangesAsync();
+
+            var refundResult =
+                _mapper.Map<CustomerTransactionResult>(
+                    refundTransaction);
+
+            refundResult.CustomerName =
+                customer.Name;
+
+            return refundResult;
+        }
+
+        private async Task<CustomerTransactionResult>
+            MapResultWithCustomerNameAsync(
+                CustomerTransaction transaction,
+                Guid tenantId)
+        {
+            var result =
+                _mapper.Map<CustomerTransactionResult>(
+                    transaction);
+
+            var customer =
+                await _customerRepository.GetByIdAsync(
+                    transaction.CustomerId);
+
+            result.CustomerName =
+                customer != null &&
+                !customer.IsDeleted &&
+                customer.TenantId == tenantId
+                    ? customer.Name
+                    : string.Empty;
+
+            return result;
+        }
+
+        private static void ValidateRequiredIdentifiers(
+            Guid clientOperationId,
+            Guid customerId)
+        {
+            if (clientOperationId == Guid.Empty)
+            {
+                throw new ValidationException(
+                    new Dictionary<string, string[]>
+                    {
+                        {
+                            nameof(clientOperationId),
+                            new[]
+                            {
+                                "ClientOperationId must not be empty."
+                            }
+                        }
+                    });
+            }
+
+            if (customerId == Guid.Empty)
+            {
+                throw new ValidationException(
+                    new Dictionary<string, string[]>
+                    {
+                        {
+                            nameof(customerId),
+                            new[]
+                            {
+                                "CustomerId must not be empty."
+                            }
+                        }
+                    });
+            }
+        }
+
+        private static Guid? ValidateAndResolveCashSessionId(
+            bool isCash,
+            Guid? cashSessionId,
+            string operationName)
+        {
+            if (!isCash)
+            {
+                return null;
+            }
+
+            if (!cashSessionId.HasValue ||
+                cashSessionId.Value == Guid.Empty)
+            {
+                throw new ValidationException(
+                    new Dictionary<string, string[]>
+                    {
+                        {
+                            nameof(cashSessionId),
+                            new[]
+                            {
+                                $"CashSessionId is required for a cash " +
+                                $"{operationName}."
+                            }
+                        }
+                    });
+            }
+
+            return cashSessionId.Value;
+        }
+
+        private static DateTime ResolveUtcDate(
+            DateTime? requestedDateUtc,
+            DateTime fallbackUtc)
+        {
+            if (!requestedDateUtc.HasValue)
+            {
+                return fallbackUtc;
+            }
+
+            var value =
+                requestedDateUtc.Value;
+
+            return value.Kind switch
+            {
+                DateTimeKind.Utc =>
+                    value,
+
+                DateTimeKind.Local =>
+                    value.ToUniversalTime(),
+
+                _ =>
+                    DateTime.SpecifyKind(
+                        value,
+                        DateTimeKind.Utc)
             };
         }
 
+        private void ReconcileClosedCashSession(
+            CashSession cashSession,
+            decimal expectedCash,
+            DateTime modifiedAtUtc,
+            Guid userId)
+        {
+            ArgumentNullException.ThrowIfNull(
+                cashSession);
+
+            if (!cashSession.ClosedAt.HasValue)
+            {
+                return;
+            }
+
+            cashSession.ClosingAmountExpected =
+                Math.Round(
+                    expectedCash,
+                    2,
+                    MidpointRounding.AwayFromZero);
+
+            cashSession.Difference =
+                Math.Round(
+                    cashSession.ClosingAmountCounted -
+                    cashSession.ClosingAmountExpected,
+                    2,
+                    MidpointRounding.AwayFromZero);
+
+            cashSession.ModifiedAt =
+                modifiedAtUtc;
+
+            cashSession.ModifiedByUserId =
+                userId;
+
+            _cashSessionRepository.Update(
+                cashSession);
+        }
+
+        public async Task<CustomerDetailResult>
+            GetCustomerDetailAsync(
+                Guid customerId)
+        {
+            var tenantId =
+                _tenantContext.TenantId;
+
+            var customer =
+                await _customerRepository.GetByIdAsync(
+                    customerId);
+
+            if (customer == null ||
+                customer.IsDeleted ||
+                customer.TenantId != tenantId)
+            {
+                throw new NotFoundException(
+                    "Customer",
+                    customerId);
+            }
+
+            var transactions =
+                (await _customerTransactionRepository.GetAsync(
+                    transaction =>
+                        transaction.CustomerId == customerId &&
+                        !transaction.IsDeleted &&
+                        transaction.TenantId == tenantId))
+                .OrderByDescending(
+                    transaction =>
+                        transaction.TransactionDate)
+                .ThenByDescending(
+                    transaction =>
+                        transaction.CreatedAt)
+                .ThenByDescending(
+                    transaction =>
+                        transaction.Id)
+                .ToList();
+
+            var sales =
+                (await _saleRepository.GetAsync(
+                    sale =>
+                        sale.CustomerId == customerId &&
+                        !sale.IsDeleted &&
+                        sale.TenantId == tenantId))
+                .OrderByDescending(
+                    sale =>
+                        sale.SaleDate)
+                .ToList();
+
+            var transactionResults =
+                _mapper.Map<List<CustomerTransactionResult>>(
+                    transactions);
+
+            foreach (var result in transactionResults)
+            {
+                result.CustomerName =
+                    customer.Name;
+            }
+
+            return new CustomerDetailResult
+            {
+                CustomerId =
+                    customer.Id,
+
+                Name =
+                    customer.Name,
+
+                Email =
+                    customer.Email,
+
+                Phone =
+                    customer.Phone,
+
+                CurrentBalance =
+                    customer.CurrentBalance,
+
+                Transactions =
+                    transactionResults,
+
+                Sales =
+                    _mapper.Map<List<SaleSummaryResult>>(
+                        sales),
+
+                TotalSales =
+                    sales.Sum(
+                        sale =>
+                            sale.TotalAmount),
+
+                TotalPaid =
+                    sales.Sum(
+                        sale =>
+                            sale.PaidAmount),
+
+                CreatedAt =
+                    customer.CreatedAt
+            };
+        }
     }
 }

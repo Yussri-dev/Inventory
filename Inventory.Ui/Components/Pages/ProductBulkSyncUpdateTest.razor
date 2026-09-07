@@ -1,0 +1,366 @@
+﻿@page "/product-bulk-sync-update-test"
+@implements IDisposable
+
+@using System.Diagnostics
+@using Inventory.LocalDB.Context
+@using Inventory.LocalDB.Models
+@using Inventory.LocalDB.Services.Interfaces
+@using Inventory.Ui.Interfaces
+@using Inventory.Ui.Services.Sync.Results
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.Extensions.DependencyInjection
+
+@inject IServiceProvider Services
+@inject ILocalBulkSyncUploader BulkSyncUploader
+
+<PageTitle>Product Bulk Sync Update Test</PageTitle>
+
+<div class="container py-4">
+    <h1>Product Bulk Sync Update Test</h1>
+
+    @if (!IsDebugBuild)
+    {
+        <div class="alert alert-danger">
+            This page is available only in a DEBUG build.
+        </div>
+    }
+    else
+    {
+            <div class="alert alert-warning">
+                This test queues @TestCount.ToString("N0") Update operations for
+                existing server-backed Products without changing their values.
+                It uploads @MaximumBatches batch(es) containing at most
+                @BatchSize operations each. It refuses to start when the current
+                tenant already has claimable Product queue items.
+            </div>
+
+        <div class="d-flex gap-2 mb-3">
+            <button class="btn btn-primary"
+                    disabled="@isRunning"
+                    @onclick="RunAsync">
+                @(isRunning
+                    ? "Test running..."
+                    : $"Run {TestCount:N0} product update test")
+            </button>
+
+            @if (isRunning)
+            {
+                <button class="btn btn-outline-danger"
+                        @onclick="Cancel">
+                    Cancel
+                </button>
+            }
+        </div>
+
+        @if (!string.IsNullOrWhiteSpace(errorMessage))
+        {
+            <div class="alert alert-danger">
+                @errorMessage
+            </div>
+        }
+
+        @if (seededCount.HasValue)
+        {
+            <div class="card mb-3">
+                <div class="card-body">
+                        <h2 class="h5">SQLite update queue</h2>
+
+                    <table class="table table-sm mb-0">
+                        <tbody>
+                            <tr>
+                                <th>Products queued</th>
+                                <td>@seededCount</td>
+                            </tr>
+                            <tr>
+                                <th>Elapsed</th>
+                                <td>@FormatDuration(seedElapsed)</td>
+                            </tr>
+                            <tr>
+                                    <th>Queue items per second</th>
+                                <td>@FormatRate(SeedRate)</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        }
+
+        @if (syncResult != null)
+        {
+            <div class="card">
+                <div class="card-body">
+                    <h2 class="h5">Bulk synchronization</h2>
+
+                    <table class="table table-sm mb-0">
+                        <tbody>
+                            <tr>
+                                <th>Batches processed</th>
+                                <td>@syncResult.BatchesProcessed</td>
+                            </tr>
+                            <tr>
+                                <th>Claimed</th>
+                                <td>@syncResult.Claimed</td>
+                            </tr>
+                            <tr>
+                                <th>Done</th>
+                                <td>@syncResult.Done</td>
+                            </tr>
+                            <tr>
+                                <th>Duplicates</th>
+                                <td>@syncResult.Duplicates</td>
+                            </tr>
+                            <tr>
+                                <th>Failed</th>
+                                <td>@syncResult.Failed</td>
+                            </tr>
+                            <tr>
+                                <th>Conflicts</th>
+                                <td>@syncResult.Conflicts</td>
+                            </tr>
+                            <tr>
+                                <th>Cancelled</th>
+                                <td>@syncResult.WasCancelled</td>
+                            </tr>
+                            <tr>
+                                <th>Elapsed</th>
+                                <td>@FormatDuration(syncElapsed)</td>
+                            </tr>
+                            <tr>
+                                <th>Operations per second</th>
+                                <td>@FormatRate(SyncRate)</td>
+                            </tr>
+                        </tbody>
+                    </table>
+
+                    @if (syncResult.Messages.Count > 0)
+                    {
+                        <ul class="mt-3 mb-0">
+                            @foreach (var message in syncResult.Messages)
+                            {
+                                <li>@message</li>
+                            }
+                        </ul>
+                    }
+                </div>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private const int TestCount =
+        5_000;
+
+    private const int BatchSize =
+        250;
+
+    private const int MaximumBatches =
+        (TestCount + BatchSize - 1) /
+        BatchSize;
+
+    private bool isRunning;
+    private int? seededCount;
+    private TimeSpan seedElapsed;
+    private TimeSpan syncElapsed;
+    private string? errorMessage;
+
+    private LocalBulkSyncResult? syncResult;
+    private CancellationTokenSource? cancellationSource;
+
+    private static bool IsDebugBuild
+    {
+        get
+        {
+#if DEBUG
+            return true;
+#else
+            return false;
+#endif
+        }
+    }
+
+    private double SeedRate =>
+        seededCount.HasValue &&
+        seedElapsed.TotalSeconds > 0d
+            ? seededCount.Value /
+              seedElapsed.TotalSeconds
+            : 0d;
+
+    private double SyncRate
+    {
+        get
+        {
+            if (syncResult == null ||
+                syncElapsed.TotalSeconds <= 0d)
+            {
+                return 0d;
+            }
+
+            var completed =
+                syncResult.Done +
+                syncResult.Duplicates;
+
+            return completed /
+                   syncElapsed.TotalSeconds;
+        }
+    }
+
+    private async Task RunAsync()
+    {
+        if (isRunning)
+        {
+            return;
+        }
+
+        isRunning =
+            true;
+
+        seededCount =
+            null;
+
+        syncResult =
+            null;
+
+        seedElapsed =
+            TimeSpan.Zero;
+
+        syncElapsed =
+            TimeSpan.Zero;
+
+        errorMessage =
+            null;
+
+        cancellationSource?.Dispose();
+
+        cancellationSource =
+            new CancellationTokenSource();
+
+#if DEBUG
+        try
+        {
+            var tenantContext =
+                Services.GetRequiredService<
+                    ILocalTenantContext>();
+
+            var tenantId =
+                tenantContext.GetRequiredTenantId();
+
+            var dbContext =
+                Services.GetRequiredService<
+                    PosLocalDbContext>();
+
+            var existingQueueItemCount =
+                await dbContext.SyncQueueItems
+                    .AsNoTracking()
+                    .CountAsync(
+                        item =>
+                            item.TenantId == tenantId &&
+                            item.EntityName == "Product" &&
+                            (
+                                item.Status ==
+                                    SyncQueueStatus.Pending ||
+                                item.Status ==
+                                    SyncQueueStatus.Failed ||
+                                item.Status ==
+                                    SyncQueueStatus.Processing
+                            ),
+                        cancellationSource.Token);
+
+            if (existingQueueItemCount > 0)
+            {
+                errorMessage =
+                    $"The test was not started. The current tenant " +
+                    $"already has {existingQueueItemCount} pending, " +
+                    $"failed or processing Product queue items.";
+
+                return;
+            }
+
+            var seeder =
+                Services.GetRequiredService<
+                    Inventory.Ui.Services.Sync.Testing
+                        .ProductBulkUpdateSeeder>();
+
+            var stopwatch =
+                Stopwatch.StartNew();
+
+            seededCount =
+                await seeder.SeedAsync(
+                    TestCount,
+                    cancellationSource.Token);
+
+            stopwatch.Stop();
+
+            seedElapsed =
+                stopwatch.Elapsed;
+
+            stopwatch.Restart();
+
+            syncResult =
+                await BulkSyncUploader.SyncPendingAsync(
+                    new[]
+                    {
+                        "Product"
+                    },
+                    batchSize: BatchSize,
+                    maximumBatches: MaximumBatches,
+                    cancellationToken:
+                        cancellationSource.Token);
+
+            stopwatch.Stop();
+
+            syncElapsed =
+                stopwatch.Elapsed;
+        }
+        catch (OperationCanceledException)
+        {
+            errorMessage =
+                "The load test was cancelled.";
+        }
+        catch (Exception exception)
+        {
+            errorMessage =
+                string.IsNullOrWhiteSpace(
+                    exception.Message)
+                    ? "The load test failed."
+                    : exception.Message;
+        }
+        finally
+        {
+            isRunning =
+                false;
+        }
+#else
+        errorMessage =
+            "The load test is disabled outside DEBUG builds.";
+
+        isRunning =
+            false;
+
+        await Task.CompletedTask;
+#endif
+    }
+
+    private void Cancel()
+    {
+        cancellationSource?.Cancel();
+    }
+
+    private static string FormatDuration(
+        TimeSpan value)
+    {
+        return $"{value.TotalSeconds:N3} s";
+    }
+
+    private static string FormatRate(
+        double value)
+    {
+        return $"{value:N0} ops/s";
+    }
+
+    public void Dispose()
+    {
+        cancellationSource?.Cancel();
+        cancellationSource?.Dispose();
+    }
+}

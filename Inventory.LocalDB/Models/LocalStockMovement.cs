@@ -60,5 +60,7 @@ namespace Inventory.LocalDB.Models
         public string SyncStatus { get; set; } = SyncQueueStatus.Pending;
 
         public DateTime? LastSyncedAtUtc { get; set; }
+
+        public LocalProduct Product = null!;
     }
 }

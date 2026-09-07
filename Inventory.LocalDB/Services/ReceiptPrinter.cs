@@ -3,22 +3,27 @@ using Inventory.LocalDB.Services.Interfaces;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
-
 namespace Inventory.LocalDB.Services
 {
-    public sealed class ReceiptPrinter : IReceiptPrinter
+    public sealed class ReceiptPrinter
+        : IReceiptPrinter
     {
         private readonly IReceiptPrinterTransport _transport;
+        private readonly IReceiptPrinterResolver _printerResolver;
         private readonly ReceiptPrinterOptions _options;
         private readonly ILogger<ReceiptPrinter> _logger;
 
         public ReceiptPrinter(
             IReceiptPrinterTransport transport,
+            IReceiptPrinterResolver printerResolver,
             IOptions<ReceiptPrinterOptions> options,
             ILogger<ReceiptPrinter> logger)
         {
             _transport =
                 transport;
+
+            _printerResolver =
+                printerResolver;
 
             _options =
                 options.Value;
@@ -28,14 +33,13 @@ namespace Inventory.LocalDB.Services
         }
 
         public string? DeviceName =>
-            _options.PrinterName;
+            _printerResolver.SelectedPrinterName;
 
         public async Task PrintAsync(
             ReceiptPrintDocument document,
             CancellationToken cancellationToken = default)
         {
-            ArgumentNullException.ThrowIfNull(
-                document);
+            ArgumentNullException.ThrowIfNull(document);
 
             if (document.Snapshot == null)
             {
@@ -43,14 +47,18 @@ namespace Inventory.LocalDB.Services
                     "The receipt snapshot is required.");
             }
 
-            if (string.IsNullOrWhiteSpace(
-                    _options.PrinterName))
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var printerName =
+                await _printerResolver
+                    .ResolvePrinterNameAsync(
+                        cancellationToken);
+
+            if (string.IsNullOrWhiteSpace(printerName))
             {
                 throw new InvalidOperationException(
-                    "No receipt printer has been configured.");
+                    "No available receipt printer has been configured.");
             }
-
-            cancellationToken.ThrowIfCancellationRequested();
 
             var bytes =
                 ReceiptEscPosBuilder.Build(
@@ -67,19 +75,19 @@ namespace Inventory.LocalDB.Services
                 "Printing receipt {InvoiceNumber} on {PrinterName}. " +
                 "Duplicate={Duplicate}, Copy={CopyNumber}.",
                 document.Snapshot.InvoiceNumber,
-                _options.PrinterName,
+                printerName,
                 document.IsDuplicate,
                 document.CopyNumber);
 
             await _transport.SendAsync(
-                _options.PrinterName,
+                printerName,
                 bytes,
                 cancellationToken);
 
             _logger.LogInformation(
                 "Receipt {InvoiceNumber} sent successfully to {PrinterName}.",
                 document.Snapshot.InvoiceNumber,
-                _options.PrinterName);
+                printerName);
         }
     }
 }

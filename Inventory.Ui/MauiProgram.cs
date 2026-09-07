@@ -2,6 +2,8 @@
 using Inventory.LocalDB.Models;
 using Inventory.LocalDB.Services;
 using Inventory.LocalDB.Services.Interfaces;
+using Inventory.LocalDB.Services.Sync;
+using Inventory.LocalDB.Services.Sync.Handlers;
 using Inventory.Ui;
 using Inventory.Ui.Authentification;
 using Inventory.Ui.Infrastructure;
@@ -9,7 +11,9 @@ using Inventory.Ui.Interfaces;
 using Inventory.Ui.Services;
 using Inventory.Ui.Services.Analytics;
 using Inventory.Ui.Services.Labels;
+using Inventory.Ui.Services.Printing;
 using Inventory.Ui.Services.Sync;
+using Inventory.Ui.Services.Sync.Testing;
 using Inventory.Ui.State;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.Extensions.Logging;
@@ -17,10 +21,9 @@ using MudBlazor.Services;
 using QuestPDF.Infrastructure;
 using System.Text;
 
-//#if WINDOWS
-//using Inventory.Ui.Platforms.Windows.Printing;
-//#endif
-
+#if WINDOWS
+using Inventory.Ui.Platforms.Windows.Printing;
+#endif
 public static class MauiProgram
 {
     public static MauiApp CreateMauiApp()
@@ -76,6 +79,7 @@ public static class MauiProgram
 
         builder.Services.AddSingleton<ISecureStorageService, SecureStorageService>();
         builder.Services.AddSingleton<CustomerDisplayState>();
+        builder.Services.AddSingleton<SyncCoordinator>();
 
         builder.Services.AddTransient<AuthHeaderHandler>();
         builder.Services.AddTransient<AuthExpiredHandler>();
@@ -164,16 +168,16 @@ public static class MauiProgram
             ILocalStockAdjustmentService,
             LocalStockAdjustmentService>();
 
-      builder.Services.AddScoped<
-            ILocalInventorySessionService,
-            LocalInventorySessionService>();
+        builder.Services.AddScoped<
+              ILocalInventorySessionService,
+              LocalInventorySessionService>();
 
         // Uploads only manual StockMovement outbox items.
         // Sale/Purchase/Return stock movements are synchronized by their
         // authoritative complete endpoints and must not be uploaded twice.
-        builder.Services.AddScoped<
-            ILocalStockMovementUploadService,
-            LocalStockMovementUploadService>();
+        //builder.Services.AddScoped<
+        //    ILocalStockMovementUploadService,
+        //    LocalStockMovementUploadService>();
 
         // Pulls server stock after pushing manual adjustments.
         // Replace any existing ILocalStockSyncService registration with this one.
@@ -232,8 +236,42 @@ public static class MauiProgram
             LocalPurchaseDraftService>();
 
         builder.Services.AddScoped<
-    ILocalBarcodeLabelService,
-    LocalBarcodeLabelService>();
+            ILocalBarcodeLabelService,
+            LocalBarcodeLabelService>();
+
+        builder.Services.AddScoped<
+            ISyncQueueService,
+            SyncQueueService>();
+
+        builder.Services.AddScoped<
+            ILocalBulkSyncUploader,
+            LocalBulkSyncUploader>();
+
+        builder.Services.AddScoped<
+            ILocalSyncResultHandler,
+            CustomerLocalSyncResultHandler>();
+
+
+        builder.Services.AddScoped<
+            ILocalSyncResultHandler,
+            SupplierLocalSyncResultHandler>();
+
+        builder.Services.AddScoped<
+           ILocalSyncResultHandler,
+           ProductLocalSyncResultHandler>();
+
+        builder.Services.AddScoped<ILocalSyncResultHandler,
+            StockMovementLocalSyncResultHandler>();
+
+        builder.Services.AddScoped<ILocalSyncResultHandler,
+            DamageLocalSyncResultHandler>();
+
+        builder.Services.AddScoped<ILocalSyncResultHandler,
+            SaleLocalSyncResultHandler>();
+
+        builder.Services.AddScoped<ILocalSyncPayloadBuilder,
+            SaleLocalSyncPayloadBuilder>();
+
         //   builder.Services.Configure<ReceiptSettings>(
         //settings =>
         //{
@@ -259,23 +297,26 @@ public static class MauiProgram
         //        "Thank you for your purchase.";
         //});
 
+#if DEBUG
+        builder.Services.AddScoped<CustomerBulkLoadSeeder>();
+        builder.Services.AddScoped<SupplierBulkLoadSeeder>();
+        builder.Services.AddScoped<ProductBulkUpdateSeeder>();
+
+
+#endif
+        builder.Services.AddSingleton<IReceiptPrinterSettingsService, ReceiptPrinterSettingsService>();
+
+        builder.Services.AddSingleton<IReceiptPrinterResolver, ReceiptPrinterResolver>();
+
         builder.Services.Configure<ReceiptPrinterOptions>(
-            options =>
-            {
-                options.Enabled = false;
-
-                options.PrinterName = string.Empty;
-
-                options.CharactersPerLine = 48;
-
-                options.CodePage = 858;
-
-                options.CutPaper = true;
-
-                options.FeedLinesAfterReceipt = 4;
-
-                options.ReceiptTitle = "TICKET DE CAISSE";
-            });
+             options =>
+             {
+                 options.CharactersPerLine = 48;
+                 options.CodePage = 858;
+                 options.CutPaper = true;
+                 options.FeedLinesAfterReceipt = 4;
+                 options.ReceiptTitle = "TICKET DE CAISSE";
+             });
 
         builder.Services.Configure<ReceiptSettings>(
     settings =>
@@ -319,6 +360,10 @@ public static class MauiProgram
             ReceiptPrinter>();
 
 #if WINDOWS
+        builder.Services.AddSingleton<
+            IPrinterDiscoveryService,
+            WindowsPrinterDiscoveryService>();
+
         builder.Services.AddSingleton<
             IReceiptPrinterTransport,
             WindowsRawPrinterTransport>();
@@ -382,6 +427,9 @@ public static class MauiProgram
         builder.Services.AddSecuredApi<ISaleLineApi>(
             apiBaseUrl);
 
+        builder.Services.AddSecuredApi<ISyncBatchApi>(
+            apiBaseUrl);
+
         builder.Services.AddSecuredApi<IInventorySessionApi>(
             apiBaseUrl);
 
@@ -414,6 +462,9 @@ public static class MauiProgram
 
         builder.Services.AddSecuredApi<ILoyaltyCardsApi>(
             apiBaseUrl);
+
+
+
 
         builder.Services.AddMudServices();
 

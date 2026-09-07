@@ -4,8 +4,12 @@
     {
         public Guid Id { get; set; }
 
+        public Guid ClientOperationId { get; set; }
+
         public Guid CustomerId { get; set; }
-        public string CustomerName { get; set; }
+
+        public string CustomerName { get; set; } =
+            string.Empty;
 
         public decimal Amount { get; set; }
 
@@ -13,9 +17,14 @@
 
         public decimal BalanceAfter { get; set; }
 
-        public string Type { get; set; } = null!; // Credit, Debit, Payment, Refund
+        public string Type { get; set; } =
+            string.Empty;
 
         public Guid? SaleId { get; set; }
+
+        public Guid? CashSessionId { get; set; }
+
+        public bool IsCash { get; set; }
 
         public string? Description { get; set; }
 

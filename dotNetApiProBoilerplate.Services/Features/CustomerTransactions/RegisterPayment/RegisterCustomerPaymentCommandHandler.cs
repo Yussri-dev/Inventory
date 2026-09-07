@@ -1,29 +1,40 @@
 ﻿using Inventory.Dto.CustomerTransactions.Results;
 using MediatR;
 
-
-namespace Inventory.Services.Features.CustomerTransactions.RegisterPayment
+namespace Inventory.Services.Features
+    .CustomerTransactions
+    .RegisterPayment
 {
-    public class RegisterCustomerPaymentCommandHandler
-       : IRequestHandler<RegisterCustomerPaymentCommand, CustomerTransactionResult>
+    public sealed class RegisterCustomerPaymentCommandHandler
+        : IRequestHandler<
+            RegisterCustomerPaymentCommand,
+            CustomerTransactionResult>
     {
         private readonly CustomerTransactionService _service;
 
-        public RegisterCustomerPaymentCommandHandler(CustomerTransactionService service)
+        public RegisterCustomerPaymentCommandHandler(
+            CustomerTransactionService service)
         {
-            _service = service;
+            ArgumentNullException.ThrowIfNull(
+                service);
+
+            _service =
+                service;
         }
 
-        public async Task<CustomerTransactionResult> Handle(
-            RegisterCustomerPaymentCommand request,
+        public Task<CustomerTransactionResult> Handle(
+            RegisterCustomerPaymentCommand command,
             CancellationToken cancellationToken)
         {
-            return await _service.RegisterCustomerPaymentAsync(
-                request.Request.CustomerId,
-                request.Request.Amount,
-                request.Request.Description,
-                request.Request.IsCash
-            );
+            ArgumentNullException.ThrowIfNull(
+                command);
+
+            ArgumentNullException.ThrowIfNull(
+                command.Request);
+
+            return _service.RegisterCustomerPaymentAsync(
+                command.Request,
+                cancellationToken);
         }
     }
 }

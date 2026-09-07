@@ -166,7 +166,7 @@ namespace Inventory.Infrastructure.Data
                 .OnDelete(DeleteBehavior.Restrict);
 
             builder.Entity<PackComponent>()
-                .HasOne(p=> p.ComponentCatalog)
+                .HasOne(p => p.ComponentCatalog)
                 .WithMany(c => c.UsedInPacks)
                 .HasForeignKey(p => p.ComponentCatalogId)
                 .OnDelete(DeleteBehavior.Restrict);
@@ -416,7 +416,138 @@ namespace Inventory.Infrastructure.Data
                 .WithMany(u => u.AuditLogs)
                 .HasForeignKey(x => x.UserId)
                 .OnDelete(DeleteBehavior.Restrict);
+
+            builder.Entity<SyncOperationRecord>(
+    entity =>
+    {
+        entity.ToTable(
+            "SyncOperationRecords");
+
+        entity.HasKey(record =>
+            record.Id);
+
+        entity.Property(record =>
+                record.EntityName)
+            .HasMaxLength(100)
+            .IsRequired();
+
+        entity.Property(record =>
+                record.Operation)
+            .HasMaxLength(50)
+            .IsRequired();
+
+        entity.Property(record =>
+                record.Status)
+            .HasMaxLength(50)
+            .IsRequired();
+
+        entity.Property(record =>
+                record.PayloadHash)
+            .HasMaxLength(64)
+            .IsRequired();
+
+        entity.Property(record =>
+                record.ErrorMessage)
+            .HasMaxLength(2000);
+
+        entity.HasIndex(record =>
+                new
+                {
+                    record.TenantId,
+                    record.ClientOperationId
+                })
+            .IsUnique();
+
+        entity.HasIndex(record =>
+            new
+            {
+                record.TenantId,
+                record.BatchId
+            });
+
+        entity.HasIndex(record =>
+            new
+            {
+                record.TenantId,
+                record.Status,
+                record.ReceivedAtUtc
+            });
+    });
+
+            builder.Entity<CustomerTransaction>(
+    entity =>
+    {
+        entity.HasKey(transaction =>
+            transaction.Id);
+
+        entity.Property(transaction =>
+                transaction.ClientOperationId)
+            .IsRequired();
+
+        entity.HasIndex(transaction =>
+                new
+                {
+                    transaction.TenantId,
+                    transaction.ClientOperationId
+                })
+            .IsUnique();
+
+        entity.HasIndex(transaction =>
+            new
+            {
+                transaction.TenantId,
+                transaction.CustomerId,
+                transaction.TransactionDate
+            });
+
+        entity.HasIndex(transaction =>
+            new
+            {
+                transaction.TenantId,
+                transaction.CashSessionId
+            });
+
+        entity.Property(transaction =>
+                transaction.Amount)
+            .HasPrecision(
+                18,
+                2);
+
+        entity.Property(transaction =>
+                transaction.BalanceBefore)
+            .HasPrecision(
+                18,
+                2);
+
+        entity.Property(transaction =>
+                transaction.BalanceAfter)
+            .HasPrecision(
+                18,
+                2);
+
+        entity.Property(transaction =>
+                transaction.Type)
+            .HasMaxLength(
+                50)
+            .IsRequired();
+
+        entity.Property(transaction =>
+                transaction.Description)
+            .HasMaxLength(
+                500);
+
+        entity.HasOne(transaction =>
+                transaction.CashSession)
+            .WithMany()
+            .HasForeignKey(transaction =>
+                transaction.CashSessionId)
+            .OnDelete(
+                DeleteBehavior.Restrict);
+    });
         }
+
+
+
         // ============================
         // DBSETS
         // ============================
@@ -471,5 +602,7 @@ namespace Inventory.Infrastructure.Data
         public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
         public DbSet<SystemConfiguration> SystemConfigurations => Set<SystemConfiguration>();
         public DbSet<PackComponent> PackComponents => Set<PackComponent>();
+
+        public DbSet<SyncOperationRecord> SyncOperationRecords => Set<SyncOperationRecord>();
     }
 }

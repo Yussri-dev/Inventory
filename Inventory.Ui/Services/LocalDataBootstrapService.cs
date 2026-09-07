@@ -15,9 +15,9 @@ public sealed class LocalDataBootstrapService
     private readonly ILocalSupplierSyncService _supplierSync;
     private readonly ILocalDamageSyncService _damageSync;
 
-    private readonly ITenantStoreProfileSyncService
-        _tenantStoreProfileSyncService;
+    private readonly ITenantStoreProfileSyncService _tenantStoreProfileSyncService;
 
+    private readonly SyncCoordinator _syncCoordinator;
     private readonly ILogger<LocalDataBootstrapService> _logger;
 
     public LocalDataBootstrapService(
@@ -30,6 +30,7 @@ public sealed class LocalDataBootstrapService
         ILocalCustomerSyncService customerSync,
         ILocalSupplierSyncService supplierSync,
         ITenantStoreProfileSyncService tenantStoreProfileSyncService,
+        SyncCoordinator syncCoordinator,
         ILogger<LocalDataBootstrapService> logger)
     {
         _syncUploader = syncUploader;
@@ -40,8 +41,8 @@ public sealed class LocalDataBootstrapService
         _damageSync = damageSync;
         _customerSync = customerSync;
         _supplierSync = supplierSync;
-        _tenantStoreProfileSyncService =
-            tenantStoreProfileSyncService;
+        _tenantStoreProfileSyncService = tenantStoreProfileSyncService;
+        _syncCoordinator = syncCoordinator;
         _logger = logger;
     }
 
@@ -138,11 +139,11 @@ public sealed class LocalDataBootstrapService
          * Le stock est récupéré après l'upload des ventes,
          * achats, retours et ajustements en attente.
          */
-        await ExecuteOptionalStepAsync(
-            "stocks",
-            () => _stockSync
-                .FullSyncAsync(cancellationToken),
-            cancellationToken);
+        //await ExecuteOptionalStepAsync(
+        //    "stocks",
+        //    () => _stockSync
+        //        .FullSyncAsync(cancellationToken),
+        //    cancellationToken);
 
         await ExecuteOptionalStepAsync(
             "customers",
@@ -239,5 +240,10 @@ public sealed class LocalDataBootstrapService
                 "The next step will continue.",
                 stepName);
         }
+    }
+
+    public void NotifyAuthenticatedTenantReady()
+    {
+        _syncCoordinator.RequestSync();
     }
 }

@@ -1,16 +1,20 @@
-﻿using Inventory.LocalDB.Context;
+﻿using Inventory.Dto.Damages.Requests;
+using Inventory.LocalDB.Context;
 using Inventory.LocalDB.Models;
 using Inventory.LocalDB.Services.Interfaces;
 using Inventory.LocalDB.Services.Results;
 using Microsoft.EntityFrameworkCore;
+using System.Text.Json;
 
 namespace Inventory.LocalDB.Services;
 
 public sealed class LocalDamageService
     : ILocalDamageService
 {
-    private const string DamageEntityName =
-        "Damage";
+    private const string DamageEntityName = "Damage";
+
+    private const string CreateOperation = "Create";
+
 
     private readonly PosLocalDbContext _db;
     private readonly ILocalTenantContext _tenantContext;
@@ -341,8 +345,9 @@ public sealed class LocalDamageService
             cancellationToken);
     }
 
-    public async Task<int> ValidateAllDraftsAsync(
-     CancellationToken cancellationToken = default)
+
+
+    public async Task<int> ValidateAllDraftsAsync(CancellationToken cancellationToken = default)
     {
         var tenantId =
             _tenantContext.GetRequiredTenantId();
@@ -489,42 +494,88 @@ public sealed class LocalDamageService
             var now =
                 DateTime.UtcNow;
 
-            /*
-             * Réduire le stock local immédiatement.
-             */
-            foreach (var groupedQuantity in groupedQuantities)
+            if (existingQueueSet.Count > 0)
             {
-                var stock =
-                    stocksByProduct[
-                        groupedQuantity.Key];
+                throw new InvalidOperationException(
+                    "A Damage draft already has a pending synchronization " +
+                    "operation.");
+            }
 
-                stock.Quantity -=
-                    groupedQuantity.Value;
+            foreach (var damage in drafts)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                if (!stocksByProduct.TryGetValue(
+                        damage.ProductLocalId,
+                        out var stock))
+                {
+                    throw new InvalidOperationException(
+                        $"No local stock was found for " +
+                        $"'{damage.ProductName}'.");
+                }
+
+                if (!products.TryGetValue(
+                        damage.ProductLocalId,
+                        out var product))
+                {
+                    throw new InvalidOperationException(
+                        $"Local Product '{damage.ProductLocalId}' " +
+                        "was not found.");
+                }
+
+                var productServerId =
+                    damage.ProductServerId ??
+                    product.ServerId ??
+                    Guid.Empty;
+
+                if (productServerId == Guid.Empty)
+                {
+                    throw new InvalidOperationException(
+                        $"Product '{damage.ProductName}' must be " +
+                        "synchronized before validating its damage.");
+                }
+
+                damage.ProductServerId =
+                    productServerId;
+
+                var quantityChange =
+                    -RoundQuantity(
+                        damage.Quantity);
+
+                var quantityBefore =
+                    RoundQuantity(
+                        stock.Quantity);
+
+                var quantityAfter =
+                    RoundQuantity(
+                        quantityBefore +
+                        quantityChange);
+
+                if (quantityAfter < 0m ||
+                    quantityAfter < stock.ReservedQuantity)
+                {
+                    throw new InvalidOperationException(
+                        $"Insufficient stock for '{damage.ProductName}'.");
+                }
+
+                var clientOperationId =
+                    Guid.NewGuid();
+
+                stock.Quantity =
+                    quantityAfter;
+
+                stock.ProductServerId =
+                    productServerId;
 
                 stock.LastUpdatedUtc =
                     now;
 
-                /*
-                 * Le stock contient maintenant une modification
-                 * locale non encore confirmée par le serveur.
-                 */
-                if (products.TryGetValue(
-                        groupedQuantity.Key,
-                        out var product))
-                {
-                    product.LocalStockQuantity =
-                        stock.Quantity;
+                product.LocalStockQuantity =
+                    quantityAfter;
 
-                    product.ModifiedAtUtc =
-                        now;
-                }
-            }
+                product.ModifiedAtUtc =
+                    now;
 
-            /*
-             * Transformer les brouillons en opérations à synchroniser.
-             */
-            foreach (var damage in drafts)
-            {
                 damage.LocalStatus =
                     LocalDamageStatus.Pending;
 
@@ -537,23 +588,102 @@ public sealed class LocalDamageService
                 damage.ModifiedAtUtc =
                     now;
 
-                if (existingQueueSet.Contains(
-                        damage.Id))
-                {
-                    continue;
-                }
+                var movement =
+                    new LocalStockMovement
+                    {
+                        Id =
+                            Guid.NewGuid(),
+
+                        TenantId =
+                            tenantId,
+
+                        ServerId =
+                            null,
+
+                        /*
+                         * Use the parent Damage operation identifier for
+                         * local correlation. This movement is not queued
+                         * separately.
+                         */
+                        ClientOperationId =
+                            clientOperationId,
+
+                        ProductLocalId =
+                            damage.ProductLocalId,
+
+                        ProductServerId =
+                            productServerId,
+
+                        ProductName =
+                            damage.ProductName,
+
+                        ProductBarcode =
+                            product.Barcode,
+
+                        QuantityChange =
+                            quantityChange,
+
+                        QuantityBefore =
+                            quantityBefore,
+
+                        QuantityAfter =
+                            quantityAfter,
+
+                        Type =
+                            LocalStockMovementType.Damage,
+
+                        UnitCost =
+                            RoundMoney(
+                                product.PurchasePrice),
+
+                        LocalReferenceId =
+                            damage.Id,
+
+                        ServerReferenceId =
+                            null,
+
+                        ReferenceNumber =
+                            damage.DamageNumber,
+
+                        Notes =
+                            Truncate(
+                                damage.Reason,
+                                500),
+
+                        MovementDateUtc =
+                            now,
+
+                        SyncStatus =
+                            SyncQueueStatus.Pending,
+
+                        LastSyncedAtUtc =
+                            null
+                    };
+
+                _db.StockMovements.Add(
+                    movement);
+
+                var payloadJson =
+                    CreatePayloadJson(
+                        damage);
 
                 _db.SyncQueueItems.Add(
                     new SyncQueueItem
                     {
-                        Id = Guid.NewGuid(),
-                        TenantId = tenantId,
+                        Id =
+                            Guid.NewGuid(),
+
+                        TenantId =
+                            tenantId,
 
                         ClientOperationId =
-                            Guid.NewGuid(),
+                            clientOperationId,
 
                         LocalEntityId =
                             damage.Id,
+
+                        ServerEntityId =
+                            null,
 
                         EntityName =
                             DamageEntityName,
@@ -561,11 +691,35 @@ public sealed class LocalDamageService
                         Operation =
                             SyncOperation.Create,
 
+                        PayloadJson =
+                            payloadJson,
+
                         Status =
                             SyncQueueStatus.Pending,
 
-                        Attempts = 0,
-                        CreatedAtUtc = now
+                        Attempts =
+                            0,
+
+                        ErrorMessage =
+                            null,
+
+                        CreatedAtUtc =
+                            now,
+
+                        LastAttemptAtUtc =
+                            null,
+
+                        ProcessedAtUtc =
+                            null,
+
+                        NextAttemptAtUtc =
+                            null,
+
+                        BatchId =
+                            null,
+
+                        LockedAtUtc =
+                            null
                     });
             }
 
@@ -586,6 +740,42 @@ public sealed class LocalDamageService
         }
     }
 
+    private static decimal RoundQuantity(
+    decimal value)
+    {
+        return Math.Round(
+            value,
+            3,
+            MidpointRounding.AwayFromZero);
+    }
+
+    private static decimal RoundMoney(
+        decimal value)
+    {
+        return Math.Round(
+            value,
+            2,
+            MidpointRounding.AwayFromZero);
+    }
+
+    private static string? Truncate(
+        string? value,
+        int maximumLength)
+    {
+        if (string.IsNullOrWhiteSpace(
+                value))
+        {
+            return null;
+        }
+
+        value =
+            value.Trim();
+
+        return value.Length <= maximumLength
+            ? value
+            : value[..maximumLength];
+    }
+
     private static LocalDamageDraftResult ToResult(
         LocalDamage damage)
     {
@@ -602,6 +792,51 @@ public sealed class LocalDamageService
             DamageDateUtc = damage.DamageDateUtc
         };
     }
+
+    private static string CreatePayloadJson(
+     LocalDamage damage)
+    {
+        ArgumentNullException.ThrowIfNull(
+            damage);
+
+        if (!damage.ProductServerId.HasValue ||
+            damage.ProductServerId.Value == Guid.Empty)
+        {
+            throw new InvalidOperationException(
+                $"Damage '{damage.Id}' cannot be synchronized " +
+                "because its Product has no server identifier.");
+        }
+
+        var request =
+            new CreateDamageRequest
+            {
+                ProductId =
+                    damage.ProductServerId.Value,
+
+                Quantity =
+                    damage.Quantity,
+
+                EstimatedValue =
+                    damage.EstimatedValue,
+
+                Reason =
+                    damage.Reason ??
+                    string.Empty,
+
+                Category =
+                    damage.Category,
+
+                Photos =
+                    null,
+
+                Notes =
+                    null
+            };
+
+        return JsonSerializer.Serialize(
+            request);
+    }
+
 
     private static string GenerateDamageNumber()
     {

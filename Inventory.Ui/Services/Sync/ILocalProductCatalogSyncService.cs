@@ -1,10 +1,4 @@
 ﻿using Inventory.Dto.ProductCatalogs.Results;
-using Inventory.Dto.ProductCategory.Results;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace Inventory.Ui.Services.Sync
 {

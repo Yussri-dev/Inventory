@@ -1,11 +1,12 @@
-﻿using Inventory.Dto.Pages.Results;
-using Inventory.Dto.Queries;
-using Inventory.Dto.Suppliers.Requests;
+﻿using Inventory.Dto.Suppliers.Requests;
 using Inventory.Dto.Suppliers.Results;
+using Inventory.Dto.Pages.Results;
+using Inventory.Dto.Queries;
 using Inventory.LocalDB.Context;
 using Inventory.LocalDB.Models;
 using Inventory.LocalDB.Services.Interfaces;
 using Microsoft.EntityFrameworkCore;
+using System.Text.Json;
 
 namespace Inventory.LocalDB.Services;
 
@@ -13,6 +14,12 @@ public sealed class LocalSupplierService
     : ILocalSupplierService
 {
     private const string SupplierEntityName = "Supplier";
+
+    private const string CreateOperation = "Create";
+
+    private const string UpdateOperation = "Update";
+
+    private const string DeleteOperation = "Delete";
 
     private readonly PosLocalDbContext _db;
     private readonly ILocalTenantContext _tenantContext;
@@ -25,6 +32,35 @@ public sealed class LocalSupplierService
         _tenantContext = tenantContext;
     }
 
+    public async Task<SupplierResult?> GetByIdAsync(
+        Guid id,
+        CancellationToken cancellationToken = default)
+    {
+        if (id == Guid.Empty)
+        {
+            throw new ArgumentException(
+                "Supplier id is required.",
+                nameof(id));
+        }
+
+        var tenantId =
+            _tenantContext.GetRequiredTenantId();
+
+        var supplier =
+            await _db.Suppliers
+                .AsNoTracking()
+                .FirstOrDefaultAsync(
+                    item =>
+                        item.TenantId == tenantId &&
+                        item.Id == id &&
+                        !item.IsDeleted,
+                    cancellationToken);
+
+        return supplier == null
+            ? null
+            : ToResult(supplier);
+    }
+
     public async Task<SupplierResult> CreateAsync(
         CreateSupplierRequest request,
         CancellationToken cancellationToken = default)
@@ -34,9 +70,7 @@ public sealed class LocalSupplierService
         var tenantId =
             _tenantContext.GetRequiredTenantId();
 
-        ValidateRequest(
-            request.Name,
-            request.PaymentTermsDays);
+        ValidateName(request.Name);
 
         var normalizedName =
             request.Name.Trim();
@@ -61,49 +95,40 @@ public sealed class LocalSupplierService
         var now =
             DateTime.UtcNow;
 
+
         var supplier =
             new LocalSupplier
             {
                 Id = Guid.NewGuid(),
-                TenantId = tenantId,
                 ServerId = null,
+                TenantId = tenantId,
 
                 Name = normalizedName,
-                ContactPerson =
-                    NormalizeNullable(request.ContactPerson),
-                Email =
-                    NormalizeNullable(request.Email),
-                Phone =
-                    NormalizeNullable(request.Phone),
-                Address =
-                    NormalizeNullable(request.Address),
-                City =
-                    NormalizeNullable(request.City),
-                PostalCode =
-                    NormalizeNullable(request.PostalCode),
-                Country =
-                    NormalizeNullable(request.Country),
-                TaxNumber =
-                    NormalizeNullable(request.TaxNumber),
-                BankAccount =
-                    NormalizeNullable(request.BankAccount),
-
-                PaymentTermsDays =
-                    request.PaymentTermsDays,
+                Email = NormalizeNullable(request.Email),
+                Phone = NormalizeNullable(request.Phone),
+                Address = NormalizeNullable(request.Address),
+                TaxNumber = NormalizeNullable(request.TaxNumber),
 
                 CurrentBalance = 0m,
 
-                IsActive =
-                    request.IsActive,
-
+                IsActive = request.IsActive,
                 IsDeleted = false,
 
-                Notes =
-                    NormalizeNullable(request.Notes),
+                Notes = NormalizeNullable(request.Notes),
 
-                SyncStatus =
-                    SyncQueueStatus.Pending,
+                ContactPerson = NormalizeNullable(request.ContactPerson),
 
+                City = NormalizeNullable(request.City),
+
+                PostalCode = NormalizeNullable(request.PostalCode),
+
+                Country = NormalizeNullable(request.Country),
+
+                PaymentTermsDays = request.PaymentTermsDays,
+
+                BankAccount = NormalizeNullable(request.BankAccount),
+
+                SyncStatus = SyncQueueStatus.Pending,
                 CreatedAtUtc = now
             };
 
@@ -111,8 +136,8 @@ public sealed class LocalSupplierService
 
         await AddOrMergeQueueItemAsync(
             tenantId,
-            supplier.Id,
-            SyncOperation.Create,
+            supplier,
+            CreateOperation,
             cancellationToken);
 
         await _db.SaveChangesAsync(
@@ -131,9 +156,7 @@ public sealed class LocalSupplierService
         var tenantId =
             _tenantContext.GetRequiredTenantId();
 
-        ValidateRequest(
-            request.Name,
-            request.PaymentTermsDays);
+        ValidateName(request.Name);
 
         var supplier =
             await _db.Suppliers
@@ -153,7 +176,7 @@ public sealed class LocalSupplierService
         var normalizedName =
             request.Name.Trim();
 
-        var exists =
+        var nameExists =
             await _db.Suppliers
                 .AsNoTracking()
                 .AnyAsync(
@@ -165,7 +188,7 @@ public sealed class LocalSupplierService
                         normalizedName.ToLower(),
                     cancellationToken);
 
-        if (exists)
+        if (nameExists)
         {
             throw new InvalidOperationException(
                 $"Supplier '{normalizedName}' already exists locally.");
@@ -174,52 +197,38 @@ public sealed class LocalSupplierService
         supplier.Name =
             normalizedName;
 
-        supplier.ContactPerson =
-            NormalizeNullable(request.ContactPerson);
+        supplier.Email = NormalizeNullable(request.Email);
 
-        supplier.Email =
-            NormalizeNullable(request.Email);
+        supplier.Phone = NormalizeNullable(request.Phone);
 
-        supplier.Phone =
-            NormalizeNullable(request.Phone);
+        supplier.Address = NormalizeNullable(request.Address);
 
-        supplier.Address =
-            NormalizeNullable(request.Address);
+        supplier.TaxNumber = NormalizeNullable(request.TaxNumber);
 
-        supplier.City =
-            NormalizeNullable(request.City);
+        supplier.IsActive = request.IsActive;
 
-        supplier.PostalCode =
-            NormalizeNullable(request.PostalCode);
+        supplier.Notes = NormalizeNullable(request.Notes);
 
-        supplier.Country =
-            NormalizeNullable(request.Country);
+        supplier.ModifiedAtUtc = DateTime.UtcNow;
 
-        supplier.TaxNumber =
-            NormalizeNullable(request.TaxNumber);
+        supplier.SyncStatus = SyncQueueStatus.Pending;
 
-        supplier.PaymentTermsDays =
-            request.PaymentTermsDays;
+        supplier.ContactPerson = NormalizeNullable(request.ContactPerson);
 
-        supplier.BankAccount =
-            NormalizeNullable(request.BankAccount);
+        supplier.City = NormalizeNullable(request.City);
 
-        supplier.IsActive =
-            request.IsActive;
+        supplier.PostalCode = NormalizeNullable(request.PostalCode);
 
-        supplier.Notes =
-            NormalizeNullable(request.Notes);
+        supplier.Country = NormalizeNullable(request.Country);
 
-        supplier.ModifiedAtUtc =
-            DateTime.UtcNow;
+        supplier.PaymentTermsDays = request.PaymentTermsDays;
 
-        supplier.SyncStatus =
-            SyncQueueStatus.Pending;
+        supplier.BankAccount = NormalizeNullable(request.BankAccount);
 
         await AddOrMergeQueueItemAsync(
             tenantId,
-            supplier.Id,
-            SyncOperation.Update,
+            supplier,
+            UpdateOperation,
             cancellationToken);
 
         await _db.SaveChangesAsync(
@@ -229,11 +238,10 @@ public sealed class LocalSupplierService
     }
 
     public async Task DeleteAsync(
-        Guid id,
-        CancellationToken cancellationToken = default)
+    Guid id,
+    CancellationToken cancellationToken = default)
     {
-        var tenantId =
-            _tenantContext.GetRequiredTenantId();
+        var tenantId = _tenantContext.GetRequiredTenantId();
 
         var supplier =
             await _db.Suppliers
@@ -250,53 +258,38 @@ public sealed class LocalSupplierService
                 "Supplier not found locally.");
         }
 
-        var now =
-            DateTime.UtcNow;
+        var now = DateTime.UtcNow;
 
         supplier.IsDeleted = true;
         supplier.IsActive = false;
         supplier.DeletedAtUtc = now;
         supplier.ModifiedAtUtc = now;
 
-        if (!supplier.ServerId.HasValue ||
-            supplier.ServerId.Value == Guid.Empty)
+        if (!supplier.ServerId.HasValue || supplier.ServerId.Value == Guid.Empty)
         {
-            /*
-             * Le fournisseur n'a jamais été enregistré
-             * dans la base centrale.
-             */
-            var pendingItems =
+            var queueItems =
                 await _db.SyncQueueItems
                     .Where(item =>
                         item.TenantId == tenantId &&
-                        item.EntityName ==
-                            SupplierEntityName &&
-                        item.LocalEntityId ==
-                            supplier.Id &&
-                        item.Status !=
-                            SyncQueueStatus.Done)
+                        item.EntityName == SupplierEntityName &&
+                        item.LocalEntityId == supplier.Id &&
+                        item.Status != SyncQueueStatus.Done)
                     .ToListAsync(cancellationToken);
 
-            _db.SyncQueueItems.RemoveRange(
-                pendingItems);
+            _db.SyncQueueItems.RemoveRange(queueItems);
 
-            supplier.SyncStatus =
-                SyncQueueStatus.Done;
+            supplier.SyncStatus = SyncQueueStatus.Done;
         }
         else
         {
-            supplier.SyncStatus =
-                SyncQueueStatus.Pending;
+            supplier.SyncStatus = SyncQueueStatus.Pending;
 
             await AddOrMergeQueueItemAsync(
-                tenantId,
-                supplier.Id,
-                SyncOperation.Delete,
-                cancellationToken);
+                tenantId, supplier, DeleteOperation, cancellationToken);
         }
 
-        await _db.SaveChangesAsync(
-            cancellationToken);
+        await _db.SaveChangesAsync(cancellationToken);
+        // <-- stop here. Remove everything after this line.
     }
 
     public async Task<PagedResult<SupplierResult>> QueryAsync(
@@ -341,11 +334,6 @@ public sealed class LocalSupplierService
                         .ToLower()
                         .Contains(search) ||
 
-                    supplier.ContactPerson != null &&
-                    supplier.ContactPerson
-                        .ToLower()
-                        .Contains(search) ||
-
                     supplier.Email != null &&
                     supplier.Email
                         .ToLower()
@@ -353,11 +341,6 @@ public sealed class LocalSupplierService
 
                     supplier.Phone != null &&
                     supplier.Phone
-                        .ToLower()
-                        .Contains(search) ||
-
-                    supplier.City != null &&
-                    supplier.City
                         .ToLower()
                         .Contains(search));
         }
@@ -382,13 +365,6 @@ public sealed class LocalSupplierService
                         : suppliers.OrderBy(
                             supplier =>
                                 supplier.CurrentBalance),
-
-                "city" =>
-                    query.Desc
-                        ? suppliers.OrderByDescending(
-                            supplier => supplier.City)
-                        : suppliers.OrderBy(
-                            supplier => supplier.City),
 
                 _ =>
                     query.Desc
@@ -446,84 +422,138 @@ public sealed class LocalSupplierService
 
     private async Task AddOrMergeQueueItemAsync(
         Guid tenantId,
-        Guid localSupplierId,
-        string requestedOperation,
+        LocalSupplier supplier,
+        string operation,
         CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(supplier);
+
         var pendingItems =
             await _db.SyncQueueItems
                 .Where(item =>
                     item.TenantId == tenantId &&
-                    item.EntityName ==
-                        SupplierEntityName &&
-                    item.LocalEntityId ==
-                        localSupplierId &&
-                    item.Status !=
-                        SyncQueueStatus.Done)
+                    item.EntityName == SupplierEntityName &&
+                    item.LocalEntityId == supplier.Id &&
+                    item.Status != SyncQueueStatus.Done)
                 .OrderBy(item =>
                     item.CreatedAtUtc)
                 .ToListAsync(cancellationToken);
 
         var pendingCreate =
             pendingItems.FirstOrDefault(item =>
-                item.Operation ==
-                SyncOperation.Create);
+                item.Operation == CreateOperation);
 
         var pendingUpdate =
             pendingItems.FirstOrDefault(item =>
-                item.Operation ==
-                SyncOperation.Update);
+                item.Operation == UpdateOperation);
 
         var pendingDelete =
             pendingItems.FirstOrDefault(item =>
-                item.Operation ==
-                SyncOperation.Delete);
+                item.Operation == DeleteOperation);
 
-        if (requestedOperation == SyncOperation.Create)
+        if (operation == CreateOperation)
         {
+            var payloadJson =
+                CreatePayloadJson(
+                    supplier,
+                    CreateOperation);
+
             if (pendingCreate != null)
-                return;
-
-            _db.SyncQueueItems.Add(
-                CreateQueueItem(
-                    tenantId,
-                    localSupplierId,
-                    SyncOperation.Create));
-
-            return;
-        }
-
-        if (requestedOperation == SyncOperation.Update)
-        {
-            /*
-             * Une création en attente utilisera la version actuelle
-             * de LocalSupplier. Aucun Update supplémentaire.
-             */
-            if (pendingCreate != null ||
-                pendingUpdate != null ||
-                pendingDelete != null)
             {
+                RefreshQueueItem(
+                    pendingCreate,
+                    supplier,
+                    payloadJson);
+
                 return;
             }
 
             _db.SyncQueueItems.Add(
                 CreateQueueItem(
                     tenantId,
-                    localSupplierId,
-                    SyncOperation.Update));
+                    supplier,
+                    CreateOperation,
+                    payloadJson));
 
             return;
         }
 
-        if (requestedOperation == SyncOperation.Delete)
+        if (operation == UpdateOperation)
         {
-            if (pendingDelete != null)
-                return;
+            /*
+             * Le client n'existe pas encore sur le serveur.
+             * Le Create conserve son ClientOperationId, mais son
+             * payload est remplacé par la version actuelle.
+             */
+            if (pendingCreate != null)
+            {
+                var createPayloadJson =
+                    CreatePayloadJson(
+                        supplier,
+                        CreateOperation);
 
+                RefreshQueueItem(
+                    pendingCreate,
+                    supplier,
+                    createPayloadJson);
+
+                return;
+            }
+
+            if (pendingDelete != null)
+            {
+                return;
+            }
+
+            var updatePayloadJson =
+                CreatePayloadJson(
+                    supplier,
+                    UpdateOperation);
+
+            if (pendingUpdate != null)
+            {
+                RefreshQueueItem(
+                    pendingUpdate,
+                    supplier,
+                    updatePayloadJson);
+
+                return;
+            }
+
+            _db.SyncQueueItems.Add(
+                CreateQueueItem(
+                    tenantId,
+                    supplier,
+                    UpdateOperation,
+                    updatePayloadJson));
+
+            return;
+        }
+
+        if (operation == DeleteOperation)
+        {
+            var deletePayloadJson =
+                CreatePayloadJson(
+                    supplier,
+                    DeleteOperation);
+
+            if (pendingDelete != null)
+            {
+                RefreshQueueItem(
+                    pendingDelete,
+                    supplier,
+                    deletePayloadJson);
+
+                return;
+            }
+
+            /*
+             * Les Update deviennent inutiles lorsqu'un Delete
+             * est ajouté.
+             */
             var obsoleteUpdates =
                 pendingItems.Where(item =>
-                    item.Operation ==
-                    SyncOperation.Update);
+                    item.Operation == UpdateOperation);
 
             _db.SyncQueueItems.RemoveRange(
                 obsoleteUpdates);
@@ -531,50 +561,213 @@ public sealed class LocalSupplierService
             _db.SyncQueueItems.Add(
                 CreateQueueItem(
                     tenantId,
-                    localSupplierId,
-                    SyncOperation.Delete));
+                    supplier,
+                    DeleteOperation,
+                    deletePayloadJson));
 
             return;
         }
 
         throw new InvalidOperationException(
-            $"Unsupported Supplier sync operation " +
-            $"'{requestedOperation}'.");
+            $"Unsupported supplier sync operation '{operation}'.");
     }
 
     private static SyncQueueItem CreateQueueItem(
         Guid tenantId,
-        Guid localSupplierId,
-        string operation)
+        LocalSupplier supplier,
+        string operation,
+        string payloadJson)
     {
+        if (string.IsNullOrWhiteSpace(
+        payloadJson))
+        {
+            throw new InvalidOperationException(
+                "A Supplier queue item cannot contain an empty payload.");
+        }
+
         return new SyncQueueItem
         {
             Id = Guid.NewGuid(),
+
             TenantId = tenantId,
 
-            ClientOperationId =
-                Guid.NewGuid(),
+            ClientOperationId = Guid.NewGuid(),
 
-            LocalEntityId =
-                localSupplierId,
+            LocalEntityId = supplier.Id,
 
-            EntityName =
-                SupplierEntityName,
+            ServerEntityId = supplier.ServerId,
 
-            Operation =
-                operation,
+            EntityName = SupplierEntityName,
 
-            Status =
-                SyncQueueStatus.Pending,
+            Operation = operation,
+
+            PayloadJson = payloadJson,
+
+            Status = SyncQueueStatus.Pending,
 
             Attempts = 0,
-            CreatedAtUtc = DateTime.UtcNow
+
+            ErrorMessage = null,
+
+            CreatedAtUtc = DateTime.UtcNow,
+
+            NextAttemptAtUtc = null,
+
+            BatchId = null,
+
+            LockedAtUtc = null
         };
     }
 
-    private static void ValidateRequest(
-        string? name,
-        int paymentTermsDays)
+    private static void RefreshQueueItem(
+    SyncQueueItem queueItem,
+    LocalSupplier supplier,
+    string payloadJson)
+    {
+        if (string.IsNullOrWhiteSpace(
+        payloadJson))
+        {
+            throw new InvalidOperationException(
+                "A Supplier queue item cannot contain an empty payload.");
+        }
+
+
+        if (queueItem.Status ==
+            SyncQueueStatus.Conflict)
+        {
+            queueItem.ClientOperationId =
+                Guid.NewGuid();
+        }
+
+        queueItem.ServerEntityId = supplier.ServerId;
+
+        queueItem.PayloadJson = payloadJson;
+
+        queueItem.Status = SyncQueueStatus.Pending;
+
+        queueItem.Attempts = 0;
+
+        queueItem.ErrorMessage = null;
+
+        queueItem.LastAttemptAtUtc = null;
+
+        queueItem.ProcessedAtUtc = null;
+
+        queueItem.NextAttemptAtUtc = null;
+
+        queueItem.BatchId = null;
+
+        queueItem.LockedAtUtc = null;
+    }
+
+    private static string CreatePayloadJson(
+        LocalSupplier supplier,
+        string operation)
+    {
+        if (operation == CreateOperation)
+        {
+            var request =
+                new CreateSupplierRequest
+                {
+                    Name = supplier.Name,
+
+                    Email = supplier.Email,
+
+                    Phone = supplier.Phone,
+
+                    Address = supplier.Address,
+
+                    TaxNumber = supplier.TaxNumber,
+
+                    IsActive = supplier.IsActive,
+                    ContactPerson = supplier.ContactPerson,
+
+                    City = supplier.City,
+
+                    PostalCode = supplier.PostalCode,
+
+                    Country = supplier.Country,
+
+                    PaymentTermsDays = supplier.PaymentTermsDays,
+
+                    BankAccount = supplier.BankAccount,
+
+                    Notes = supplier.Notes
+                };
+
+            return JsonSerializer.Serialize(
+                request);
+        }
+
+        if (operation == UpdateOperation)
+        {
+            var request =
+                new UpdateSupplierRequest
+                {
+                    Id =
+                        supplier.ServerId ??
+                        Guid.Empty,
+
+                    Name =
+                        supplier.Name,
+
+                    ContactPerson =
+                        supplier.ContactPerson,
+
+                    Email =
+                        supplier.Email,
+
+                    Phone =
+                        supplier.Phone,
+
+                    Address =
+                        supplier.Address,
+
+                    City =
+                        supplier.City,
+
+                    PostalCode =
+                        supplier.PostalCode,
+
+                    Country =
+                        supplier.Country,
+
+                    TaxNumber =
+                        supplier.TaxNumber,
+
+                    PaymentTermsDays =
+                        supplier.PaymentTermsDays,
+
+                    BankAccount =
+                        supplier.BankAccount,
+
+                    IsActive =
+                        supplier.IsActive,
+
+                    Notes =
+                        supplier.Notes
+                };
+
+            return JsonSerializer.Serialize(
+                request);
+        }
+
+        if (operation == DeleteOperation)
+        {
+            return JsonSerializer.Serialize(
+                new
+                {
+                    ServerEntityId =
+                        supplier.ServerId
+                });
+        }
+
+        throw new InvalidOperationException(
+            $"Unsupported supplier sync operation '{operation}'.");
+    }
+
+    private static void ValidateName(
+        string? name)
     {
         if (string.IsNullOrWhiteSpace(name))
         {
@@ -587,41 +780,24 @@ public sealed class LocalSupplierService
             throw new InvalidOperationException(
                 "Supplier name cannot exceed 200 characters.");
         }
-
-        if (paymentTermsDays < 0)
-        {
-            throw new InvalidOperationException(
-                "Payment terms cannot be negative.");
-        }
-
-        if (paymentTermsDays > 3650)
-        {
-            throw new InvalidOperationException(
-                "Payment terms are too large.");
-        }
     }
 
     private static SupplierResult ToResult(
         LocalSupplier supplier)
     {
+        /*
+         * Id reste l'identifiant SQLite.
+         * L'interface utilise cet Id pour modifier/supprimer
+         * la ligne locale.
+         */
         return new SupplierResult
         {
-            /*
-             * La page locale utilise l'identifiant SQLite.
-             */
             Id = supplier.Id,
-
             Name = supplier.Name,
-            ContactPerson = supplier.ContactPerson,
             Email = supplier.Email,
             Phone = supplier.Phone,
             Address = supplier.Address,
-            City = supplier.City,
-            PostalCode = supplier.PostalCode,
-            Country = supplier.Country,
             TaxNumber = supplier.TaxNumber,
-            PaymentTermsDays = supplier.PaymentTermsDays,
-            BankAccount = supplier.BankAccount,
             IsActive = supplier.IsActive,
             Notes = supplier.Notes
         };
@@ -634,4 +810,5 @@ public sealed class LocalSupplierService
             ? null
             : value.Trim();
     }
+
 }

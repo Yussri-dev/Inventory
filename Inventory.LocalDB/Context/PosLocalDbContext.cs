@@ -62,7 +62,7 @@ namespace Inventory.LocalDB.Context
         public DbSet<LocalCustomerTransaction> CustomerTransactions =>
             Set<LocalCustomerTransaction>();
 
-        public DbSet<LocalPurchaseDraftAdjustment> PurchaseDraftAdjustments => 
+        public DbSet<LocalPurchaseDraftAdjustment> PurchaseDraftAdjustments =>
             Set<LocalPurchaseDraftAdjustment>();
 
         public DbSet<LocalPurchaseDraft> PurchaseDrafts => Set<LocalPurchaseDraft>();
@@ -1469,7 +1469,7 @@ namespace Inventory.LocalDB.Context
         }
 
         private static void ConfigureLocalStock(
-    ModelBuilder modelBuilder)
+            ModelBuilder modelBuilder)
         {
             var entity =
                 modelBuilder.Entity<LocalStock>();
@@ -1482,124 +1482,144 @@ namespace Inventory.LocalDB.Context
                 .IsRequired();
 
             entity.Property(stock =>
+                    stock.ProductName)
+                .HasMaxLength(200);
+
+            entity.Property(stock =>
+                    stock.ProductBarcode)
+                .HasMaxLength(100);
+
+            entity.Property(stock =>
                     stock.Quantity)
-                .HasPrecision(18, 3);
+                .HasPrecision(
+                    18,
+                    3);
 
             entity.Property(stock =>
                     stock.ReservedQuantity)
-                .HasPrecision(18, 3);
+                .HasPrecision(
+                    18,
+                    3);
 
-            entity.HasIndex(stock => new
-            {
-                stock.TenantId,
-                stock.ServerId
-            })
-            .IsUnique()
-            .HasFilter("ServerId IS NOT NULL");
 
-            entity.HasIndex(stock => new
-            {
-                stock.TenantId,
-                stock.ProductLocalId
-            })
-            .IsUnique();
+            entity.HasIndex(stock =>
+                    new
+                    {
+                        stock.TenantId,
+                        stock.ServerId
+                    })
+                .IsUnique()
+                .HasFilter(
+                    "\"ServerId\" IS NOT NULL");
 
-            entity.HasIndex(stock => new
-            {
-                stock.TenantId,
-                stock.ProductServerId
-            });
+
+            entity.HasIndex(stock =>
+                    new
+                    {
+                        stock.TenantId,
+                        stock.ProductLocalId
+                    })
+                .IsUnique();
+
+
+            entity.HasIndex(stock =>
+                    new
+                    {
+                        stock.TenantId,
+                        stock.ProductServerId
+                    })
+                .IsUnique()
+                .HasFilter(
+                    "\"ProductServerId\" IS NOT NULL");
+
+            entity.HasOne(stock => stock.Product)
+                .WithOne()
+                .HasForeignKey<LocalStock>(stock => stock.ProductLocalId)
+                .OnDelete(DeleteBehavior.Restrict);
         }
 
-        private static void ConfigureLocalStockMovement(
-    ModelBuilder builder)
+        private static void ConfigureLocalStockMovement(ModelBuilder modelBuilder)
         {
-            builder.Entity<LocalStockMovement>(entity =>
-            {
-                entity.HasKey(x => x.Id);
+            var entity =
+                modelBuilder.Entity<LocalStockMovement>();
 
-                entity.HasIndex(x => x.TenantId);
+            entity.HasKey(movement =>
+                movement.Id);
 
-                entity.HasIndex(x => new
-                {
-                    x.TenantId,
-                    x.ServerId
-                })
+            entity.Property(movement =>
+                    movement.ProductLocalId)
+                .IsRequired();
+
+            entity.Property(movement =>
+                    movement.ProductServerId)
+                .IsRequired();
+
+            entity.Property(movement =>
+                    movement.ClientOperationId)
+                .IsRequired();
+
+            entity.Property(movement =>
+                    movement.Type)
+                .IsRequired()
+                .HasMaxLength(50);
+
+            entity.Property(movement =>
+                    movement.QuantityChange)
+                .HasPrecision(18, 3);
+
+            entity.Property(movement =>
+                    movement.QuantityBefore)
+                .HasPrecision(18, 3);
+
+            entity.Property(movement =>
+                    movement.QuantityAfter)
+                .HasPrecision(18, 3);
+
+            entity.Property(movement =>
+                    movement.UnitCost)
+                .HasPrecision(18, 2);
+
+            entity.HasIndex(movement =>
+                    new
+                    {
+                        movement.TenantId,
+                        movement.ClientOperationId
+                    })
+                .IsUnique();
+
+            entity.HasIndex(movement =>
+                    new
+                    {
+                        movement.TenantId,
+                        movement.ServerId
+                    })
                 .IsUnique()
-                .HasFilter("ServerId IS NOT NULL");
+                .HasFilter(
+                    "\"ServerId\" IS NOT NULL");
 
-                entity.HasIndex(x => x.ClientOperationId)
-                    .IsUnique();
-
-                entity.HasIndex(x => new
+            entity.HasIndex(movement =>
+                new
                 {
-                    x.TenantId,
-                    x.ProductLocalId
+                    movement.TenantId,
+                    movement.ProductLocalId,
+                    movement.SyncStatus
                 });
 
-                entity.HasIndex(x => new
+            entity.HasIndex(movement =>
+                new
                 {
-                    x.TenantId,
-                    x.ProductServerId
+                    movement.TenantId,
+                    movement.LocalReferenceId,
+                    movement.Type
                 });
 
-                entity.HasIndex(x => new
-                {
-                    x.TenantId,
-                    x.Type
-                });
-
-                entity.HasIndex(x => new
-                {
-                    x.TenantId,
-                    x.SyncStatus
-                });
-
-                entity.HasIndex(x => new
-                {
-                    x.TenantId,
-                    x.LocalReferenceId
-                });
-
-                entity.HasIndex(x => new
-                {
-                    x.TenantId,
-                    x.ServerReferenceId
-                });
-
-                entity.Property(x => x.ProductName)
-                    .HasMaxLength(200)
-                    .IsRequired();
-
-                entity.Property(x => x.ProductBarcode)
-                    .HasMaxLength(100);
-
-                entity.Property(x => x.Type)
-                    .HasMaxLength(50)
-                    .IsRequired();
-
-                entity.Property(x => x.ReferenceNumber)
-                    .HasMaxLength(200);
-
-                entity.Property(x => x.Notes)
-                    .HasMaxLength(500);
-
-                entity.Property(x => x.SyncStatus)
-                    .HasMaxLength(50)
-                    .IsRequired();
-
-                entity.Property(x => x.QuantityChange)
-                    .HasPrecision(18, 3);
-
-                entity.Property(x => x.QuantityBefore)
-                    .HasPrecision(18, 3);
-
-                entity.Property(x => x.QuantityAfter)
-                    .HasPrecision(18, 3);
-
-                entity.Property(x => x.UnitCost)
-                    .HasPrecision(18, 2);
-            });
+            entity.HasOne(movement =>
+                    movement.Product)
+                .WithMany()
+                .HasForeignKey(movement =>
+                    movement.ProductLocalId)
+                .OnDelete(
+                    DeleteBehavior.Restrict);
         }
 
         private static void ConfigureSyncQueueItem(
@@ -1609,13 +1629,21 @@ namespace Inventory.LocalDB.Context
             {
                 entity.HasKey(x => x.Id);
 
-                entity.HasIndex(x => x.TenantId);
+                //entity.HasIndex(x => x.TenantId);
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.ClientOperationId
+                });
 
                 entity.HasIndex(x => new
                 {
                     x.TenantId,
                     x.Status,
-                    x.CreatedAtUtc
+                    x.CreatedAtUtc,
+                    x.NextAttemptAtUtc,
+                    x.Id
                 });
 
                 entity.HasIndex(x => new

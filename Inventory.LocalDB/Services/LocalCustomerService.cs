@@ -6,6 +6,7 @@ using Inventory.LocalDB.Context;
 using Inventory.LocalDB.Models;
 using Inventory.LocalDB.Services.Interfaces;
 using Microsoft.EntityFrameworkCore;
+using System.Text.Json;
 
 namespace Inventory.LocalDB.Services;
 
@@ -138,7 +139,7 @@ public sealed class LocalCustomerService
 
         await AddOrMergeQueueItemAsync(
             tenantId,
-            customer.Id,
+            customer,
             CreateOperation,
             cancellationToken);
 
@@ -240,7 +241,7 @@ public sealed class LocalCustomerService
 
         await AddOrMergeQueueItemAsync(
             tenantId,
-            customer.Id,
+            customer,
             UpdateOperation,
             cancellationToken);
 
@@ -315,7 +316,7 @@ public sealed class LocalCustomerService
 
             await AddOrMergeQueueItemAsync(
                 tenantId,
-                customer.Id,
+                customer,
                 DeleteOperation,
                 cancellationToken);
         }
@@ -454,16 +455,18 @@ public sealed class LocalCustomerService
 
     private async Task AddOrMergeQueueItemAsync(
         Guid tenantId,
-        Guid localCustomerId,
+        LocalCustomer customer,
         string operation,
         CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(customer);
+
         var pendingItems =
             await _db.SyncQueueItems
                 .Where(item =>
                     item.TenantId == tenantId &&
                     item.EntityName == CustomerEntityName &&
-                    item.LocalEntityId == localCustomerId &&
+                    item.LocalEntityId == customer.Id &&
                     item.Status != SyncQueueStatus.Done)
                 .OrderBy(item =>
                     item.CreatedAtUtc)
@@ -483,14 +486,27 @@ public sealed class LocalCustomerService
 
         if (operation == CreateOperation)
         {
+            var payloadJson =
+                CreatePayloadJson(
+                    customer,
+                    CreateOperation);
+
             if (pendingCreate != null)
+            {
+                RefreshQueueItem(
+                    pendingCreate,
+                    customer,
+                    payloadJson);
+
                 return;
+            }
 
             _db.SyncQueueItems.Add(
                 CreateQueueItem(
                     tenantId,
-                    localCustomerId,
-                    CreateOperation));
+                    customer,
+                    CreateOperation,
+                    payloadJson));
 
             return;
         }
@@ -498,47 +514,89 @@ public sealed class LocalCustomerService
         if (operation == UpdateOperation)
         {
             /*
-             * Le Create en attente lira la version actuelle
-             * du LocalCustomer. Aucun Update supplémentaire
-             * n'est nécessaire.
+             * Le client n'existe pas encore sur le serveur.
+             * Le Create conserve son ClientOperationId, mais son
+             * payload est remplacé par la version actuelle.
              */
-            if (pendingCreate != null ||
-                pendingUpdate != null ||
-                pendingDelete != null)
+            if (pendingCreate != null)
             {
+                var createPayloadJson =
+                    CreatePayloadJson(
+                        customer,
+                        CreateOperation);
+
+                RefreshQueueItem(
+                    pendingCreate,
+                    customer,
+                    createPayloadJson);
+
+                return;
+            }
+
+            if (pendingDelete != null)
+            {
+                return;
+            }
+
+            var updatePayloadJson =
+                CreatePayloadJson(
+                    customer,
+                    UpdateOperation);
+
+            if (pendingUpdate != null)
+            {
+                RefreshQueueItem(
+                    pendingUpdate,
+                    customer,
+                    updatePayloadJson);
+
                 return;
             }
 
             _db.SyncQueueItems.Add(
                 CreateQueueItem(
                     tenantId,
-                    localCustomerId,
-                    UpdateOperation));
+                    customer,
+                    UpdateOperation,
+                    updatePayloadJson));
 
             return;
         }
 
         if (operation == DeleteOperation)
         {
+            var deletePayloadJson =
+                CreatePayloadJson(
+                    customer,
+                    DeleteOperation);
+
             if (pendingDelete != null)
+            {
+                RefreshQueueItem(
+                    pendingDelete,
+                    customer,
+                    deletePayloadJson);
+
                 return;
+            }
 
             /*
              * Les Update deviennent inutiles lorsqu'un Delete
              * est ajouté.
              */
-            var updates =
+            var obsoleteUpdates =
                 pendingItems.Where(item =>
                     item.Operation == UpdateOperation);
 
             _db.SyncQueueItems.RemoveRange(
-                updates);
+                obsoleteUpdates);
 
             _db.SyncQueueItems.Add(
                 CreateQueueItem(
                     tenantId,
-                    localCustomerId,
-                    DeleteOperation));
+                    customer,
+                    DeleteOperation,
+                    deletePayloadJson));
 
             return;
         }
@@ -549,32 +607,171 @@ public sealed class LocalCustomerService
 
     private static SyncQueueItem CreateQueueItem(
         Guid tenantId,
-        Guid localCustomerId,
-        string operation)
-    {
+        LocalCustomer customer,
+        string operation,
+        string payloadJson)
+    {   
         return new SyncQueueItem
         {
             Id = Guid.NewGuid(),
+
             TenantId = tenantId,
 
-            ClientOperationId =
-                Guid.NewGuid(),
+            ClientOperationId = Guid.NewGuid(),
 
-            LocalEntityId =
-                localCustomerId,
+            LocalEntityId = customer.Id,
 
-            EntityName =
-                CustomerEntityName,
+            ServerEntityId = customer.ServerId,
 
-            Operation =
-                operation,
+            EntityName = CustomerEntityName,
 
-            Status =
-                SyncQueueStatus.Pending,
+            Operation = operation,
+
+            PayloadJson = payloadJson,
+
+            Status = SyncQueueStatus.Pending,
 
             Attempts = 0,
-            CreatedAtUtc = DateTime.UtcNow
+
+            ErrorMessage = null,
+
+            CreatedAtUtc = DateTime.UtcNow,
+
+            NextAttemptAtUtc = null,
+
+            BatchId = null,
+
+            LockedAtUtc = null
         };
+    }
+
+    private static void RefreshQueueItem(
+        SyncQueueItem queueItem,
+        LocalCustomer customer,
+        string payloadJson)
+    {
+        queueItem.ServerEntityId =
+            customer.ServerId;
+
+        queueItem.PayloadJson =
+            payloadJson;
+
+        queueItem.Status =
+            SyncQueueStatus.Pending;
+
+        queueItem.ErrorMessage =
+            null;
+
+        queueItem.NextAttemptAtUtc =
+            null;
+
+        queueItem.BatchId =
+            null;
+
+        queueItem.LockedAtUtc =
+            null;
+    }
+
+    private static string CreatePayloadJson(
+        LocalCustomer customer,
+        string operation)
+    {
+        if (operation == CreateOperation)
+        {
+            var request =
+                new CreateCustomerRequest
+                {
+                    Name =
+                        customer.Name,
+
+                    Email =
+                        customer.Email,
+
+                    Phone =
+                        customer.Phone,
+
+                    Address =
+                        customer.Address,
+
+                    TaxNumber =
+                        customer.TaxNumber,
+
+                    CreditLimit =
+                        customer.CreditLimit,
+
+                    AllowCredit =
+                        customer.AllowCredit,
+
+                    HasUnlimitedCredit =
+                        customer.HasUnlimitedCredit,
+
+                    IsActive =
+                        customer.IsActive,
+
+                    Notes =
+                        customer.Notes
+                };
+
+            return JsonSerializer.Serialize(
+                request);
+        }
+
+        if (operation == UpdateOperation)
+        {
+            var request =
+                new UpdateCustomerRequest
+                {
+                    Id =
+                        customer.ServerId ??
+                        Guid.Empty,
+
+                    Name =
+                        customer.Name,
+
+                    Email =
+                        customer.Email,
+
+                    Phone =
+                        customer.Phone,
+
+                    Address =
+                        customer.Address,
+
+                    TaxNumber =
+                        customer.TaxNumber,
+
+                    CreditLimit =
+                        customer.CreditLimit,
+
+                    AllowCredit =
+                        customer.AllowCredit,
+
+                    HasUnlimitedCredit =
+                        customer.HasUnlimitedCredit,
+
+                    IsActive =
+                        customer.IsActive,
+
+                    Notes =
+                        customer.Notes
+                };
+
+            return JsonSerializer.Serialize(
+                request);
+        }
+
+        if (operation == DeleteOperation)
+        {
+            return JsonSerializer.Serialize(
+                new
+                {
+                    ServerEntityId =
+                        customer.ServerId
+                });
+        }
+
+        throw new InvalidOperationException(
+            $"Unsupported customer sync operation '{operation}'.");
     }
 
     private static void ValidateName(

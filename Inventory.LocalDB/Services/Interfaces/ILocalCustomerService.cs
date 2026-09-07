@@ -2,6 +2,7 @@
 using Inventory.Dto.Customers.Results;
 using Inventory.Dto.Pages.Results;
 using Inventory.Dto.Queries;
+using Inventory.LocalDB.Models;
 
 namespace Inventory.LocalDB.Services.Interfaces
 {
@@ -30,5 +31,15 @@ namespace Inventory.LocalDB.Services.Interfaces
 
         Task<List<CustomerResult>> GetAllAsync(
             CancellationToken cancellationToken = default);
+    }
+
+    public interface ILocalStockMovementService
+    {
+        Task<LocalStockMovement> CreateAdjustmentAsync(
+        Guid productLocalId,
+        decimal quantityChange,
+        decimal unitCost,
+        string? notes = null,
+        CancellationToken cancellationToken = default);
     }
 }

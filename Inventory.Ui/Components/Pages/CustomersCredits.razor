@@ -4,9 +4,9 @@
 @using Inventory.LocalDB.Services.Results
 
 @attribute [Microsoft.AspNetCore.Authorization.Authorize]
+@implements IDisposable
 
 @inject ILocalCustomerCreditService LocalCustomerCreditService
-@inject ICustomerTransactionsApi CustomerTransactionsApi
 
 <div class="credits-page">
     <div class="page-header">
@@ -22,21 +22,29 @@
         </div>
     </div>
 
+    @if (!string.IsNullOrWhiteSpace(errorMessage))
+    {
+        <div class="alert alert-error" role="alert">
+            <span class="alert-icon">!</span>
+            <div class="alert-content">
+                <strong>Error</strong>
+                <p>@errorMessage</p>
+            </div>
+
+            <button type="button"
+                    class="alert-close"
+                    aria-label="Dismiss error"
+                    @onclick="ClearError">
+                &times;
+            </button>
+        </div>
+    }
+
     @if (isLoading && customers == null)
     {
         <div class="loading-overlay">
             <div class="spinner-large"></div>
             <p>Loading customer data...</p>
-        </div>
-    }
-    else if (!string.IsNullOrEmpty(errorMessage))
-    {
-        <div class="alert alert-error">
-            <span class="alert-icon">⚠️</span>
-            <div class="alert-content">
-                <strong>Error</strong>
-                <p>@errorMessage</p>
-            </div>
         </div>
     }
     else if (customers == null || !customers.Any())
@@ -52,7 +60,14 @@
         <div class="main-content">
             <!-- Left Sidebar for History -->
             <div class="history-sidebar">
-                @if (expandedCustomerId != null && customerDetail != null)
+                @if (isLoadingDetail)
+                {
+                    <div class="loading-overlay">
+                        <div class="spinner-large"></div>
+                        <p>Loading customer history...</p>
+                    </div>
+                }
+                else if (expandedCustomerId != null && customerDetail != null)
                 {
                     <div class="sidebar-header">
                         <h2>@customerDetail.Name - History</h2>
@@ -106,16 +121,9 @@
                                                     <span class="amount-value">€@sale.TotalAmount.ToString("N2")</span>
                                                 </div>
                                                 <div class="amount-item">
-                                                    <span class="amount-label">Paid:</span>
+                                                    <span class="amount-label">Recorded payments:</span>
                                                     <span class="amount-value success">€@sale.PaidAmount.ToString("N2")</span>
                                                 </div>
-                                                @if (sale.TotalAmount - sale.PaidAmount > 0)
-                                                {
-                                                    <div class="amount-item">
-                                                        <span class="amount-label">Credit:</span>
-                                                        <span class="amount-value warning">€@((sale.TotalAmount - sale.PaidAmount).ToString("N2"))</span>
-                                                    </div>
-                                                }
                                             </div>
                                         </div>
                                     }
@@ -302,7 +310,7 @@
                                     <div class="customer-header" @onclick="() => ToggleCustomerDetail(customer.CustomerId)">
                                         <div class="customer-info">
                                             <div class="customer-avatar">
-                                                @customer.Name.Substring(0, 1).ToUpper()
+                                                @GetInitial(customer.Name)
                                             </div>
                                             <div class="customer-details">
                                                 <h3 class="customer-name">@customer.Name</h3>
@@ -339,7 +347,10 @@
                                                         💸 Refund
                                                     </button>
                                                 }
-                                                <button class="btn-ghost small" @onclick:stopPropagation="true">
+                                                <button type="button"
+                                                        class="btn-ghost small"
+                                                        @onclick="() => ToggleCustomerDetail(customer.CustomerId)"
+                                                        @onclick:stopPropagation="true">
                                                     <span>@(expandedCustomerId == customer.CustomerId ? "▲" : "▼")</span>
                                                 </button>
                                             </div>
@@ -358,9 +369,13 @@
     @if (showPaymentModal && selectedCustomer != null)
     {
         <div class="modal-overlay" @onclick="CloseModal">
-            <div class="modal-container" @onclick:stopPropagation="true">
+            <div class="modal-container"
+                 role="dialog"
+                 aria-modal="true"
+                 aria-labelledby="credit-transaction-title"
+                 @onclick:stopPropagation="true">
                 <div class="modal-header @(selectedCustomer.Balance < 0 ? "refund" : "payment")">
-                    <h2>
+                    <h2 id="credit-transaction-title">
                         @if (selectedCustomer.Balance > 0)
                         {
                             <span>💵 Register Payment</span>
@@ -370,10 +385,27 @@
                             <span>💸 Issue Refund</span>
                         }
                     </h2>
-                    <button class="btn-close" @onclick="CloseModal">×</button>
+                    <button type="button"
+                            class="btn-close"
+                            disabled="@isProcessing"
+                            aria-label="Close"
+                            @onclick="CloseModal">
+                        &times;
+                    </button>
                 </div>
 
                 <div class="modal-body">
+                    @if (!string.IsNullOrWhiteSpace(modalErrorMessage))
+                    {
+                        <div class="alert alert-error" role="alert">
+                            <span class="alert-icon">!</span>
+                            <div class="alert-content">
+                                <strong>Transaction rejected</strong>
+                                <p>@modalErrorMessage</p>
+                            </div>
+                        </div>
+                    }
+
                     <div class="customer-info-box">
                         <div class="info-row">
                             <span class="info-label">Customer:</span>
@@ -400,6 +432,7 @@
                                    placeholder="0.00"
                                    @bind="paymentAmount"
                                    @bind:event="oninput"
+                                   disabled="@isProcessing"
                                    class="form-input-large" />
                         </div>
                         <div class="form-hint">
@@ -408,19 +441,31 @@
                     </div>
 
                     <div class="quick-amounts-grid">
-                        <button class="quick-amount-btn" @onclick="() => paymentAmount = Math.Round(Math.Abs(selectedCustomer.Balance) * 0.25m, 2)">
+                        <button type="button"
+                                class="quick-amount-btn"
+                                disabled="@isProcessing"
+                                @onclick="() => SetQuickAmount(0.25m)">
                             <span class="quick-label">25%</span>
-                            <span class="quick-value">€@(Math.Round(Math.Abs(selectedCustomer.Balance) * 0.25m, 2).ToString("N2"))</span>
+                            <span class="quick-value">€@(RoundMoney(Math.Abs(selectedCustomer.Balance) * 0.25m).ToString("N2"))</span>
                         </button>
-                        <button class="quick-amount-btn" @onclick="() => paymentAmount = Math.Round(Math.Abs(selectedCustomer.Balance) * 0.5m, 2)">
+                        <button type="button"
+                                class="quick-amount-btn"
+                                disabled="@isProcessing"
+                                @onclick="() => SetQuickAmount(0.50m)">
                             <span class="quick-label">50%</span>
-                            <span class="quick-value">€@(Math.Round(Math.Abs(selectedCustomer.Balance) * 0.5m, 2).ToString("N2"))</span>
+                            <span class="quick-value">€@(RoundMoney(Math.Abs(selectedCustomer.Balance) * 0.50m).ToString("N2"))</span>
                         </button>
-                        <button class="quick-amount-btn" @onclick="() => paymentAmount = Math.Round(Math.Abs(selectedCustomer.Balance) * 0.75m, 2)">
+                        <button type="button"
+                                class="quick-amount-btn"
+                                disabled="@isProcessing"
+                                @onclick="() => SetQuickAmount(0.75m)">
                             <span class="quick-label">75%</span>
-                            <span class="quick-value">€@(Math.Round(Math.Abs(selectedCustomer.Balance) * 0.75m, 2).ToString("N2"))</span>
+                            <span class="quick-value">€@(RoundMoney(Math.Abs(selectedCustomer.Balance) * 0.75m).ToString("N2"))</span>
                         </button>
-                        <button class="quick-amount-btn primary" @onclick="() => paymentAmount = Math.Abs(selectedCustomer.Balance)">
+                        <button type="button"
+                                class="quick-amount-btn primary"
+                                disabled="@isProcessing"
+                                @onclick="() => SetQuickAmount(1m)">
                             <span class="quick-label">Full</span>
                             <span class="quick-value">€@Math.Abs(selectedCustomer.Balance).ToString("N2")</span>
                         </button>
@@ -430,13 +475,16 @@
                         <label class="form-label">Description (Optional)</label>
                         <textarea placeholder="@(selectedCustomer.Balance > 0 ? "Payment notes..." : "Refund reason...")"
                                   @bind="paymentDescription"
+                                  disabled="@isProcessing"
                                   rows="3"
                                   class="form-textarea"></textarea>
                     </div>
 
                     <div class="form-group">
                         <label class="checkbox-container">
-                            <input type="checkbox" @bind="isCash" />
+                            <input type="checkbox"
+                                   @bind="isCash"
+                                   disabled="@isProcessing" />
                             <span class="checkmark"></span>
                             <span class="checkbox-label">
                                 Cash @(selectedCustomer.Balance > 0 ? "Payment" : "Refund")
@@ -447,12 +495,16 @@
                 </div>
 
                 <div class="modal-footer">
-                    <button class="btn-secondary" @onclick="CloseModal" disabled="@isProcessing">
+                    <button type="button"
+                            class="btn-secondary"
+                            @onclick="CloseModal"
+                            disabled="@isProcessing">
                         Cancel
                     </button>
-                    <button class="btn-primary @(selectedCustomer.Balance < 0 ? "refund" : "")"
-                            @onclick="() => ProcessTransactionAsync(selectedCustomer.Balance > 0)"
-                            disabled="@(isProcessing || paymentAmount <= 0)">
+                    <button type="button"
+                            class="btn-primary @(selectedCustomer.Balance < 0 ? "refund" : "")"
+                            @onclick="ProcessTransactionAsync"
+                            disabled="@(isProcessing || !CanProcessTransaction)">
                         @if (isProcessing)
                         {
                             <span class="spinner-small"></span>
@@ -485,50 +537,126 @@
     private List<LocalCustomerCreditResult>? customers;
     private LocalCustomerCreditResult? selectedCustomer;
     private LocalCustomerDetailResult? customerDetail;
-    private bool showPaymentModal = false;
 
-    private decimal paymentAmount = 0;
-    private string paymentDescription = string.Empty;
+    private bool showPaymentModal;
+    private bool isProcessing;
+    private bool isLoadingDetail;
+    private bool isLoading;
     private bool isCash = true;
-    private bool isProcessing = false;
-    private bool isLoadingDetail = false;
 
-    private bool isLoading = false;
-    private string? errorMessage;
-    private string? successMessage;
+    private decimal paymentAmount;
+    private string paymentDescription = string.Empty;
     private string searchTerm = string.Empty;
     private string filterType = "debt";
     private string activeTab = "purchases";
-    private Guid? expandedCustomerId = null;
 
-    private int customersWithDebt => customers?.Count(c => c.Balance > 0) ?? 0;
-    private int customersWithCredit => customers?.Count(c => c.Balance < 0) ?? 0;
-    private int customersBalanced => customers?.Count(c => c.Balance == 0) ?? 0;
-    private decimal totalDebt => customers?.Where(c => c.Balance > 0).Sum(c => c.Balance) ?? 0;
-    private decimal totalCredit => customers?.Where(c => c.Balance < 0).Sum(c => Math.Abs(c.Balance)) ?? 0;
+    private string? errorMessage;
+    private string? modalErrorMessage;
+    private string? successMessage;
+    private Guid? expandedCustomerId;
+    private CancellationTokenSource? toastCancellation;
 
-    private IEnumerable<LocalCustomerCreditResult> FilteredCustomers
+    private int customersWithDebt =>
+        customers?.Count(customer =>
+            customer.Balance > 0m) ??
+        0;
+
+    private int customersWithCredit =>
+        customers?.Count(customer =>
+            customer.Balance < 0m) ??
+        0;
+
+    private int customersBalanced =>
+        customers?.Count(customer =>
+            customer.Balance == 0m) ??
+        0;
+
+    private decimal totalDebt =>
+        customers?
+            .Where(customer =>
+                customer.Balance > 0m)
+            .Sum(customer =>
+                customer.Balance) ??
+        0m;
+
+    private decimal totalCredit =>
+        customers?
+            .Where(customer =>
+                customer.Balance < 0m)
+            .Sum(customer =>
+                Math.Abs(customer.Balance)) ??
+        0m;
+
+    private bool CanProcessTransaction
     {
         get
         {
-            if (customers == null) return Enumerable.Empty<LocalCustomerCreditResult>();
+            if (selectedCustomer is null)
+            {
+                return false;
+            }
+
+            var amount =
+                RoundMoney(paymentAmount);
+
+            var maximumAmount =
+                RoundMoney(
+                    Math.Abs(
+                        selectedCustomer.Balance));
+
+            return
+                amount > 0m &&
+                amount <= maximumAmount;
+        }
+    }
+
+    private IEnumerable<LocalCustomerCreditResult>
+        FilteredCustomers
+    {
+        get
+        {
+            if (customers is null)
+            {
+                return Enumerable.Empty<LocalCustomerCreditResult>();
+            }
 
             var filtered = customers.AsEnumerable();
 
-            if (!string.IsNullOrWhiteSpace(searchTerm))
+            if (!string.IsNullOrWhiteSpace(
+                    searchTerm))
             {
-                filtered = filtered.Where(c => c.Name.Contains(searchTerm, StringComparison.OrdinalIgnoreCase));
+                filtered =
+                    filtered.Where(customer =>
+                        customer.Name.Contains(
+                            searchTerm.Trim(),
+                            StringComparison.OrdinalIgnoreCase));
             }
 
-            filtered = filterType switch
-            {
-                "debt" => filtered.Where(c => c.Balance > 0),
-                "credit" => filtered.Where(c => c.Balance < 0),
-                "zero" => filtered.Where(c => c.Balance == 0),
-                _ => filtered
-            };
+            filtered =
+                filterType switch
+                {
+                    "debt" =>
+                        filtered.Where(customer =>
+                            customer.Balance > 0m),
 
-            return filtered.OrderByDescending(c => Math.Abs(c.Balance));
+                    "credit" =>
+                        filtered.Where(customer =>
+                            customer.Balance < 0m),
+
+                    "zero" =>
+                        filtered.Where(customer =>
+                            customer.Balance == 0m),
+
+                    _ =>
+                        filtered
+                };
+
+            return filtered
+                .OrderByDescending(customer =>
+                    Math.Abs(customer.Balance))
+                .ThenBy(customer =>
+                    customer.Name,
+                    StringComparer.OrdinalIgnoreCase);
         }
     }
 
@@ -539,14 +667,19 @@
 
     private async Task LoadCustomersAsync()
     {
+        if (isLoading)
+        {
+            return;
+        }
+
+        isLoading =
+            true;
+
+        errorMessage =
+            null;
+
         try
         {
-            isLoading =
-                true;
-
-            errorMessage =
-                null;
-
             customers =
                 await LocalCustomerCreditService
                     .GetCustomersWithBalanceAsync();
@@ -557,11 +690,18 @@
                     await LocalCustomerCreditService
                         .GetCustomerDetailAsync(
                             expandedCustomerId.Value);
+
+                if (customerDetail is null)
+                {
+                    expandedCustomerId =
+                        null;
+                }
             }
         }
         catch (Exception exception)
         {
             errorMessage =
+                $"Failed to load customer credits: " +
                 exception
                     .GetBaseException()
                     .Message;
@@ -570,213 +710,501 @@
         {
             isLoading =
                 false;
-
-            await InvokeAsync(
-                StateHasChanged);
         }
     }
 
-    private async Task ToggleCustomerDetail(Guid customerId)
+    private async Task ToggleCustomerDetail(
+        Guid customerId)
     {
-        if (expandedCustomerId == customerId)
+        if (isLoadingDetail)
         {
-            expandedCustomerId = null;
-            customerDetail = null;
             return;
         }
 
-        expandedCustomerId = customerId;
-        isLoadingDetail = true;
-        activeTab = "purchases";
+        if (expandedCustomerId == customerId)
+        {
+            expandedCustomerId =
+                null;
+
+            customerDetail =
+                null;
+
+            return;
+        }
+
+        expandedCustomerId =
+            customerId;
+
+        customerDetail =
+            null;
+
+        activeTab =
+            "purchases";
+
+        errorMessage =
+            null;
+
+        isLoadingDetail =
+            true;
 
         try
         {
-            customerDetail = await LocalCustomerCreditService.GetCustomerDetailAsync(customerId);
+            customerDetail =
+                await LocalCustomerCreditService
+                    .GetCustomerDetailAsync(
+                        customerId);
+
+            if (customerDetail is null)
+            {
+                expandedCustomerId =
+                    null;
+
+                errorMessage =
+                    "The selected local customer was not found.";
+            }
         }
-        catch (Exception ex)
+        catch (Exception exception)
         {
-            errorMessage = $"Failed to load customer details: {ex.Message}";
+            expandedCustomerId =
+                null;
+
+            customerDetail =
+                null;
+
+            errorMessage =
+                $"Failed to load customer details: " +
+                exception
+                    .GetBaseException()
+                    .Message;
         }
         finally
         {
-            isLoadingDetail = false;
+            isLoadingDetail =
+                false;
         }
     }
 
-    private void OpenPaymentModal(LocalCustomerCreditResult customer)
+    private void OpenPaymentModal(
+        LocalCustomerCreditResult customer)
     {
-        selectedCustomer = customer;
-        showPaymentModal = true;
-        paymentAmount = 0;
-        paymentDescription = string.Empty;
-        isCash = true;
+        if (customer.Balance <= 0m)
+        {
+            return;
+        }
+
+        OpenTransactionModal(
+            customer);
     }
 
-    private void OpenRefundModal(LocalCustomerCreditResult customer)
+    private void OpenRefundModal(
+        LocalCustomerCreditResult customer)
     {
-        selectedCustomer = customer;
-        showPaymentModal = true;
-        paymentAmount = 0;
-        paymentDescription = string.Empty;
-        isCash = true;
+        if (customer.Balance >= 0m)
+        {
+            return;
+        }
+
+        OpenTransactionModal(
+            customer);
+    }
+
+    private void OpenTransactionModal(
+        LocalCustomerCreditResult customer)
+    {
+        selectedCustomer =
+            customer;
+
+        showPaymentModal =
+            true;
+
+        paymentAmount =
+            0m;
+
+        paymentDescription =
+            string.Empty;
+
+        modalErrorMessage =
+            null;
+
+        isCash =
+            true;
     }
 
     private void CloseModal()
     {
-        // selectedCustomer = null;
-        showPaymentModal = false;
-        paymentAmount = 0;
-        paymentDescription = string.Empty;
+        if (isProcessing)
+        {
+            return;
+        }
+
+        ResetTransactionModal();
     }
 
-    private async Task ProcessTransactionAsync(bool isPayment)
+    private void ResetTransactionModal()
     {
-        if (selectedCustomer == null) return;
+        showPaymentModal =
+            false;
 
-        errorMessage = null;
-        isProcessing = true;
+        selectedCustomer =
+            null;
+
+        paymentAmount =
+            0m;
+
+        paymentDescription =
+            string.Empty;
+
+        modalErrorMessage =
+            null;
+
+        isCash =
+            true;
+    }
+
+    private void SetQuickAmount(
+        decimal percentage)
+    {
+        if (selectedCustomer is null ||
+            isProcessing)
+        {
+            return;
+        }
+
+        paymentAmount =
+            RoundMoney(
+                Math.Abs(
+                    selectedCustomer.Balance) *
+                Math.Clamp(
+                    percentage,
+                    0m,
+                    1m));
+
+        modalErrorMessage =
+            null;
+    }
+
+    private async Task ProcessTransactionAsync()
+    {
+        if (selectedCustomer is null ||
+            isProcessing)
+        {
+            return;
+        }
+
+        var customer =
+            selectedCustomer;
+
+        var isPayment =
+            customer.Balance > 0m;
+
+        var isRefund =
+            customer.Balance < 0m;
+
+        var amount =
+            RoundMoney(
+                paymentAmount);
+
+        var maximumAmount =
+            RoundMoney(
+                Math.Abs(
+                    customer.Balance));
+
+        modalErrorMessage =
+            null;
+
+        errorMessage =
+            null;
+
+        if (!isPayment && !isRefund)
+        {
+            modalErrorMessage =
+                "The customer balance is already settled.";
+
+            return;
+        }
+
+        if (amount <= 0m)
+        {
+            modalErrorMessage =
+                $"{(isPayment ? "Payment" : "Refund")} " +
+                "amount must be greater than zero.";
+
+            return;
+        }
+
+        if (amount > maximumAmount)
+        {
+            modalErrorMessage =
+                $"{(isPayment ? "Payment" : "Refund")} amount " +
+                $"cannot exceed €{maximumAmount:N2}.";
+
+            return;
+        }
+
+        isProcessing =
+            true;
 
         try
         {
-            if (paymentAmount <= 0)
-            {
-                errorMessage = $"{(isPayment ? "Payment" : "Refund")} amount must be greater than zero.";
-                isProcessing = false;
-                return;
-            }
+            var clientOperationId =
+                Guid.NewGuid();
 
-            var maxAmount = Math.Abs(selectedCustomer.Balance);
-            if (paymentAmount > maxAmount)
-            {
-                errorMessage = $"{(isPayment ? "Payment" : "Refund")} amount cannot exceed €{maxAmount:N2}.";
-                isProcessing = false;
-                return;
-            }
+            var transactionDateUtc =
+                DateTime.UtcNow;
+
+            var description =
+                NormalizeNullable(
+                    paymentDescription);
 
             if (isPayment)
             {
-                var request = new RegisterCustomerPaymentRequest
-                {
-                    ClientOperationId =
-                        Guid.NewGuid(),
-
-                    CustomerId =
-                        selectedCustomer.CustomerId,
-
-                    Amount =
-                        paymentAmount,
-
-                    Description =
-                        string.IsNullOrWhiteSpace(
-                            paymentDescription)
-                            ? null
-                            : paymentDescription.Trim(),
-
-                    IsCash =
-                        isCash,
-
-                    TransactionDateUtc =
-                        DateTime.UtcNow
-                };
-
                 await LocalCustomerCreditService
                     .RegisterPaymentAsync(
-                        request);
+                        new RegisterCustomerPaymentRequest
+                        {
+                            ClientOperationId =
+                                clientOperationId,
+
+                            CustomerId =
+                                customer.CustomerId,
+
+                            Amount =
+                                amount,
+
+                            Description =
+                                description,
+
+                            IsCash =
+                                isCash,
+
+                            TransactionDateUtc =
+                                transactionDateUtc
+                        });
             }
             else
             {
-                var request = new RegisterCustomerRefundRequest
-                {
-                    CustomerId = selectedCustomer.CustomerId,
-                    Amount = paymentAmount,
-                    Description = string.IsNullOrWhiteSpace(paymentDescription) ? null : paymentDescription,
-                    IsCash = isCash
-                };
+                await LocalCustomerCreditService
+                    .RegisterRefundAsync(
+                        new RegisterCustomerRefundRequest
+                        {
+                            ClientOperationId =
+                                clientOperationId,
 
-                await CustomerTransactionsApi.RegisterRefund(request);
+                            CustomerId =
+                                customer.CustomerId,
 
+                            Amount =
+                                amount,
+
+                            Description =
+                                description,
+
+                            IsCash =
+                                isCash,
+
+                            TransactionDateUtc =
+                                transactionDateUtc
+                        });
             }
 
-            var justProcessedId =
-                selectedCustomer.CustomerId;
-
             var customerName =
-                selectedCustomer.Name;
+                customer.Name;
 
-            var processedAmount =
-                paymentAmount;
-
-            successMessage =
-                isPayment
-                    ? $"Payment of €{processedAmount:N2} registered " +
-                      $"locally for {customerName}."
-                    : $"Refund of €{processedAmount:N2} registered " +
-                      $"locally for {customerName}.";
-
-            CloseModal();
+            ResetTransactionModal();
 
             await LoadCustomersAsync();
 
-            if (expandedCustomerId ==
-                justProcessedId)
-            {
-                customerDetail =
-                    await LocalCustomerCreditService
-                        .GetCustomerDetailAsync(
-                            justProcessedId);
-            }
-
+            ShowSuccess(
+                isPayment
+                    ? $"Payment of €{amount:N2} registered locally " +
+                      $"for {customerName}."
+                    : $"Refund of €{amount:N2} registered locally " +
+                      $"for {customerName}.");
         }
-        catch (Exception ex)
+        catch (Exception exception)
         {
-            errorMessage = $"Failed to process transaction: {ex.Message}";
+            modalErrorMessage =
+                $"Failed to process the transaction: " +
+                exception
+                    .GetBaseException()
+                    .Message;
         }
         finally
         {
-            isProcessing = false;
+            isProcessing =
+                false;
         }
     }
 
-    private string GetBalanceClass(decimal balance)
+    private void ShowSuccess(
+        string message)
     {
-        if (balance > 0) return "debt";
-        if (balance < 0) return "credit";
+        successMessage =
+            message;
+
+        toastCancellation?
+            .Cancel();
+
+        toastCancellation?
+            .Dispose();
+
+        toastCancellation =
+            new CancellationTokenSource();
+
+        _ = ClearSuccessAfterDelayAsync(
+            toastCancellation.Token);
+    }
+
+    private async Task ClearSuccessAfterDelayAsync(
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await Task.Delay(
+                TimeSpan.FromSeconds(3),
+                cancellationToken);
+
+            await InvokeAsync(() =>
+            {
+                successMessage =
+                    null;
+
+                StateHasChanged();
+            });
+        }
+        catch (OperationCanceledException)
+        {
+            // A newer notification replaced this one.
+        }
+    }
+
+    private void ClearError()
+    {
+        errorMessage =
+            null;
+    }
+
+    private static string GetBalanceClass(
+        decimal balance)
+    {
+        if (balance > 0m)
+        {
+            return "debt";
+        }
+
+        if (balance < 0m)
+        {
+            return "credit";
+        }
+
         return "zero";
     }
 
-    private string GetStatusClass(decimal balance)
+    private static string GetStatusClass(
+        decimal balance)
     {
-        if (balance > 0) return "status-debt";
-        if (balance < 0) return "status-credit";
+        if (balance > 0m)
+        {
+            return "status-debt";
+        }
+
+        if (balance < 0m)
+        {
+            return "status-credit";
+        }
+
         return "status-zero";
     }
 
-    private string GetStatusText(decimal balance)
+    private static string GetStatusText(
+        decimal balance)
     {
-        if (balance > 0) return "Owes Us";
-        if (balance < 0) return "We Owe";
+        if (balance > 0m)
+        {
+            return "Owes Us";
+        }
+
+        if (balance < 0m)
+        {
+            return "We Owe";
+        }
+
         return "Balanced";
     }
 
-    private string GetTransactionTypeClass(string type)
+    private static string GetTransactionTypeClass(
+        string? type)
     {
-        return type.ToLower() switch
+        return type?.Trim()
+            .ToLowerInvariant() switch
         {
-            "payment" => "type-payment",
-            "refund" => "type-refund",
-            "credit" => "type-credit",
-            _ => ""
+            "payment" =>
+                "type-payment",
+
+            "refund" =>
+                "type-refund",
+
+            "credit" =>
+                "type-credit",
+
+            _ =>
+                string.Empty
         };
     }
 
-    private string GetTransactionIcon(string type)
+    private static string GetTransactionIcon(
+        string? type)
     {
-        return type.ToLower() switch
+        return type?.Trim()
+            .ToLowerInvariant() switch
         {
-            "payment" => "💵",
-            "refund" => "💸",
-            "credit" => "🛒",
-            _ => "📝"
+            "payment" =>
+                "💵",
+
+            "refund" =>
+                "💸",
+
+            "credit" =>
+                "🛒",
+
+            _ =>
+                "📝"
         };
+    }
+
+    private static string GetInitial(
+        string? name)
+    {
+        return string.IsNullOrWhiteSpace(name)
+            ? "?"
+            : name.Trim()[0]
+                .ToString()
+                .ToUpperInvariant();
+    }
+
+    private static string? NormalizeNullable(
+        string? value)
+    {
+        return string.IsNullOrWhiteSpace(value)
+            ? null
+            : value.Trim();
+    }
+
+    private static decimal RoundMoney(
+        decimal value)
+    {
+        return Math.Round(
+            value,
+            2,
+            MidpointRounding.AwayFromZero);
+    }
+
+    public void Dispose()
+    {
+        toastCancellation?
+            .Cancel();
+
+        toastCancellation?
+            .Dispose();
     }
 }

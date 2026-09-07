@@ -8,5 +8,6 @@
         public const string Adjustment = "Adjustment";
         public const string Transfer = "Transfer";
         public const string InitialStock = "InitialStock";
+        public const string Damage = "Damage";
     }
 }

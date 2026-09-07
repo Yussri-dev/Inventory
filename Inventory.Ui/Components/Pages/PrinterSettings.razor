@@ -1,0 +1,306 @@
+﻿@page "/configuration/printer"
+
+@using Inventory.LocalDB.Services.Interfaces
+@using Inventory.Ui.Services.Printing
+
+@attribute [Microsoft.AspNetCore.Authorization.Authorize]
+
+@inject IPrinterDiscoveryService PrinterDiscoveryService
+@inject IReceiptPrinterSettingsService PrinterSettingsService
+@inject IReceiptPrinterResolver PrinterResolver
+@inject ILogger<PrinterSettings> Logger
+
+<PageTitle>Configuration de l’imprimante</PageTitle>
+
+<div class="container py-4">
+    <div class="card shadow-sm">
+        <div class="card-body">
+            <h1 class="h4 mb-3">
+                Imprimante de tickets
+            </h1>
+
+            <p class="text-muted">
+                Cette configuration appartient uniquement à ce poste
+                de caisse.
+            </p>
+
+            @if (!string.IsNullOrWhiteSpace(ErrorMessage))
+            {
+                <div class="alert alert-danger">
+                    @ErrorMessage
+                </div>
+            }
+
+            @if (!string.IsNullOrWhiteSpace(SuccessMessage))
+            {
+                <div class="alert alert-success">
+                    @SuccessMessage
+                </div>
+            }
+
+            @if (IsLoading)
+            {
+                <div class="d-flex align-items-center gap-2">
+                    <div class="spinner-border spinner-border-sm"
+                         role="status">
+                    </div>
+
+                    <span>
+                        Recherche des imprimantes Windows...
+                    </span>
+                </div>
+            }
+            else if (InstalledPrinters.Count == 0)
+            {
+                <div class="alert alert-warning">
+                    Aucune imprimante installée n’a été détectée.
+                    Installez d’abord le pilote Windows de
+                    l’imprimante thermique.
+                </div>
+            }
+            else
+            {
+                <div class="mb-3">
+                    <label for="receipt-printer"
+                           class="form-label">
+                        Imprimante utilisée par ce poste
+                    </label>
+
+                    <select id="receipt-printer"
+                            class="form-select"
+                            @bind="SelectedPrinterName">
+
+                        <option value="">
+                            Sélectionner une imprimante
+                        </option>
+
+                        @foreach (var printer in InstalledPrinters)
+                        {
+                            <option value="@printer.Name">
+                                @printer.Name
+                                @if (printer.IsDefault)
+                                {
+                                    <text> — imprimante Windows par défaut</text>
+                                }
+                            </option>
+                        }
+                    </select>
+                </div>
+
+                @if (!string.IsNullOrWhiteSpace(
+                        CurrentPrinterName))
+                {
+                    <div class="alert alert-info">
+                        Imprimante actuellement enregistrée :
+                        <strong>@CurrentPrinterName</strong>
+                    </div>
+                }
+
+                <div class="d-flex flex-wrap gap-2">
+                    <button type="button"
+                            class="btn btn-primary"
+                            @onclick="SaveSelectionAsync"
+                            disabled="@IsSaving">
+                        @if (IsSaving)
+                        {
+                            <span class="spinner-border spinner-border-sm me-2"
+                                  role="status">
+                            </span>
+                        }
+
+                        Enregistrer
+                    </button>
+
+                    <button type="button"
+                            class="btn btn-outline-secondary"
+                            @onclick="LoadPrintersAsync"
+                            disabled="@(IsLoading || IsSaving)">
+                        Actualiser la liste
+                    </button>
+
+                    <button type="button"
+                            class="btn btn-outline-danger"
+                            @onclick="ClearSelection"
+                            disabled="@(IsLoading || IsSaving ||
+                                        string.IsNullOrWhiteSpace(
+                                            CurrentPrinterName))">
+                        Oublier la sélection
+                    </button>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    private IReadOnlyList<PrinterInfo> InstalledPrinters =
+        Array.Empty<PrinterInfo>();
+
+    private string? SelectedPrinterName;
+
+    private string? CurrentPrinterName;
+
+    private string? ErrorMessage;
+
+    private string? SuccessMessage;
+
+    private bool IsLoading;
+
+    private bool IsSaving;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadPrintersAsync();
+    }
+
+    private async Task LoadPrintersAsync()
+    {
+        if (IsLoading)
+        {
+            return;
+        }
+
+        try
+        {
+            IsLoading = true;
+            ErrorMessage = null;
+            SuccessMessage = null;
+
+            InstalledPrinters =
+                await PrinterDiscoveryService
+                    .GetInstalledPrintersAsync();
+
+            /*
+             * Réutilise l’imprimante enregistrée ou effectue
+             * la détection automatique si aucun choix n’existe.
+             */
+            CurrentPrinterName =
+                await PrinterResolver
+                    .ResolvePrinterNameAsync();
+
+            SelectedPrinterName =
+                CurrentPrinterName;
+        }
+        catch (Exception exception)
+        {
+            InstalledPrinters =
+                Array.Empty<PrinterInfo>();
+
+            CurrentPrinterName =
+                null;
+
+            SelectedPrinterName =
+                null;
+
+            ErrorMessage =
+                "Impossible de lire les imprimantes installées : " +
+                exception.GetBaseException().Message;
+
+            Logger.LogError(
+                exception,
+                "Failed to enumerate Windows printers.");
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+
+    private async Task SaveSelectionAsync()
+    {
+        if (IsSaving)
+        {
+            return;
+        }
+
+        ErrorMessage = null;
+        SuccessMessage = null;
+
+        if (string.IsNullOrWhiteSpace(
+                SelectedPrinterName))
+        {
+            ErrorMessage =
+                "Sélectionnez une imprimante.";
+
+            return;
+        }
+
+        var selectedPrinter =
+            InstalledPrinters.FirstOrDefault(
+                printer =>
+                    string.Equals(
+                        printer.Name,
+                        SelectedPrinterName,
+                        StringComparison.OrdinalIgnoreCase));
+
+        if (selectedPrinter == null)
+        {
+            ErrorMessage =
+                "L’imprimante sélectionnée n’est plus installée.";
+
+            return;
+        }
+
+        try
+        {
+            IsSaving = true;
+
+            var isAvailable =
+                await PrinterResolver
+                    .IsPrinterAvailableAsync(
+                        selectedPrinter.Name);
+
+            if (!isAvailable)
+            {
+                ErrorMessage =
+                    "L’imprimante sélectionnée est indisponible.";
+
+                return;
+            }
+
+            PrinterSettingsService.SelectPrinter(
+                selectedPrinter.Name);
+
+            CurrentPrinterName =
+                selectedPrinter.Name;
+
+            SelectedPrinterName =
+                selectedPrinter.Name;
+
+            SuccessMessage =
+                $"L’imprimante « {selectedPrinter.Name} » " +
+                "est enregistrée pour ce poste.";
+        }
+        catch (Exception exception)
+        {
+            ErrorMessage =
+                "Impossible d’enregistrer l’imprimante : " +
+                exception.GetBaseException().Message;
+
+            Logger.LogError(
+                exception,
+                "Failed to save receipt printer selection.");
+        }
+        finally
+        {
+            IsSaving = false;
+        }
+    }
+
+    private void ClearSelection()
+    {
+        PrinterSettingsService.ClearSelectedPrinter();
+
+        CurrentPrinterName =
+            null;
+
+        SelectedPrinterName =
+            null;
+
+        ErrorMessage =
+            null;
+
+        SuccessMessage =
+            "La sélection locale a été supprimée.";
+    }
+}

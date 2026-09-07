@@ -4,9 +4,11 @@
 @using Inventory.Ui.Services
 
 @using Inventory.LocalDB.Services.Interfaces
+@using Inventory.Ui.Services.Sync
 @inject ILocalCustomerService LocalCustomerService
 
 @inject AppState State
+@inject SyncCoordinator SyncCoordinator
 @implements IDisposable
 
 <h3>Customers</h3>
@@ -26,9 +28,9 @@
                     <div class="customer-modal-header">
                         <h4 id="customer-modal-title">
                             @(editingId == null
-                                ? "Create customer"
-                                : "Edit customer")
-                        </h4>
+                                                    ? "Create customer"
+                                                    : "Edit customer")
+                    </h4>
 
                         <button type="button"
                                 class="btn small ghost"
@@ -92,17 +94,16 @@
                                                  class="inputText"
                                                  min="0"
                                                  disabled="@(isLoading ||
-                                                             !form.AllowCredit ||
-                                                             form.HasUnlimitedCredit)" />
-                                </div>
+                                                                                                                                                       !form.AllowCredit ||
+                                                                                                                                                       form.HasUnlimitedCredit)" />
                             </div>
+                        </div>
 
                             <div class="form-row">
                                 <div class="form-field">
                                     <label class="checkbox-label">
-                                        <InputCheckbox
-                                            @bind-Value="form.AllowCredit"
-                                            disabled="@isLoading" />
+                                        <InputCheckbox @bind-Value="form.AllowCredit"
+                                                       disabled="@isLoading" />
 
                                         <span>Allow purchases on credit</span>
                                     </label>
@@ -110,18 +111,17 @@
 
                                 <div class="form-field">
                                     <label class="checkbox-label">
-                                        <InputCheckbox
-                                            @bind-Value="form.HasUnlimitedCredit"
-                                            disabled="@(isLoading ||
-                                                        !form.AllowCredit)" />
+                                        <InputCheckbox @bind-Value="form.HasUnlimitedCredit"
+                                                       disabled="@(isLoading ||
+                                                                                                                                                              !form.AllowCredit)" />
 
-                                        <span>Unlimited credit</span>
-                                    </label>
-                                </div>
+                                    <span>Unlimited credit</span>
+                                </label>
                             </div>
+                        </div>
 
-                            @if (form.AllowCredit &&
-                                 !form.HasUnlimitedCredit)
+                        @if (form.AllowCredit &&
+                                                !form.HasUnlimitedCredit)
                             {
                                 <div class="credit-policy-info">
                                     Credit purchases are limited to
@@ -491,15 +491,14 @@
             if (isCreate)
             {
                 await LocalCustomerService.CreateAsync(form.ToCreate());
+                SyncCoordinator.RequestSync();
             }
             else
             {
-                var customerId =
-                    editingId!.Value;
+                var customerId = editingId!.Value;
 
-                await LocalCustomerService.UpdateAsync(
-                    customerId,
-                    form.ToUpdate(customerId));
+                await LocalCustomerService.UpdateAsync(customerId, form.ToUpdate(customerId));
+                SyncCoordinator.RequestSync();
             }
 
             State.InvalidateCustomers();
@@ -558,6 +557,8 @@
             isDeleting = true;
 
             await LocalCustomerService.DeleteAsync(customerToDelete.Id);
+
+            SyncCoordinator.RequestSync();
 
             showDelete = false;
             customerToDelete = null;

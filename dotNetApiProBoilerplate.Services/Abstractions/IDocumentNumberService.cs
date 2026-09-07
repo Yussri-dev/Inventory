@@ -1,13 +1,9 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-
+﻿
 namespace Inventory.Services.Abstractions
 {
     public interface IDocumentNumberService
     {
         Task<string> GenerateAsync(string documentType);
+        Task<IReadOnlyList<string>> GenerateBatchTrackedAsync(string documentType, int count);
     }
 }

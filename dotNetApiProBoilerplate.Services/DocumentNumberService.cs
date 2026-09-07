@@ -21,76 +21,192 @@ namespace Inventory.Services
             _tenantContext = tenantContext;
         }
 
-        public async Task<string> GenerateAsync(string documentType)
+        public async Task<string> GenerateAsync(
+    string documentType)
         {
-            var tenantId = _tenantContext.TenantId;
-            var userId = _tenantContext.UserId;
-            var now = DateTime.UtcNow;
+            var numbers =
+                await GenerateBatchTrackedAsync(
+                    documentType,
+                    1);
 
-            // Load configuration for this document type and tenant
-            var config = await _repository
-                .GetSingleAsync(d =>
-                    d.DocumentType == documentType &&
-                    d.TenantId == tenantId &&
-                    d.Year == now.Year &&
-                    (!d.ResetMonthly || d.Month == now.Month) &&
-                    !d.IsDeleted);
+            await _unitOfWork.SaveChangesAsync();
+
+            return numbers[0];
+        }
+
+        public async Task<IReadOnlyList<string>>
+            GenerateBatchTrackedAsync(
+                string documentType,
+                int count)
+        {
+            if (string.IsNullOrWhiteSpace(
+                    documentType))
+            {
+                throw new ArgumentException(
+                    "Document type is required.",
+                    nameof(documentType));
+            }
+
+            if (count <= 0)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(count),
+                    "Document count must be greater than zero.");
+            }
+
+            var tenantId =
+                _tenantContext.TenantId;
+
+            var userId =
+                _tenantContext.UserId;
+
+            var now =
+                DateTime.UtcNow;
+
+            var config =
+                await _repository.GetSingleAsync(
+                    document =>
+                        document.DocumentType == documentType &&
+                        document.TenantId == tenantId &&
+                        document.Year == now.Year &&
+                        (
+                            !document.ResetMonthly ||
+                            document.Month == now.Month
+                        ) &&
+                        !document.IsDeleted);
 
             if (config == null)
             {
-                config = new DocumentNumber
-                {
-                    Id = Guid.NewGuid(),
-                    DocumentType = documentType,
-                    TenantId = tenantId,
-                    CreatedByUserId = userId,
-                    Prefix = documentType.ToUpper(),
-                    LastNumber = 0,
-                    PaddingLength = 6,
-                    Year = now.Year,
-                    Month = now.Month,
-                    ResetYearly = true,
-                    ResetMonthly = false,
-                    CreatedAt = DateTime.UtcNow
-                };
-                await _repository.AddAsync(config);
+                config =
+                    new DocumentNumber
+                    {
+                        Id =
+                            Guid.NewGuid(),
+
+                        DocumentType =
+                            documentType,
+
+                        TenantId =
+                            tenantId,
+
+                        CreatedByUserId =
+                            userId,
+
+                        Prefix =
+                            documentType.ToUpperInvariant(),
+
+                        LastNumber =
+                            0,
+
+                        PaddingLength =
+                            6,
+
+                        Year =
+                            now.Year,
+
+                        Month =
+                            now.Month,
+
+                        ResetYearly =
+                            true,
+
+                        ResetMonthly =
+                            false,
+
+                        CreatedAt =
+                            now
+                    };
+
+                await _repository.AddAsync(
+                    config);
             }
             else
             {
-                // Reset rules
-                if (config.ResetYearly && config.Year != now.Year)
+                if (config.ResetYearly &&
+                    config.Year != now.Year)
                 {
-                    config.Year = now.Year;
-                    config.LastNumber = 0;
+                    config.Year =
+                        now.Year;
+
+                    config.LastNumber =
+                        0;
                 }
-                if (config.ResetMonthly && config.Month != now.Month)
+
+                if (config.ResetMonthly &&
+                    config.Month != now.Month)
                 {
-                    config.Month = now.Month;
-                    config.LastNumber = 0;
+                    config.Month =
+                        now.Month;
+
+                    config.LastNumber =
+                        0;
                 }
-                config.ModifiedAt = DateTime.UtcNow;
-                config.ModifiedByUserId = userId;
+
+                config.ModifiedAt =
+                    now;
+
+                config.ModifiedByUserId =
+                    userId;
             }
 
-            config.LastNumber++;
+            var numbers =
+                new List<string>(
+                    count);
 
-            var numberPart = config.LastNumber
-                .ToString()
-                .PadLeft(config.PaddingLength, '0');
+            for (var index = 0;
+                 index < count;
+                 index++)
+            {
+                config.LastNumber++;
 
-            var parts = new List<string>();
-            if (!string.IsNullOrWhiteSpace(config.Prefix))
-                parts.Add(config.Prefix);
-            if (config.ResetYearly)
-                parts.Add(now.Year.ToString());
-            if (config.ResetMonthly)
-                parts.Add(now.Month.ToString("00"));
-            parts.Add(numberPart);
-            if (!string.IsNullOrWhiteSpace(config.Suffix))
-                parts.Add(config.Suffix);
+                var numberPart =
+                    config.LastNumber
+                        .ToString()
+                        .PadLeft(
+                            config.PaddingLength,
+                            '0');
 
-            await _unitOfWork.SaveChangesAsync();
-            return string.Join("0", parts);
+                var parts =
+                    new List<string>();
+
+                if (!string.IsNullOrWhiteSpace(
+                        config.Prefix))
+                {
+                    parts.Add(
+                        config.Prefix);
+                }
+
+                if (config.ResetYearly)
+                {
+                    parts.Add(
+                        now.Year.ToString());
+                }
+
+                if (config.ResetMonthly)
+                {
+                    parts.Add(
+                        now.Month.ToString("00"));
+                }
+
+                parts.Add(
+                    numberPart);
+
+                if (!string.IsNullOrWhiteSpace(
+                        config.Suffix))
+                {
+                    parts.Add(
+                        config.Suffix);
+                }
+
+               
+                numbers.Add(
+                    string.Join(
+                        "0",
+                        parts));
+            }
+
+           
+            return numbers;
         }
     }
 }

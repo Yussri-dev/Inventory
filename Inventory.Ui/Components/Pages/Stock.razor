@@ -11,6 +11,7 @@
 @inject ILocalStockSyncService StockSyncService
 @inject AppState State
 @inject ILogger<Stock> Logger
+@inject SyncCoordinator SyncCoordinator
 
 <h2>Stock</h2>
 
@@ -639,6 +640,8 @@
                     SelectedStock.Id,
                     NewQuantity,
                     Notes);
+
+            SyncCoordinator.RequestSync();
 
             CloseAdjustAfterSave();
 

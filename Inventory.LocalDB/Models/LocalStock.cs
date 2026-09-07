@@ -35,5 +35,7 @@ namespace Inventory.LocalDB.Models
         public DateTime LastUpdatedUtc { get; set; } = DateTime.UtcNow;
 
         public DateTime? LastSyncedAtUtc { get; set; }
+
+        public LocalProduct Product { get; set; } = null!;
     }
 }

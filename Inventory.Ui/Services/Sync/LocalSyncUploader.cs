@@ -35,7 +35,6 @@ namespace Inventory.Ui.Services.Sync
         private readonly ILocalDamageSyncService _damageSync;
         private readonly ILocalTenantContext _tenantContext;
         private readonly ILogger<LocalSyncUploader> _logger;
-
         private Guid CurrentTenantId =>
             _tenantContext.GetRequiredTenantId();
 
@@ -92,8 +91,7 @@ namespace Inventory.Ui.Services.Sync
                     CurrentTenantId;
 
                 /*
-                 * The context may have retained entities from an older
-                 * operation. Synchronization starts with a clean tracker.
+                 * Start synchronization with a clean EF Core tracker.
                  */
                 _db.ChangeTracker.Clear();
 
@@ -102,68 +100,55 @@ namespace Inventory.Ui.Services.Sync
                     cancellationToken);
 
                 _logger.LogInformation(
-     "Synchronization started for tenant {TenantId}.",
-     tenantId);
+                    "Legacy synchronization started for tenant {TenantId}.",
+                    tenantId);
 
+                /*
+                 * The server cash session must exist before dependent
+                 * Purchase and Sale operations are uploaded.
+                 */
                 _logger.LogInformation(
-                    "Synchronizing cash sessions.");
+                    "Synchronizing cash-session creation.");
 
                 await SyncCashSessionsCreateAsync(
                     result,
                     cancellationToken);
 
+                /*
+                 * Customer, Supplier, Product, StockMovement and Damage
+                 * are handled exclusively by SyncCoordinator through
+                 * LocalBulkSyncUploader.
+                 *
+                 * Purchase and Sale remain temporarily on this legacy path.
+                 */
                 _logger.LogInformation(
-                    "Synchronizing customers.");
-
-                await SyncCustomersAsync(
-                    result,
-                    cancellationToken);
-
-                _logger.LogInformation(
-                    "Synchronizing suppliers.");
-
-                await SyncSuppliersAsync(
-                    result,
-                    cancellationToken);
-
-                _logger.LogInformation(
-                    "Synchronizing products.");
-
-                await SyncProductsAsync(
-                    result,
-                    cancellationToken);
-
-                _logger.LogInformation(
-                    "Synchronizing purchases.");
+                    "Synchronizing purchases through the legacy path.");
 
                 await SyncPurchasesAsync(
                     result,
                     cancellationToken);
 
-                _logger.LogInformation(
-                    "Synchronizing sales.");
+                //_logger.LogInformation(
+                //    "Synchronizing sales through the legacy path.");
 
-                await SyncSalesAsync(
-                    result,
-                    cancellationToken);
+                //await SyncSalesAsync(
+                //    result,
+                //    cancellationToken);
 
-                _logger.LogInformation(
-                    "Synchronizing damages.");
+                /*
+                 * Close cash sessions only after their dependent
+                 * purchases and sales have been uploaded.
+                 */
+                //_logger.LogInformation(
+                //    "Synchronizing cash-session closure.");
 
-                await SyncDamagesAsync(
-                    result,
-                    cancellationToken);
-
-                _logger.LogInformation(
-                    "Synchronizing closed cash sessions.");
-
-                await SyncClosedCashSessionsAsync(
-                    result,
-                    cancellationToken);
+                //await SyncClosedCashSessionsAsync(
+                //    result,
+                //    cancellationToken);
 
                 _logger.LogInformation(
-                    "Synchronization completed. Synced={Synced}, " +
-                    "Failed={Failed}, Skipped={Skipped}.",
+                    "Legacy synchronization completed. " +
+                    "Synced={Synced}, Failed={Failed}, Skipped={Skipped}.",
                     result.Synced,
                     result.Failed,
                     result.Skipped);
@@ -187,7 +172,8 @@ namespace Inventory.Ui.Services.Sync
 
                 _logger.LogWarning(
                     exception,
-                    "Synchronization stopped because the API is unavailable.");
+                    "Legacy synchronization stopped because " +
+                    "the API is unavailable.");
             }
             catch
             {
@@ -208,13 +194,13 @@ namespace Inventory.Ui.Services.Sync
     CancellationToken cancellationToken)
         {
             var interruptedItems =
-                await _db.SyncQueueItems
-                    .Where(queueItem =>
-                        queueItem.TenantId == tenantId &&
-                        queueItem.Status ==
-                            SyncQueueStatus.Processing)
-                    .ToListAsync(
-                        cancellationToken);
+             await _db.SyncQueueItems
+                 .Where(queueItem =>
+                     queueItem.TenantId == tenantId &&
+                     queueItem.Status ==
+                         SyncQueueStatus.Processing)
+                 .ToListAsync(
+                     cancellationToken);
 
             if (interruptedItems.Count == 0)
             {
@@ -493,18 +479,19 @@ namespace Inventory.Ui.Services.Sync
             };
         }
 
-        private async Task SyncClosedCashSessionsAsync(
-    LocalSyncUploadResult result,
-    CancellationToken cancellationToken)
+        private async Task SyncClosedCashSessionsAsync(LocalSyncUploadResult result, CancellationToken cancellationToken)
         {
             var sessions = await _db.CashSessions
-                .Where(x =>
-                    x.TenantId == CurrentTenantId &&
-                    x.ServerId != null &&
-                    x.Status == LocalCashSessionStatus.Closed &&
-                    x.SyncStatus != SyncQueueStatus.Done)
-                .OrderBy(x => x.ClosedAtUtc)
-                .ToListAsync(cancellationToken);
+            .Where(session =>
+                session.TenantId == CurrentTenantId &&
+                session.ServerId != null &&
+                session.Status == LocalCashSessionStatus.Closed &&
+                session.SyncStatus != SyncQueueStatus.Done)
+            .OrderBy(session => session.ClosedAtUtc)
+            .ToListAsync(cancellationToken);
+
+            result.TotalPending +=
+                sessions.Count;
 
             foreach (var session in sessions)
             {
@@ -520,6 +507,28 @@ namespace Inventory.Ui.Services.Sync
                     result.Skipped++;
                     result.Messages.Add(
                         $"Cash session {session.SessionNumber} skipped: pending sales still exist.");
+                    continue;
+                }
+
+                var hasPendingCashMovements = await _db.CashMovements
+                    .AnyAsync(
+                        movement =>
+                            movement.TenantId ==
+                                CurrentTenantId &&
+                            movement.LocalCashSessionId ==
+                                session.Id &&
+                            movement.SyncStatus !=
+                                SyncQueueStatus.Done,
+                        cancellationToken);
+
+                if (hasPendingCashMovements)
+                {
+                    result.Skipped++;
+
+                    result.Messages.Add(
+                        $"Cash session {session.SessionNumber} skipped: " +
+                        "pending cash movements still exist.");
+
                     continue;
                 }
 
@@ -544,19 +553,6 @@ namespace Inventory.Ui.Services.Sync
                     session.ClosedAtUtc = serverSession.ClosedAt;
                     session.SyncStatus = SyncQueueStatus.Done;
                     session.LastSyncedAtUtc = DateTime.UtcNow;
-
-                    var movements = await _db.CashMovements
-                        .Where(x =>
-                            x.TenantId == CurrentTenantId &&
-                            x.LocalCashSessionId == session.Id)
-                        .ToListAsync(cancellationToken);
-
-                    foreach (var movement in movements)
-                    {
-                        movement.ServerCashSessionId = serverSession.Id;
-                        movement.SyncStatus = SyncQueueStatus.Done;
-                        movement.LastSyncedAtUtc = DateTime.UtcNow;
-                    }
 
                     result.Synced++;
                     result.Messages.Add($"Cash session {session.SessionNumber} closed online.");
@@ -1949,13 +1945,16 @@ namespace Inventory.Ui.Services.Sync
                         cancellationToken);
 
             foreach (var customerTransaction
-                     in customerCreditTransactions)
+          in customerCreditTransactions)
             {
                 customerTransaction.SaleServerId =
                     serverSaleId;
 
                 customerTransaction.SyncStatus =
                     SyncQueueStatus.Done;
+
+                customerTransaction.LastSyncedAtUtc =
+                    synchronizedAtUtc;
             }
 
             /*
@@ -3223,6 +3222,85 @@ namespace Inventory.Ui.Services.Sync
 
             result.Messages.Add(
                 $"Damage {damage.DamageNumber} synchronized successfully.");
+        }
+
+        public async Task<LocalSyncUploadResult>
+     SyncCashSessionClosuresAsync(
+         CancellationToken cancellationToken = default)
+        {
+            var result =
+                new LocalSyncUploadResult();
+
+            var lockAcquired =
+                await LocalDatabaseWriteGate.Semaphore.WaitAsync(
+                    0,
+                    cancellationToken);
+
+            if (!lockAcquired)
+            {
+                result.Skipped++;
+
+                result.Messages.Add(
+                    "A local database operation is already running.");
+
+                return result;
+            }
+
+            try
+            {
+                var tenantId =
+                    CurrentTenantId;
+
+                _db.ChangeTracker.Clear();
+
+                _logger.LogInformation(
+                    "Cash-session closure synchronization started " +
+                    "for tenant {TenantId}.",
+                    tenantId);
+
+                await SyncClosedCashSessionsAsync(result, cancellationToken);
+
+                _logger.LogInformation(
+                    "Cash-session closure synchronization completed. " +
+                    "Synced={Synced}, Failed={Failed}, Skipped={Skipped}.",
+                    result.Synced,
+                    result.Failed,
+                    result.Skipped);
+
+                _db.ChangeTracker.Clear();
+            }
+            catch (OperationCanceledException)
+            {
+                _db.ChangeTracker.Clear();
+
+                throw;
+            }
+            catch (HttpRequestException exception)
+            {
+                _db.ChangeTracker.Clear();
+
+                result.Failed++;
+
+                result.Messages.Add(
+                    "API offline. Cash-session closure stopped.");
+
+                _logger.LogWarning(
+                    exception,
+                    "Cash-session closure synchronization stopped " +
+                    "because the API is unavailable.");
+            }
+            catch
+            {
+                _db.ChangeTracker.Clear();
+
+                throw;
+            }
+            finally
+            {
+                LocalDatabaseWriteGate.Semaphore.Release();
+            }
+
+            return result;
         }
 
         #endregion

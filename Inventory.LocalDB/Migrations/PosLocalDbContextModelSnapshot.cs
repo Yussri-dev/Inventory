@@ -578,7 +578,7 @@ namespace Inventory.LocalDB.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTime>("DeletedAtUtc")
+                    b.Property<DateTime?>("DeletedAtUtc")
                         .HasColumnType("TEXT");
 
                     b.Property<decimal>("EstimatedValue")
@@ -2023,14 +2023,19 @@ namespace Inventory.LocalDB.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("ProductLocalId")
+                        .IsUnique();
+
                     b.HasIndex("TenantId", "ProductLocalId")
                         .IsUnique();
 
-                    b.HasIndex("TenantId", "ProductServerId");
+                    b.HasIndex("TenantId", "ProductServerId")
+                        .IsUnique()
+                        .HasFilter("\"ProductServerId\" IS NOT NULL");
 
                     b.HasIndex("TenantId", "ServerId")
                         .IsUnique()
-                        .HasFilter("ServerId IS NOT NULL");
+                        .HasFilter("\"ServerId\" IS NOT NULL");
 
                     b.ToTable("Stocks");
                 });
@@ -2113,26 +2118,18 @@ namespace Inventory.LocalDB.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("ClientOperationId")
+                    b.HasIndex("ProductLocalId");
+
+                    b.HasIndex("TenantId", "ClientOperationId")
                         .IsUnique();
-
-                    b.HasIndex("TenantId");
-
-                    b.HasIndex("TenantId", "LocalReferenceId");
-
-                    b.HasIndex("TenantId", "ProductLocalId");
-
-                    b.HasIndex("TenantId", "ProductServerId");
 
                     b.HasIndex("TenantId", "ServerId")
                         .IsUnique()
-                        .HasFilter("ServerId IS NOT NULL");
+                        .HasFilter("\"ServerId\" IS NOT NULL");
 
-                    b.HasIndex("TenantId", "ServerReferenceId");
+                    b.HasIndex("TenantId", "LocalReferenceId", "Type");
 
-                    b.HasIndex("TenantId", "SyncStatus");
-
-                    b.HasIndex("TenantId", "Type");
+                    b.HasIndex("TenantId", "ProductLocalId", "SyncStatus");
 
                     b.ToTable("StockMovements");
                 });
@@ -2462,6 +2459,9 @@ namespace Inventory.LocalDB.Migrations
                     b.Property<int>("Attempts")
                         .HasColumnType("INTEGER");
 
+                    b.Property<Guid?>("BatchId")
+                        .HasColumnType("TEXT");
+
                     b.Property<Guid>("ClientOperationId")
                         .HasColumnType("TEXT");
 
@@ -2481,6 +2481,12 @@ namespace Inventory.LocalDB.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<Guid>("LocalEntityId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("LockedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("NextAttemptAtUtc")
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Operation")
@@ -2516,11 +2522,11 @@ namespace Inventory.LocalDB.Migrations
 
                     b.HasIndex("Status");
 
-                    b.HasIndex("TenantId");
+                    b.HasIndex("TenantId", "ClientOperationId");
 
                     b.HasIndex("TenantId", "EntityName", "LocalEntityId");
 
-                    b.HasIndex("TenantId", "Status", "CreatedAtUtc");
+                    b.HasIndex("TenantId", "Status", "CreatedAtUtc", "NextAttemptAtUtc", "Id");
 
                     b.ToTable("SyncQueueItems");
                 });
@@ -2741,6 +2747,28 @@ namespace Inventory.LocalDB.Migrations
                         .IsRequired();
 
                     b.Navigation("LocalSale");
+                });
+
+            modelBuilder.Entity("Inventory.LocalDB.Models.LocalStock", b =>
+                {
+                    b.HasOne("Inventory.LocalDB.Models.LocalProduct", "Product")
+                        .WithOne()
+                        .HasForeignKey("Inventory.LocalDB.Models.LocalStock", "ProductLocalId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Product");
+                });
+
+            modelBuilder.Entity("Inventory.LocalDB.Models.LocalStockMovement", b =>
+                {
+                    b.HasOne("Inventory.LocalDB.Models.LocalProduct", "Product")
+                        .WithMany()
+                        .HasForeignKey("ProductLocalId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Product");
                 });
 
             modelBuilder.Entity("Inventory.LocalDB.Models.LocalCashSession", b =>

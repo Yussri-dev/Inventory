@@ -1,30 +1,31 @@
 ﻿using Inventory.Dto.CustomerTransactions.Results;
 using MediatR;
 
-
 namespace Inventory.Services.Features.CustomerTransactions.RegisterRefund
 {
-    // Handler
     public class RegisterCustomerRefundHandler
-        : IRequestHandler<RegisterCustomerRefundCommand, CustomerTransactionResult>
+        : IRequestHandler<
+            RegisterCustomerRefundCommand,
+            CustomerTransactionResult>
     {
         private readonly CustomerTransactionService _service;
 
-        public RegisterCustomerRefundHandler(CustomerTransactionService service)
+        public RegisterCustomerRefundHandler(
+            CustomerTransactionService service)
         {
             _service = service;
         }
 
-        public async Task<CustomerTransactionResult> Handle(
-            RegisterCustomerRefundCommand request,
+        public Task<CustomerTransactionResult> Handle(
+            RegisterCustomerRefundCommand command,
             CancellationToken cancellationToken)
         {
-            return await _service.RegisterCustomerRefundAsync(
-                request.Request.CustomerId,
-                request.Request.Amount,
-                request.Request.Description,
-                request.Request.IsCash
-            );
+            ArgumentNullException.ThrowIfNull(command);
+            ArgumentNullException.ThrowIfNull(command.Request);
+
+            return _service.RegisterCustomerRefundAsync(
+                command.Request,
+                cancellationToken);
         }
     }
 }

@@ -41,22 +41,22 @@ public partial class App : Application
             return;
         }
 
-        _customerDisplayWindow =
-            new Window(
-                new CustomerDisplayPage())
-            {
-                Title = "Customer Display"
-            };
+        //_customerDisplayWindow =
+        //    new Window(
+        //        new CustomerDisplayPage())
+        //    {
+        //        Title = "Customer Display"
+        //    };
 
-        // Exécuté lorsque la fenêtre native Windows est disponible.
-        _customerDisplayWindow.Created +=
-            OnCustomerDisplayCreated;
+        //// Exécuté lorsque la fenêtre native Windows est disponible.
+        //_customerDisplayWindow.Created +=
+        //    OnCustomerDisplayCreated;
 
-        _customerDisplayWindow.Destroying +=
-            OnCustomerDisplayDestroyed;
+        //_customerDisplayWindow.Destroying +=
+        //    OnCustomerDisplayDestroyed;
 
-        OpenWindow(
-            _customerDisplayWindow);
+        //OpenWindow(
+        //    _customerDisplayWindow);
     }
 
     private void OnCustomerDisplayCreated(

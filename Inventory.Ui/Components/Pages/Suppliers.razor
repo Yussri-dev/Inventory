@@ -5,7 +5,9 @@
 @using Inventory.Dto.Suppliers.Requests
 @using Inventory.Dto.Suppliers.Results
 @using Inventory.LocalDB.Services.Interfaces
+@using Inventory.Ui.Services.Sync
 
+@inject SyncCoordinator SyncCoordinator
 @inject ILocalSupplierService LocalSupplierService
 @inject AppState State
 @implements IDisposable
@@ -457,11 +459,15 @@
             {
                 await LocalSupplierService.CreateAsync(form.ToCreate());
                 await ShowSuccess("Supplier created locally.");
+
+                SyncCoordinator.RequestSync();
             }
             else
             {
                 await LocalSupplierService.UpdateAsync(editingId.Value, form.ToUpdate(editingId.Value));
                 await ShowSuccess("Supplier updated locally.");
+
+                SyncCoordinator.RequestSync();
             }
 
             State.InvalidateSuppliers();
@@ -579,6 +585,8 @@
             await LocalSupplierService.DeleteAsync(supplierToDelete.Id);
 
             await ShowSuccess($"Supplier '{supplierName}' deleted locally.");
+
+            SyncCoordinator.RequestSync();
 
             supplierToDelete = null;
 

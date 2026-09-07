@@ -31,6 +31,7 @@ public sealed class LocalCustomerCreditService
     {
         var tenantId =
             _tenantContext.GetRequiredTenantId();
+
         var customers =
             await _db.Customers
                 .AsNoTracking()

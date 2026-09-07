@@ -2,8 +2,12 @@
 
 @using Inventory.LocalDB.Services.Interfaces
 @using Inventory.LocalDB.Services.Results
+@using Inventory.Ui.Services.Sync
 
 @inject ILocalDamageService LocalDamageService
+@inject SyncCoordinator SyncCoordinator
+
+@inject AppState State
 
 <h3>Damages</h3>
 
@@ -390,34 +394,47 @@
     }
 
     private async Task ValidateAll()
+{
+    try
     {
-        try
-        {
-            isBusy = true;
-            errorMessage = null;
+        isBusy =
+            true;
 
-            var validatedCount =
-                await LocalDamageService
-                    .ValidateAllDraftsAsync();
+        errorMessage =
+            null;
 
-            successMessage =
-                $"{validatedCount} damage(s) validated locally. " +
-                "They will be synchronized when the server is available.";
+        var validatedCount =
+            await LocalDamageService
+                .ValidateAllDraftsAsync();
 
-            await LoadDrafts();
-            ResetProductSelection();
-            await FocusBarcode();
-        }
-        catch (Exception exception)
+        if (validatedCount > 0)
         {
-            errorMessage =
-                exception.Message;
+            State.InvalidatePos();
+
+            SyncCoordinator.RequestSync();
         }
-        finally
-        {
-            isBusy = false;
-        }
+
+        successMessage =
+            $"{validatedCount} damage(s) validated locally. " +
+            "They will be synchronized when the server is available.";
+
+        await LoadDrafts();
+
+        ResetProductSelection();
+
+        await FocusBarcode();
     }
+    catch (Exception exception)
+    {
+        errorMessage =
+            exception.Message;
+    }
+    finally
+    {
+        isBusy =
+            false;
+    }
+}
 
     private void ResetProductSelection()
     {

@@ -526,13 +526,12 @@
              * - produits ;
              * - stocks.
              */
-            await LocalDataBootstrap
-                .EnsureCriticalDataAsync(
-                    timeoutCancellation.Token);
+            await LocalDataBootstrap.EnsureCriticalDataAsync(timeoutCancellation.Token);
 
-            hasCriticalData =
-                await HasCriticalOfflineDataAsync();
+            // LocalDataBootstrap.NotifyAuthenticatedTenantReady();
+            hasCriticalData = await HasCriticalOfflineDataAsync();
 
+            
             if (!hasCriticalData)
             {
                 throw new InvalidOperationException(

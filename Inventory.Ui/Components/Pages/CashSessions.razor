@@ -12,6 +12,7 @@
 @inject ICashSessionReconciliationService CashSessionReconciliation
 @inject ILocalSyncUploader LocalSyncUploader
 @inject NavigationManager Navigation
+@inject SyncCoordinator SyncCoordinator
 
 <div class="cash-session-container">
 
@@ -544,6 +545,8 @@
     protected override async Task OnInitializedAsync()
     {
         await LoadData();
+
+        SyncCoordinator.SyncNow();
     }
 
     private async Task LoadData()
@@ -842,6 +845,9 @@
 
                     closingNotes:
                         ClosingNotes);
+
+
+            SyncCoordinator.SyncNow();
 
             SuccessMessage =
                 $"Cash session " +

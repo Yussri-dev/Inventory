@@ -1,4 +1,6 @@
-﻿namespace Inventory.LocalDB.Models
+﻿using System.ComponentModel.DataAnnotations;
+
+namespace Inventory.LocalDB.Models
 {
     public class SyncQueueItem : ILocalTenantEntity
     {
@@ -14,7 +16,8 @@
         public string Operation { get; set; } = SyncOperation.Create;
         // Create, Update, Delete, Submit
 
-        public string PayloadJson { get; set; } = string.Empty;
+        [Required]
+        public required string PayloadJson { get; set; } 
 
         public string Status { get; set; } = SyncQueueStatus.Pending;
         // Pending, Processing, Done, Failed, Conflict
@@ -30,5 +33,11 @@
         public DateTime? ProcessedAtUtc { get; set; }
 
         public Guid ClientOperationId { get; set; } = Guid.NewGuid();
+
+        // Sync by Lot batch 
+        public DateTime? NextAttemptAtUtc { get; set; }
+        public Guid? BatchId { get; set; }
+
+        public DateTime? LockedAtUtc {  get; set; }
     }
 }

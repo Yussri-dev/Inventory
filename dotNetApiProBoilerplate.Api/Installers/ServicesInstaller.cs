@@ -4,6 +4,8 @@ using Inventory.Services;
 using Inventory.Services.Abstractions;
 using Inventory.Services.Behaviors;
 using Inventory.Services.Context;
+using Inventory.Services.Handlers;
+using Inventory.Services.Sync;
 using Inventory.Services.Ticket;
 using MediatR;
 
@@ -74,6 +76,22 @@ namespace Inventory.Api.Installers
             builder.Services.AddHttpContextAccessor();
             builder.Services.AddScoped<ITenantContext, TenantContext>();
 
+            builder.Services.AddScoped<ISyncOperationExecutor, SyncOperationExecutor>();
+
+            builder.Services.AddScoped<ISyncBatchOperationExecutor, SyncBatchOperationExecutor>();
+
+            builder.Services.AddScoped<ISyncBatchOperationHandler, CustomerSyncBatchOperationHandler>();
+            builder.Services.AddScoped<ISyncBatchOperationHandler, SupplierSyncBatchOperationHandler>();
+            builder.Services.AddScoped<ISyncBatchOperationHandler, ProductSyncBatchOperationHandler>();
+            builder.Services.AddScoped<ISyncBatchOperationHandler, DamageSyncBatchOperationHandler>();
+            builder.Services.AddScoped<ISyncBatchOperationHandler, StockMovementSyncBatchOperationHandler>();
+
+            builder.Services.AddScoped<ISyncOperationHandler, SupplierSyncOperationHandler>();
+            builder.Services.AddScoped<ISyncOperationHandler, CustomerSyncOperationHandler>();
+            builder.Services.AddScoped<ISyncOperationHandler, ProductSyncOperationHandler>();
+            builder.Services.AddScoped<ISyncOperationHandler, SaleSyncOperationHandler>();
+
+            builder.Services.AddScoped<ISyncBatchService, SyncBatchService>();
             return builder;
         }
     }

@@ -21,22 +21,17 @@ public sealed class LocalStockSyncService
 
     private readonly PosLocalDbContext _db;
     private readonly IStockApi _stockApi;
-    private readonly ILocalStockMovementUploadService
-        _stockMovementUploadService;
     private readonly ILocalTenantContext _tenantContext;
     private readonly ILogger<LocalStockSyncService> _logger;
 
     public LocalStockSyncService(
         PosLocalDbContext db,
         IStockApi stockApi,
-        ILocalStockMovementUploadService stockMovementUploadService,
         ILocalTenantContext tenantContext,
         ILogger<LocalStockSyncService> logger)
     {
         _db = db;
         _stockApi = stockApi;
-        _stockMovementUploadService =
-            stockMovementUploadService;
         _tenantContext = tenantContext;
         _logger = logger;
     }
@@ -49,27 +44,11 @@ public sealed class LocalStockSyncService
 
         try
         {
-            /*
-             * Push manual local stock adjustments before pulling
-             * authoritative stock values from the server.
-             */
-            var adjustmentUpload =
-                await _stockMovementUploadService
-                    .SyncPendingAsync(
-                        cancellationToken);
 
-            if (adjustmentUpload.Failed > 0)
-            {
-                _logger.LogWarning(
-                    "Stock adjustment upload finished with {Failed} " +
-                    "failure(s). Local stocks with pending adjustment " +
-                    "queues will be protected from server overwrite.",
-                    adjustmentUpload.Failed);
-            }
+            var downloadStartedAtUtc = DateTime.UtcNow;
 
-            /*
-             * Download stocks before opening the SQLite transaction.
-             */
+            var protectedBeforeDownload = await GetProtectedProductLocalIdsAsync(tenantId, cancellationToken);
+
             var serverStocks =
                 await DownloadAllStocksAsync(
                     cancellationToken);
@@ -115,10 +94,9 @@ public sealed class LocalStockSyncService
                             stock.TenantId == tenantId)
                         .ToListAsync(cancellationToken);
 
-                var protectedProductLocalIds =
-                    await GetProtectedProductLocalIdsAsync(
-                        tenantId,
-                        cancellationToken);
+                var protectedProductLocalIds = protectedBeforeDownload;
+
+                protectedProductLocalIds.UnionWith(await GetProtectedProductLocalIdsAsync(tenantId, cancellationToken));
 
                 var stocksByServerId =
                     localStocks
@@ -185,8 +163,11 @@ public sealed class LocalStockSyncService
                         localStocks.Add(localStock);
                     }
 
+                    var localStockChangedDuringDownload = localStock.LastUpdatedUtc >= downloadStartedAtUtc;
+
                     if (protectedProductLocalIds.Contains(
-                            localProduct.Id))
+                            localProduct.Id) ||
+                        localStockChangedDuringDownload)
                     {
                         /*
                          * A pending/conflicted local adjustment still
@@ -563,7 +544,6 @@ public sealed class LocalStockSyncService
         localStock.ProductBarcode =
             localProduct.Barcode;
     }
-
     private async Task<HashSet<Guid>>
         GetProtectedProductLocalIdsAsync(
             Guid tenantId,
@@ -572,7 +552,13 @@ public sealed class LocalStockSyncService
         const string stockMovementEntityName =
             "StockMovement";
 
-        var queueMovementIds =
+        const string damageEntityName =
+            "Damage";
+
+        var protectedProductIds =
+            new HashSet<Guid>();
+
+        var movementIds =
             await _db.SyncQueueItems
                 .AsNoTracking()
                 .Where(item =>
@@ -586,26 +572,59 @@ public sealed class LocalStockSyncService
                 .ToListAsync(
                     cancellationToken);
 
-        if (queueMovementIds.Count ==
-            0)
+        if (movementIds.Count > 0)
         {
-            return new HashSet<Guid>();
+            var movementProductIds =
+                await _db.StockMovements
+                    .AsNoTracking()
+                    .Where(movement =>
+                        movement.TenantId == tenantId &&
+                        movementIds.Contains(
+                            movement.Id))
+                    .Select(movement =>
+                        movement.ProductLocalId)
+                    .Distinct()
+                    .ToListAsync(
+                        cancellationToken);
+
+            protectedProductIds.UnionWith(
+                movementProductIds);
         }
 
-        var productIds =
-            await _db.StockMovements
+        var damageIds =
+            await _db.SyncQueueItems
                 .AsNoTracking()
-                .Where(movement =>
-                    movement.TenantId == tenantId &&
-                    queueMovementIds.Contains(
-                        movement.Id))
-                .Select(movement =>
-                    movement.ProductLocalId)
-                .Distinct()
+                .Where(item =>
+                    item.TenantId == tenantId &&
+                    item.EntityName ==
+                        damageEntityName &&
+                    item.Status !=
+                        SyncQueueStatus.Done)
+                .Select(item =>
+                    item.LocalEntityId)
                 .ToListAsync(
                     cancellationToken);
 
-        return productIds.ToHashSet();
+        if (damageIds.Count > 0)
+        {
+            var damageProductIds =
+                await _db.Damages
+                    .AsNoTracking()
+                    .Where(damage =>
+                        damage.TenantId == tenantId &&
+                        damageIds.Contains(
+                            damage.Id))
+                    .Select(damage =>
+                        damage.ProductLocalId)
+                    .Distinct()
+                    .ToListAsync(
+                        cancellationToken);
+
+            protectedProductIds.UnionWith(
+                damageProductIds);
+        }
+
+        return protectedProductIds;
     }
 
     private async Task MarkSyncSucceededAsync(

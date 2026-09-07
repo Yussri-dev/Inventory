@@ -151,36 +151,52 @@ namespace Inventory.Ui.Services
         }
 
         public async Task UpsertAsync(
-            ProductCatalogResult catalog,
-            CancellationToken cancellationToken = default)
+     ProductCatalogResult catalog,
+     CancellationToken cancellationToken = default)
         {
-            ArgumentNullException.ThrowIfNull(catalog);
+            ArgumentNullException.ThrowIfNull(
+                catalog);
 
-            cancellationToken.ThrowIfCancellationRequested();
+            cancellationToken
+                .ThrowIfCancellationRequested();
 
-            var localCatalog = await _db.ProductCatalogs
-                .FirstOrDefaultAsync(
-                    x => x.Id == catalog.Id,
-                    cancellationToken);
+            var localCatalog =
+                await _db.ProductCatalogs
+                    .Include(item =>
+                        item.PackComponents)
+                    .FirstOrDefaultAsync(
+                        item =>
+                            item.Id == catalog.Id,
+                        cancellationToken);
 
             if (localCatalog == null)
             {
-                localCatalog = new LocalProductCatalog
-                {
-                    Id = catalog.Id
-                };
+                localCatalog =
+                    new LocalProductCatalog
+                    {
+                        Id =
+                            catalog.Id
+                    };
 
                 await _db.ProductCatalogs.AddAsync(
                     localCatalog,
                     cancellationToken);
             }
 
+            var now =
+                DateTime.UtcNow;
+
             MapToLocal(
                 catalog,
                 localCatalog,
-                DateTime.UtcNow);
+                now);
 
-            await _db.SaveChangesAsync(cancellationToken);
+            SyncPackComponents(
+                catalog,
+                localCatalog);
+
+            await _db.SaveChangesAsync(
+                cancellationToken);
         }
 
         public async Task MarkDeletedAsync(

@@ -50,14 +50,11 @@ public sealed class LocalDamage : ILocalTenantEntity
 
     [Required]
     [MaxLength(50)]
-    public string SyncStatus { get; set; } =
-        SyncQueueStatus.Done;
+    public string SyncStatus { get; set; } = SyncQueueStatus.Done;
 
-    public DateTime CreatedAtUtc { get; set; } =
-        DateTime.UtcNow;
+    public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
 
-    public DateTime DeletedAtUtc { get; set; } =
-       DateTime.UtcNow;
+    public DateTime? DeletedAtUtc { get; set; }
 
     public DateTime? ModifiedAtUtc { get; set; }
 

@@ -409,12 +409,15 @@ namespace Inventory.Infrastructure.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<decimal>("Amount")
+                        .HasPrecision(18, 2)
                         .HasColumnType("decimal(18,2)");
 
                     b.Property<decimal>("BalanceAfter")
+                        .HasPrecision(18, 2)
                         .HasColumnType("decimal(18,2)");
 
                     b.Property<decimal>("BalanceBefore")
+                        .HasPrecision(18, 2)
                         .HasColumnType("decimal(18,2)");
 
                     b.Property<Guid?>("CashSessionId")
@@ -476,7 +479,12 @@ namespace Inventory.Infrastructure.Migrations
 
                     b.HasIndex("SaleId");
 
-                    b.HasIndex("TenantId");
+                    b.HasIndex("TenantId", "CashSessionId");
+
+                    b.HasIndex("TenantId", "ClientOperationId")
+                        .IsUnique();
+
+                    b.HasIndex("TenantId", "CustomerId", "TransactionDate");
 
                     b.ToTable("CustomerTransactions");
                 });
@@ -2690,6 +2698,97 @@ namespace Inventory.Infrastructure.Migrations
                     b.ToTable("SupplierReturnLines");
                 });
 
+            modelBuilder.Entity("Inventory.Domain.Models.SyncOperationRecord", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("BatchId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ClientOperationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("CreatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("DeletedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("EntityName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("ErrorMessage")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<Guid>("LocalEntityId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("ModifiedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ModifiedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Operation")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("PayloadHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTime?>("ProcessedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("QueueItemId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("ReceivedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ServerEntityId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ServerReferenceNumber")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "BatchId");
+
+                    b.HasIndex("TenantId", "ClientOperationId")
+                        .IsUnique();
+
+                    b.HasIndex("TenantId", "Status", "ReceivedAtUtc");
+
+                    b.ToTable("SyncOperationRecords", (string)null);
+                });
+
             modelBuilder.Entity("Inventory.Domain.Models.SystemConfiguration", b =>
                 {
                     b.Property<Guid>("Id")
@@ -3312,7 +3411,8 @@ namespace Inventory.Infrastructure.Migrations
                 {
                     b.HasOne("Inventory.Domain.Entities.CashSession", "CashSession")
                         .WithMany()
-                        .HasForeignKey("CashSessionId");
+                        .HasForeignKey("CashSessionId")
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("Inventory.Domain.Entities.Customer", "Customer")
                         .WithMany("Transactions")
@@ -3920,6 +4020,17 @@ namespace Inventory.Infrastructure.Migrations
                     b.Navigation("Product");
 
                     b.Navigation("SupplierReturn");
+
+                    b.Navigation("Tenant");
+                });
+
+            modelBuilder.Entity("Inventory.Domain.Models.SyncOperationRecord", b =>
+                {
+                    b.HasOne("Inventory.Domain.Models.Tenant", "Tenant")
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
 
                     b.Navigation("Tenant");
                 });

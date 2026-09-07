@@ -12,30 +12,76 @@ namespace Inventory.Services.Mapper
             // =========================
             // CREATE
             // =========================
-            CreateMap<CreateCustomerTransactionRequest, CustomerTransaction>()
-                .ForMember(dest => dest.Id, opt => opt.Ignore())
-                .ForMember(dest => dest.TransactionDate, opt => opt.Ignore())
-                // Navigation
-                .ForMember(dest => dest.Customer, opt => opt.Ignore());
+            CreateMap<
+                    CreateCustomerTransactionRequest,
+                    CustomerTransaction>()
+                .ForMember(
+                    destination => destination.Id,
+                    options => options.Ignore())
+                .ForMember(
+                    destination => destination.ClientOperationId,
+                    options => options.Ignore())
+                .ForMember(
+                    destination => destination.TransactionDate,
+                    options => options.Ignore())
+                .ForMember(
+                    destination => destination.CashSessionId,
+                    options => options.Ignore())
+                .ForMember(
+                    destination => destination.IsCash,
+                    options => options.Ignore())
+                .ForMember(
+                    destination => destination.Customer,
+                    options => options.Ignore())
+                .ForMember(
+                    destination => destination.CashSession,
+                    options => options.Ignore());
 
             // =========================
             // UPDATE
             // =========================
-            CreateMap<UpdateCustomerTransactionRequest, CustomerTransaction>()
-                .ForMember(dest => dest.Id, opt => opt.Ignore())
-                .ForMember(dest => dest.TransactionDate, opt => opt.Ignore())
-                // Navigation
-                .ForMember(dest => dest.Customer, opt => opt.Ignore())
-                // Strings — update contrôlé
-                .ForMember(dest => dest.Description,
-                    opt => opt.Condition(src => src.Description != null));
+            CreateMap<
+                    UpdateCustomerTransactionRequest,
+                    CustomerTransaction>()
+                .ForMember(
+                    destination => destination.Id,
+                    options => options.Ignore())
+                .ForMember(
+                    destination => destination.ClientOperationId,
+                    options => options.Ignore())
+                .ForMember(
+                    destination => destination.TransactionDate,
+                    options => options.Ignore())
+                .ForMember(
+                    destination => destination.CashSessionId,
+                    options => options.Ignore())
+                .ForMember(
+                    destination => destination.IsCash,
+                    options => options.Ignore())
+                .ForMember(
+                    destination => destination.Customer,
+                    options => options.Ignore())
+                .ForMember(
+                    destination => destination.CashSession,
+                    options => options.Ignore())
+                .ForMember(
+                    destination => destination.Description,
+                    options => options.Condition(
+                        source => source.Description != null));
 
             // =========================
             // RESULT
             // =========================
-            CreateMap<CustomerTransaction, CustomerTransactionResult>()
-                .ForMember(dest => dest.CustomerName,
-                    opt => opt.MapFrom(src => src.Customer != null ? src.Customer.Name : null));
+            CreateMap<
+                    CustomerTransaction,
+                    CustomerTransactionResult>()
+                .ForMember(
+                    destination => destination.CustomerName,
+                    options => options.MapFrom(
+                        source =>
+                            source.Customer != null
+                                ? source.Customer.Name
+                                : string.Empty));
         }
     }
 }

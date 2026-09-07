@@ -7,6 +7,7 @@ using Inventory.LocalDB.Context;
 using Inventory.LocalDB.Models;
 using Inventory.LocalDB.Services.Interfaces;
 using Microsoft.EntityFrameworkCore;
+using System.Text.Json;
 
 namespace Inventory.LocalDB.Services;
 
@@ -143,7 +144,7 @@ public sealed class LocalProductService : ILocalProductService
 
         await EnsureQueueItemAsync(
             tenantId,
-            product.Id,
+            product,
             SyncOperation.Create,
             cancellationToken);
 
@@ -214,7 +215,7 @@ public sealed class LocalProductService : ILocalProductService
         {
             await EnsureQueueItemAsync(
                 tenantId,
-                product.Id,
+                product,
                 SyncOperation.Update,
                 cancellationToken);
         }
@@ -222,7 +223,7 @@ public sealed class LocalProductService : ILocalProductService
         {
             await EnsureQueueItemAsync(
                 tenantId,
-                product.Id,
+                product,
                 SyncOperation.Create,
                 cancellationToken);
         }
@@ -282,7 +283,7 @@ public sealed class LocalProductService : ILocalProductService
 
             await EnsureQueueItemAsync(
                 tenantId,
-                product.Id,
+                product,
                 SyncOperation.Delete,
                 cancellationToken);
         }
@@ -350,13 +351,14 @@ public sealed class LocalProductService : ILocalProductService
             await productsQuery.CountAsync(
                 cancellationToken);
 
-        var items = await productsQuery
-            .OrderBy(x => x.Name)
-            .ThenBy(x => x.Barcode)
-            .Skip((page - 1) * pageSize)
-            .Take(pageSize)
-            .Select(x => ToResult(x))
-            .ToListAsync(cancellationToken);
+        var entities = await productsQuery
+             .OrderBy(x => x.Name)
+             .ThenBy(x => x.Barcode)
+             .Skip((page - 1) * pageSize)
+             .Take(pageSize)
+             .ToListAsync(cancellationToken);          
+
+        var items = entities.Select(ToResult).ToList();
 
         return new PagedResult<ProductResult>
         {
@@ -373,15 +375,14 @@ public sealed class LocalProductService : ILocalProductService
         var tenantId =
             _tenantContext.GetRequiredTenantId();
 
-        return await _db.Products
+        var entities = await _db.Products
             .AsNoTracking()
-            .Where(x =>
-                x.TenantId == tenantId &&
-                !x.IsDeletedLocally)
+            .Where(x => x.TenantId == tenantId && !x.IsDeletedLocally)
             .OrderBy(x => x.Name)
             .ThenBy(x => x.Barcode)
-            .Select(x => ToResult(x))
             .ToListAsync(cancellationToken);
+
+        return entities.Select(ToResult).ToList();
     }
 
     public async Task<LocalProduct?> GetByBarcodeAsync(
@@ -607,10 +608,18 @@ public sealed class LocalProductService : ILocalProductService
 
     private async Task EnsureQueueItemAsync(
         Guid tenantId,
-        Guid localEntityId,
+        LocalProduct product,
         string operation,
         CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(
+            product);
+
+        var payloadJson =
+            BuildSyncPayloadJson(
+                product,
+                operation);
+
         /*
          * Une modification d'un produit qui possède encore une création
          * Pending n'a pas besoin d'un élément Update supplémentaire.
@@ -619,17 +628,45 @@ public sealed class LocalProductService : ILocalProductService
         if (operation == SyncOperation.Update)
         {
             var pendingCreate =
-                await _db.SyncQueueItems.AnyAsync(
+                await _db.SyncQueueItems.FirstOrDefaultAsync(
                     x =>
                         x.TenantId == tenantId &&
-                        x.LocalEntityId == localEntityId &&
+                        x.LocalEntityId == product.Id &&
                         x.EntityName == ProductEntityName &&
                         x.Operation == SyncOperation.Create &&
                         x.Status != SyncQueueStatus.Done,
                     cancellationToken);
 
-            if (pendingCreate)
+            if (pendingCreate != null)
+            {
+                pendingCreate.PayloadJson =
+                    BuildSyncPayloadJson(
+                        product,
+                        SyncOperation.Create);
+
+                pendingCreate.ServerEntityId =
+                    product.ServerId;
+
+                pendingCreate.Status =
+                    SyncQueueStatus.Pending;
+
+                pendingCreate.ErrorMessage =
+                    null;
+
+                pendingCreate.ProcessedAtUtc =
+                    null;
+
+                pendingCreate.NextAttemptAtUtc =
+                    null;
+
+                pendingCreate.BatchId =
+                    null;
+
+                pendingCreate.LockedAtUtc =
+                    null;
+
                 return;
+            }
         }
 
         var existing =
@@ -637,7 +674,7 @@ public sealed class LocalProductService : ILocalProductService
                 .FirstOrDefaultAsync(
                     x =>
                         x.TenantId == tenantId &&
-                        x.LocalEntityId == localEntityId &&
+                        x.LocalEntityId == product.Id &&
                         x.EntityName == ProductEntityName &&
                         x.Operation == operation &&
                         x.Status != SyncQueueStatus.Done,
@@ -648,8 +685,26 @@ public sealed class LocalProductService : ILocalProductService
             existing.Status =
                 SyncQueueStatus.Pending;
 
-            existing.ErrorMessage = null;
-            existing.ProcessedAtUtc = null;
+            existing.ServerEntityId =
+                product.ServerId;
+
+            existing.PayloadJson =
+                payloadJson;
+
+            existing.ErrorMessage =
+                null;
+
+            existing.ProcessedAtUtc =
+                null;
+
+            existing.NextAttemptAtUtc =
+                null;
+
+            existing.BatchId =
+                null;
+
+            existing.LockedAtUtc =
+                null;
 
             return;
         }
@@ -665,13 +720,19 @@ public sealed class LocalProductService : ILocalProductService
                     Guid.NewGuid(),
 
                 LocalEntityId =
-                    localEntityId,
+                    product.Id,
+
+                ServerEntityId =
+                    product.ServerId,
 
                 EntityName =
                     ProductEntityName,
 
                 Operation =
                     operation,
+
+                PayloadJson =
+                    payloadJson,
 
                 Status =
                     SyncQueueStatus.Pending,
@@ -682,6 +743,97 @@ public sealed class LocalProductService : ILocalProductService
                     DateTime.UtcNow
             },
             cancellationToken);
+    }
+
+    private static string BuildSyncPayloadJson(
+        LocalProduct product,
+        string operation)
+    {
+        if (operation == SyncOperation.Create)
+        {
+            if (!product.CatalogProductId.HasValue ||
+                product.CatalogProductId.Value == Guid.Empty)
+            {
+                throw new InvalidOperationException(
+                    "CatalogProductId is required for Product Create.");
+            }
+
+            return JsonSerializer.Serialize(
+                new CreateProductRequest
+                {
+                    CatalogProductId =
+                        product.CatalogProductId.Value,
+
+                    SalePrice =
+                        product.SalePrice,
+
+                    SalePrice2 =
+                        product.SalePrice2,
+
+                    SalePrice3 =
+                        product.SalePrice3,
+
+                    PurchasePrice =
+                        product.PurchasePrice,
+
+                    VatRate =
+                        product.VatRate,
+
+                    MinStockLevel =
+                        product.MinStockLevel,
+
+                    MaxStockLevel =
+                        product.MaxStockLevel,
+
+                    IsTracked =
+                        product.IsTracked,
+
+                    IsActive =
+                        product.Status
+                });
+        }
+
+        if (operation == SyncOperation.Update)
+        {
+            return JsonSerializer.Serialize(
+                new UpdateProductRequest
+                {
+                    SalePrice =
+                        product.SalePrice,
+
+                    SalePrice2 =
+                        product.SalePrice2,
+
+                    SalePrice3 =
+                        product.SalePrice3,
+
+                    PurchasePrice =
+                        product.PurchasePrice,
+
+                    VatRate =
+                        product.VatRate,
+
+                    MinStockLevel =
+                        product.MinStockLevel,
+
+                    MaxStockLevel =
+                        product.MaxStockLevel,
+
+                    IsTracked =
+                        product.IsTracked,
+
+                    IsActive =
+                        product.Status
+                });
+        }
+
+        if (operation == SyncOperation.Delete)
+        {
+            return "{}";
+        }
+
+        throw new InvalidOperationException(
+            $"Unsupported Product operation '{operation}'.");
     }
 
     private async Task MarkOtherOperationsAsCompletedAsync(

@@ -1,4 +1,6 @@
-﻿using Inventory.LocalDB.Context;
+﻿using Inventory.Dto.Enums;
+using Inventory.Dto.StockMouvements.Requests;
+using Inventory.LocalDB.Context;
 using Inventory.LocalDB.Models;
 using Inventory.LocalDB.Services.Interfaces;
 using Microsoft.EntityFrameworkCore;
@@ -141,6 +143,18 @@ namespace Inventory.Ui.Services
                     ?? throw new KeyNotFoundException(
                         "The local product linked to this stock was not found.");
 
+                var productServerId =
+                    stock.ProductServerId ??
+                    product.ServerId ??
+                    Guid.Empty;
+
+                if (productServerId == Guid.Empty)
+                {
+                    throw new InvalidOperationException(
+                        "The product must be synchronized before its " +
+                        "stock can be adjusted.");
+                }
+
                 var quantityBefore =
                     RoundQuantity(
                         stock.Quantity);
@@ -159,8 +173,9 @@ namespace Inventory.Ui.Services
                     return stock;
                 }
 
-                var now =
-                    DateTime.UtcNow;
+                var now = DateTime.UtcNow;
+
+                stock.ProductServerId = productServerId;
 
                 stock.Quantity =
                     quantityAfter;
@@ -189,10 +204,7 @@ namespace Inventory.Ui.Services
                         ProductLocalId =
                             stock.ProductLocalId,
 
-                        ProductServerId =
-                            stock.ProductServerId ??
-                            product.ServerId ??
-                            Guid.Empty,
+                        ProductServerId = productServerId,
 
                         ProductName =
                             string.IsNullOrWhiteSpace(
@@ -246,21 +258,16 @@ namespace Inventory.Ui.Services
                 _db.StockMovements.Add(
                     movement);
 
-                var payloadJson =
-                    JsonSerializer.Serialize(
-                        new
-                        {
-                            movement.Id,
-                            movement.ClientOperationId,
-                            movement.ProductLocalId,
-                            movement.ProductServerId,
-                            movement.QuantityChange,
-                            movement.QuantityBefore,
-                            movement.QuantityAfter,
-                            movement.Type,
-                            movement.Notes,
-                            movement.MovementDateUtc
-                        });
+                var payloadJson = JsonSerializer.Serialize(new CreateStockMouvementRequest
+                {
+                    ProductId = movement.ProductServerId,
+
+                    QuantityChange = movement.QuantityChange,
+
+                    Type = StockMovementType.Adjustment,
+
+                    Notes = movement.Notes
+                });
 
                 _db.SyncQueueItems.Add(
                     new SyncQueueItem
