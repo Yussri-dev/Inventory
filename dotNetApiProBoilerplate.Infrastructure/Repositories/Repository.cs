@@ -28,7 +28,8 @@ namespace Inventory.Infrastructure.Repositories
 
         public async Task<T?> GetByIdAsync(Guid id)
         {
-            return await _dbSet.FindAsync(id);
+            // FindAsync can return an already tracked entity without applying query filters.
+            return await _dbSet.FirstOrDefaultAsync(entity => EF.Property<Guid>(entity, "Id") == id);
         }
 
         public async Task<List<T>> GetAllAsync()

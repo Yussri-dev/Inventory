@@ -12,7 +12,7 @@ public sealed class LocalPurchaseService
     : ILocalPurchaseService
 {
     private const string PurchaseEntityName = "Purchase";
-    private const string PurchaseMovementType = "Purchase";
+    private const Inventory.Dto.Enums.StockMovementType PurchaseMovementType = Inventory.Dto.Enums.StockMovementType.Purchase;
 
     private readonly PosLocalDbContext _db;
     private readonly ILocalTenantContext _tenantContext;

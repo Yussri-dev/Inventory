@@ -792,6 +792,28 @@ namespace Inventory.Services
                     });
             }
 
+            var paidAmount = Math.Round(request.Payment?.Amount ?? 0m, 2, MidpointRounding.AwayFromZero);
+            supplier.CurrentBalance += totalInclVat - paidAmount;
+            supplier.ModifiedAt = now;
+            _supplierRepository.Update(supplier);
+            await _supplierTransactionRepository.AddAsync(new SupplierTransaction
+            {
+                Id = Guid.NewGuid(), TenantId = tenantId, SupplierId = supplier.Id,
+                PurchaseId = purchase.Id, Type = SupplierTransactionType.Purchase,
+                Amount = totalInclVat, TransactionDate = purchaseDate,
+                ReferenceNumber = purchase.PurchaseNumber, CreatedAt = now, ModifiedAt = now
+            });
+            if (paidAmount > 0)
+            {
+                await _supplierTransactionRepository.AddAsync(new SupplierTransaction
+                {
+                    Id = Guid.NewGuid(), TenantId = tenantId, SupplierId = supplier.Id,
+                    PurchaseId = purchase.Id, Type = SupplierTransactionType.Payment,
+                    Amount = paidAmount, TransactionDate = now,
+                    ReferenceNumber = purchase.PurchaseNumber, CreatedAt = now, ModifiedAt = now
+                });
+            }
+
             try
             {
                 /*

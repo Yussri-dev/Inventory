@@ -1,7 +1,8 @@
 ﻿@page "/dashboard"
 @using Inventory.Dto.Analytics.Results
 @using System.Globalization
-@inject IAnalyticsApi AnalyticsApi
+@using Inventory.Ui.Services.Analytics
+@inject ILocalAnalyticsService LocalAnalyticsService
 @inject IJSRuntime JS
 @implements IAsyncDisposable
 
@@ -17,7 +18,7 @@
             @foreach (var p in Enum.GetValues<Period>())
             {
                 <button class="pill @(period == p ? "active" : "")"
-                        @onclick="() => SelectPeriod(p)">
+                        disabled="@isLoading" @onclick="() => SelectPeriod(p)">
                     @PeriodLabel(p)
                 </button>
             }
@@ -30,6 +31,11 @@
             <div class="spinner"></div>
             <span>Loading analytics...</span>
         </div>
+    }
+    else if (loadError != null)
+    {
+        <div role="alert">@loadError</div>
+        <button @onclick="LoadAll">Retry</button>
     }
     else
     {
@@ -190,12 +196,13 @@
 @code {
     Period period = Period.Month;
     bool isLoading = true;
+    string? loadError;
 
     ProfitAnalyticsResult? profit;
     List<LossProductResult>? lossProducts;
     WeeklyReportResult? weekly;
 
-    // Simulated daily data — replace with real endpoint when available
+    // Values calculated from the local store database.
     List<(string Day, decimal Amount)> dailySales = new();
     List<(string Method, decimal Amount)> paymentBreakdown = new();
 
@@ -208,7 +215,7 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (!isLoading && !chartsRendered)
+        if (!isLoading && loadError == null && !chartsRendered)
         {
             chartsRendered = true;
             await RenderCharts();
@@ -217,7 +224,9 @@
 
     async Task LoadAll()
     {
+        if (isLoading && profit != null) return;
         isLoading = true;
+        loadError = null;
         chartsRendered = false;
         StateHasChanged();
 
@@ -225,17 +234,17 @@
 
         try
         {
-            profit = await AnalyticsApi.GetProfitAsync(from, to);
-            lossProducts = (await AnalyticsApi.GetLossProductsAsync(from, to)).Items ?? new List<LossProductResult>();
-            weekly = await AnalyticsApi.GetWeeklyAsync();
+            profit = await LocalAnalyticsService.GetProfitAsync(from, to);
+            lossProducts = await LocalAnalyticsService.GetLossProductsAsync(from, to);
+            weekly = await LocalAnalyticsService.GetWeeklyAsync(from, to);
 
-            BuildDailyData(from, to);
+            await BuildDailyData(from, to);
         }
         catch (Exception ex)
         {
             var details = ex.ToString();
             Console.WriteLine(details);
-            await JS.InvokeVoidAsync("alert", details);
+            loadError = "Unable to load this store's local data. Please try again.";
         }
         finally
         {
@@ -244,38 +253,15 @@
         }
     }
 
-    void BuildDailyData(DateOnly? from, DateOnly? to)
+    async Task BuildDailyData(DateOnly from, DateOnly to)
     {
-        var start = from ?? DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-30));
-        var end = to ?? DateOnly.FromDateTime(DateTime.UtcNow);
-
-        if (end < start)
-        {
-            var tmp = start;
-            start = end;
-            end = tmp;
-        }
-
-        var days = Math.Max(1, (end.DayNumber - start.DayNumber) + 1);
-        var totalRevenue = profit?.TotalRevenue ?? 0m;
-
-        dailySales = new();
-        var rng = new Random(42);
-
-        for (int i = 0; i < Math.Min(days, 30); i++)
-        {
-            var d = start.AddDays(i);
-            var label = days <= 7 ? d.ToString("ddd") : d.ToString("dd/MM");
-            var share = (decimal)(rng.NextDouble() * 2);
-            dailySales.Add((label, Math.Round((totalRevenue / days) * share, 2)));
-        }
-
+        var daily = await LocalAnalyticsService.GetDailyRevenueAsync(from, to);
+        dailySales = daily.Select(x => (x.Key.ToString("dd/MM"), x.Value)).ToList();
+        var summary = await LocalAnalyticsService.GetDashboardSummaryAsync(from, to);
         paymentBreakdown = new()
-    {
-        ("Cash", profit?.TotalRevenue * 0.55m ?? 0),
-        ("Card", profit?.TotalRevenue * 0.35m ?? 0),
-        ("Credit", profit?.TotalRevenue * 0.10m ?? 0),
-    };
+        {
+            ("Cash", summary.CashRevenue), ("Card", summary.CardRevenue), ("Credit", summary.CreditRevenue)
+        };
     }
 
     async Task RenderCharts()
@@ -316,16 +302,16 @@
         await LoadAll();
     }
 
-    (DateOnly? from, DateOnly? to) GetPeriod()
+    (DateOnly from, DateOnly to) GetPeriod()
     {
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = DateOnly.FromDateTime(DateTime.Now);
         return period switch
         {
             Period.Today => (today, today),
-            Period.Week => (today.AddDays(-7), today),
+            Period.Week => (today.AddDays(-(((int)today.DayOfWeek + 6) % 7)), today),
             Period.Month => (new DateOnly(today.Year, today.Month, 1), today),
             Period.Year => (new DateOnly(today.Year, 1, 1), today),
-            _ => (null, null)
+            _ => (today, today)
         };
     }
 

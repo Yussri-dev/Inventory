@@ -1,4 +1,5 @@
-﻿using System.ComponentModel.DataAnnotations;
+﻿using Inventory.Dto.Enums;
+using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Inventory.LocalDB.Models
@@ -45,7 +46,7 @@ namespace Inventory.LocalDB.Models
 
         [Required]
         [MaxLength(50)]
-        public string RefundMethod { get; set; } = string.Empty;
+        public RefundMethod RefundMethod { get; set; }
 
         [MaxLength(1000)]
         public string? Reason { get; set; }

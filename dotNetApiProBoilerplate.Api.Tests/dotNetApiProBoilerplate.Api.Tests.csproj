@@ -8,6 +8,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.TestHost" Version="9.0.10" />
     <PackageReference Include="coverlet.collector" Version="6.0.2" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
     <PackageReference Include="xunit" Version="2.9.2" />
@@ -16,6 +17,14 @@
 
   <ItemGroup>
     <Using Include="Xunit" />
+    <Compile Include="..\Inventory.Ui\Services\Printing\ReceiptPrinterResolver.cs" Link="ReceiptPrinterResolver.cs" />
+    <Compile Include="..\Inventory.Ui\Services\Printing\PrinterInfo.cs" Link="PrinterInfo.cs" />
+    <Compile Include="..\Inventory.Ui\Services\Printing\IPrinterDiscoveryService.cs" Link="IPrinterDiscoveryService.cs" />
+    <Compile Include="..\Inventory.Ui\Services\Printing\IReceiptPrinterSettingsService.cs" Link="IReceiptPrinterSettingsService.cs" />
+    <Compile Include="..\Inventory.Ui\Services\Analytics\LocalAnalyticsService.cs" Link="LocalAnalyticsService.cs" />
+    <Compile Include="..\Inventory.Ui\Services\Analytics\ILocalAnalyticsService.cs" Link="ILocalAnalyticsService.cs" />
+    <ProjectReference Include="..\dotNetApiProBoilerplate.Api\Inventory.Api.csproj" />
+    <ProjectReference Include="..\Inventory.LocalDB\Inventory.LocalDB.csproj" />
   </ItemGroup>
 
 </Project>

@@ -1,6 +1,7 @@
 ﻿@using Inventory.Ui.Components.Pages
 @using Microsoft.AspNetCore.Components.Authorization
 
+<AppUpdateGate>
 <CascadingAuthenticationState>
     <Router AppAssembly="@typeof(App).Assembly">
         <Found Context="routeData">
@@ -25,3 +26,4 @@
         </NotFound>
     </Router>
 </CascadingAuthenticationState>
+</AppUpdateGate>

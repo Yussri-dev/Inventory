@@ -757,6 +757,9 @@ namespace Inventory.Services
             if (sale == null)
                 throw new NotFoundException("Sale", id);
 
+            if (sale.CustomerId != request.CustomerId)
+                throw new ValidationException("Use the support customer-correction action to change the customer of a completed sale.");
+
             if (request.Lines == null || !request.Lines.Any())
                 throw new ValidationException("Sale must contain at least one line.");
 

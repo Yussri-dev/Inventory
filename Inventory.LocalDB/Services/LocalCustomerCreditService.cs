@@ -177,7 +177,7 @@ public sealed class LocalCustomerCreditService
                             sale.PaymentStatus,
 
                         Status =
-                            sale.Status,
+                            sale.Status.ToString(),
 
                         TotalAmount =
                             sale.TotalAmount,

@@ -1,13 +1,14 @@
-﻿namespace Inventory.LocalDB.Models
+﻿using Inventory.Dto.Enums;
+namespace Inventory.LocalDB.Models
 {
     public static class LocalStockMovementType
     {
-        public const string Sale = "Sale";
-        public const string Purchase = "Purchase";
-        public const string Return = "Return";
-        public const string Adjustment = "Adjustment";
-        public const string Transfer = "Transfer";
-        public const string InitialStock = "InitialStock";
-        public const string Damage = "Damage";
+        public const StockMovementType Sale = StockMovementType.Sale;
+        public const StockMovementType Purchase = StockMovementType.Purchase;
+        public const StockMovementType Return = StockMovementType.Return;
+        public const StockMovementType Adjustment = StockMovementType.Adjustment;
+        public const StockMovementType Transfer = StockMovementType.Transfer;
+        public const StockMovementType InitialStock = StockMovementType.InitialStock;
+        public const StockMovementType Damage = StockMovementType.Damage;
     }
 }

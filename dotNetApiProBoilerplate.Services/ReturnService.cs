@@ -11,6 +11,7 @@ using Inventory.Services.Abstractions;
 using Inventory.Services.Context;
 using Inventory.Services.Exceptions;
 using RefundMethodDto = Inventory.Dto.Enums.RefundMethod;
+using Microsoft.EntityFrameworkCore;
 
 namespace Inventory.Services
 {
@@ -192,7 +193,8 @@ namespace Inventory.Services
                 });
             }
 
-            var sale = await _saleRepository.GetByIdAsync(request.SaleId);
+            var sale = await _saleRepository.Query().Include(item => item.Lines)
+                .FirstOrDefaultAsync(item => item.Id == request.SaleId);
             if (sale == null || sale.IsDeleted || sale.TenantId != tenantId)
                 throw new NotFoundException("Sale", request.SaleId);
 
@@ -201,6 +203,34 @@ namespace Inventory.Services
 
             if (request.RefundType == RefundMethodDto.Original)
                 throw new ValidationException("Original refund method is not supported.");
+
+            // Validate against the original receipt before creating any financial effects.
+            var previousLines = await _returnLineRepository.Query()
+                .Where(line => line.Return.SaleId == sale.Id && !line.IsDeleted && !line.Return.IsDeleted)
+                .ToListAsync();
+            var requestedQuantities = new Dictionary<Guid, decimal>();
+            foreach (var item in request.Lines)
+            {
+                var candidates = sale.Lines.Where(line => !line.IsDeleted &&
+                    line.ProductId == item.ProductId &&
+                    (!item.SaleLineId.HasValue || line.Id == item.SaleLineId.Value)).ToList();
+                if (candidates.Count != 1 || item.Quantity <= 0)
+                    throw new ValidationException("Each return line must identify an original sale line and have a positive quantity.");
+
+                var soldLine = candidates[0];
+                if (soldLine.Quantity <= 0 || item.UnitPrice != RoundMoney(soldLine.LineTTC / soldLine.Quantity) ||
+                    item.VatRate != soldLine.VatRate)
+                    throw new ValidationException("Return price and VAT must match the original sale after discount.");
+
+                item.SaleLineId = soldLine.Id;
+                requestedQuantities.TryGetValue(soldLine.Id, out var requested);
+                requested += item.Quantity;
+                requestedQuantities[soldLine.Id] = requested;
+                var returned = previousLines.Where(line => line.SaleLineId == soldLine.Id ||
+                    (!line.SaleLineId.HasValue && line.ProductId == soldLine.ProductId)).Sum(line => line.Quantity);
+                if (returned + requested > soldLine.Quantity)
+                    throw new ValidationException("Returned quantity cannot exceed the quantity remaining on the original sale.");
+            }
 
             // =========================
             // CREATE RETURN HEADER
@@ -280,13 +310,16 @@ namespace Inventory.Services
                 if (!lineItem.RestockItem)
                     continue;
 
+                var soldLine = sale.Lines.Single(item => item.Id == lineItem.SaleLineId);
+                var stockProductId = soldLine.UnitProductId;
+                var stockQuantity = soldLine.UnitQuantity * lineItem.Quantity / soldLine.Quantity;
                 var stock = await _stockRepository.GetSingleAsync(
-                    s => s.ProductId == lineItem.ProductId &&
+                    s => s.ProductId == stockProductId &&
                          !s.IsDeleted &&
                          s.TenantId == tenantId);
 
                 var quantityBefore = stock?.Quantity ?? 0;
-                var quantityAfter = quantityBefore + lineItem.Quantity;
+                var quantityAfter = quantityBefore + stockQuantity;
 
                 if (stock == null)
                 {
@@ -294,7 +327,7 @@ namespace Inventory.Services
                     {
                         Id = Guid.NewGuid(),
                         TenantId = tenantId,
-                        ProductId = lineItem.ProductId,
+                        ProductId = stockProductId,
                         Quantity = quantityAfter,
                         CreatedAt = DateTime.UtcNow,
                         ModifiedAt = DateTime.UtcNow,
@@ -314,9 +347,9 @@ namespace Inventory.Services
                 {
                     Id = Guid.NewGuid(),
                     TenantId = tenantId,
-                    ProductId = lineItem.ProductId,
+                    ProductId = stockProductId,
                     Type = StockMovementType.Return,
-                    QuantityChange = lineItem.Quantity,
+                    QuantityChange = stockQuantity,
                     QuantityBefore = quantityBefore,
                     QuantityAfter = quantityAfter,
                     ReferenceId = entity.Id,
@@ -397,7 +430,7 @@ namespace Inventory.Services
 
             if (summary != null)
             {
-                var totalVat = request.Lines.Sum(l => l.Quantity * l.UnitPrice * (l.VatRate / 100));
+                var totalVat = RoundMoney(request.Lines.Sum(l => l.Quantity * l.UnitPrice * l.VatRate / (100m + l.VatRate)));
 
                 if (request.RefundType != RefundMethodDto.Exchange)
                 {

@@ -206,7 +206,7 @@ public sealed class LocalReturnService : ILocalReturnService
 
             var refundMethod =
                 ParseRefundMethod(
-                    localReturn.RefundMethod);
+                    localReturn.RefundMethod.ToString());
 
             if (refundMethod ==
                 LocalRefundMethod.Original)
@@ -749,8 +749,7 @@ public sealed class LocalReturnService : ILocalReturnService
                 "At least one return line is required.");
         }
 
-        if (string.IsNullOrWhiteSpace(
-                localReturn.RefundMethod))
+        if (!Enum.IsDefined(localReturn.RefundMethod))
         {
             throw new InvalidOperationException(
                 "A refund method is required.");
@@ -828,8 +827,7 @@ public sealed class LocalReturnService : ILocalReturnService
         localReturn.OriginalServerInvoiceNumber =
             sale.ServerInvoiceNumber;
 
-        localReturn.RefundMethod =
-            localReturn.RefundMethod.Trim();
+
 
         localReturn.Reason =
             NormalizeHeaderReason(

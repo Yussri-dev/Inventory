@@ -4,14 +4,18 @@
 @using Inventory.LocalDB.Services.Interfaces
 @using Inventory.Ui.Services.Labels
 @using Inventory.Ui.Services.Sync
+@using Microsoft.JSInterop
 
+@implements IAsyncDisposable
 @attribute [Microsoft.AspNetCore.Authorization.Authorize]
-@implements IDisposable
 
 @inject SyncCoordinator SyncCoordinator
 @inject ILocalProductService LocalProductService
 @inject ILocalProductCatalogQueryService LocalCatalogQuery
 @inject ILocalBarcodeLabelService LocalLabelService
+@inject ILogger<Product> Logger
+
+@inject IJSRuntime JS
 
 <h3>Products</h3>
 
@@ -242,9 +246,11 @@
         <div class="search-grid">
 
             <input type="text"
+                   class="barcode-input"
                    placeholder="Search by name, SKU or barcode..."
                    value="@searchTerm"
-                   @oninput="OnSearchInput"
+                   @onchange="OnBarcodeChanged"
+                   @ref="searchInputRef"
                    disabled="@(isLoading || isLoadingData)" />
 
             <div class="search-actions">
@@ -361,12 +367,12 @@
                                 {
                                     <span class="badge"
                                           style="
-                                                                                                          background:#6f42c1;
-                                                                                                          color:white;
-                                                                                                          font-size:10px;
-                                                                                                          padding:2px 6px;
-                                                                                                          border-radius:4px;
-                                                                                                          margin-left:6px;">
+                                                                                                                                                                      background:#6f42c1;
+                                                                                                                                                                      color:white;
+                                                                                                                                                                      font-size:10px;
+                                                                                                                                                                      padding:2px 6px;
+                                                                                                                                                                      border-radius:4px;
+                                                                                                                                                                      margin-left:6px;">
                                         PACK
                                     </span>
                                 }
@@ -583,7 +589,7 @@
 
 @code {
     private readonly Dictionary<Guid, ProductCatalogResult>
-        catalogCache = new();
+    catalogCache = new();
 
     private List<ProductResult> items = new();
 
@@ -609,6 +615,8 @@
     private CancellationTokenSource? debounceCts;
     private CancellationTokenSource? toastCts;
 
+    private readonly SemaphoreSlim barcodeScanGate = new(1, 1);
+
     private int Page = 1;
     private int PageSize = 10;
     private int TotalCount;
@@ -619,6 +627,36 @@
             1,
             (int)Math.Ceiling(
                 TotalCount / (double)PageSize));
+
+
+    private ElementReference searchInputRef;
+    private IJSObjectReference? barcodeScannerModule;
+    private DotNetObjectReference<Product>? barcodeScannerReference;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+
+        try
+        {
+            barcodeScannerReference = DotNetObjectReference.Create(this);
+
+            barcodeScannerModule =
+                await JS.InvokeAsync<IJSObjectReference>(
+                    "import",
+                    "./js/barcodeScanner.js");
+
+            await barcodeScannerModule.InvokeVoidAsync(
+                "initialize",
+                barcodeScannerReference);
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Failed to initialize the barcode scanner.");
+            ShowError("The barcode scanner could not be initialized.");
+        }
+    }
 
     private ProductCatalogResult? selectedCatalog
     {
@@ -647,13 +685,31 @@
         await LoadData();
     }
 
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
         debounceCts?.Cancel();
         debounceCts?.Dispose();
 
         toastCts?.Cancel();
         toastCts?.Dispose();
+
+        toastCancellation?.Cancel();
+        toastCancellation?.Dispose();
+
+        if (barcodeScannerModule != null)
+        {
+            try { await barcodeScannerModule.InvokeVoidAsync("dispose"); }
+            catch (JSDisconnectedException) { }
+            catch (ObjectDisposedException) { }
+
+            try { await barcodeScannerModule.DisposeAsync(); }
+            catch (JSDisconnectedException) { }
+            catch (ObjectDisposedException) { }
+        }
+
+        barcodeScannerReference?.Dispose();
+        barcodeScannerModule = null;
+        barcodeScannerReference = null;
     }
 
     private async Task LoadData()
@@ -669,7 +725,7 @@
                 PageSize = PageSize,
 
                 Search = isSearching
-                    ? searchTerm.Trim()
+                    ? searchTerm.ToUpper().Trim()
                     : null
             };
 
@@ -878,7 +934,7 @@
 
     private async Task Search()
     {
-        searchTerm = searchTerm.Trim();
+        searchTerm = searchTerm.ToUpper().Trim();
 
         isSearching =
             !string.IsNullOrWhiteSpace(searchTerm);
@@ -899,26 +955,151 @@
         await LoadData();
     }
 
-    private async Task OnSearchInput(
-        ChangeEventArgs args)
+
+    private async Task OnBarcodeChanged(ChangeEventArgs args)
     {
-        searchTerm =
-            args.Value?.ToString() ?? string.Empty;
+        if (isLoading || isLoadingData)
+            return;
 
-        debounceCts?.Cancel();
-        debounceCts?.Dispose();
+        searchTerm = (args.Value?.ToString() ?? string.Empty).Trim().ToUpperInvariant();
+        isSearching = !string.IsNullOrWhiteSpace(searchTerm);
+        Page = 1;
 
-        debounceCts =
+        await LoadData();
+    }
+
+    private string BarcodeInput = string.Empty;
+    private bool IsLoading;
+
+    private CancellationTokenSource? toastCancellation;
+
+
+    private async Task ShowSuccessAsync(
+    string message)
+    {
+        errorMessage =
+            null;
+
+        successMessage =
+            message;
+
+        await StartToastTimerAsync(
+            clearSuccess: true);
+    }
+    private async Task StartToastTimerAsync(
+        bool clearSuccess)
+    {
+        toastCancellation?.Cancel();
+        toastCancellation?.Dispose();
+
+        toastCancellation =
             new CancellationTokenSource();
+
+        var source =
+            toastCancellation;
+
+        await InvokeAsync(
+            StateHasChanged);
 
         try
         {
             await Task.Delay(
-                400,
-                debounceCts.Token);
+                3000,
+                source.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
 
-            isSearching =
-                !string.IsNullOrWhiteSpace(searchTerm);
+        if (!ReferenceEquals(
+                toastCancellation,
+                source))
+        {
+            return;
+        }
+
+        if (clearSuccess)
+        {
+            successMessage =
+                null;
+        }
+        else
+        {
+            errorMessage =
+                null;
+        }
+
+        await InvokeAsync(
+            StateHasChanged);
+    }
+
+    private async Task ShowErrorAsync(
+        string message)
+    {
+        successMessage =
+            null;
+
+        errorMessage =
+            message;
+
+        await StartToastTimerAsync(
+            clearSuccess: false);
+    }
+
+    [JSInvokable]
+    public async Task OnHardwareScan(string? rawBarcode)
+    {
+        if (string.IsNullOrWhiteSpace(rawBarcode))
+            return;
+
+        var barcode = rawBarcode.Trim();
+
+        await barcodeScanGate.WaitAsync();
+
+        try
+        {
+            if (isLoading || isLoadingData)
+                return;
+
+            if (showProduct || showDeleteConfirm)
+                return; 
+
+            searchTerm = barcode;
+            isSearching = true;
+            Page = 1;
+
+            Logger.LogDebug("Barcode scanned: {Barcode}", barcode);
+
+            await LoadData();
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(exception, "Failed to process barcode {Barcode}.", barcode);
+            ShowError("The barcode could not be processed.");
+        }
+        finally
+        {
+            barcodeScanGate.Release();
+
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task OnSearchInput(ChangeEventArgs args)
+    {
+        searchTerm = args.Value?.ToString() ?? string.Empty;
+
+        debounceCts?.Cancel();
+        debounceCts?.Dispose();
+
+        debounceCts = new CancellationTokenSource();
+
+        try
+        {
+            await Task.Delay(400, debounceCts.Token);
+
+            isSearching = !string.IsNullOrWhiteSpace(searchTerm);
 
             Page = 1;
 

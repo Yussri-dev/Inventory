@@ -333,7 +333,7 @@ public sealed class LocalProductService : ILocalProductService
         if (!string.IsNullOrWhiteSpace(query.Search))
         {
             var term =
-                query.Search.Trim();
+                query.Search.ToUpper().Trim();
 
             productsQuery = productsQuery.Where(x =>
                 x.Name.Contains(term) ||

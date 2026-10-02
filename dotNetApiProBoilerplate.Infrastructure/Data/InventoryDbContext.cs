@@ -8,35 +8,64 @@ using System.Reflection.Emit;
 
 namespace Inventory.Infrastructure.Data
 {
-    public class InventoryDbContext
+    public partial class InventoryDbContext
     : IdentityDbContext<ApplicationUser, ApplicationRole, Guid>
     {
-        public InventoryDbContext(DbContextOptions<InventoryDbContext> options)
+        public InventoryDbContext(DbContextOptions<InventoryDbContext> options,
+            ITenantDataAccess? tenantDataAccess = null)
             : base(options)
         {
+            _authenticated = tenantDataAccess?.IsAuthenticated == true;
+            _superAdmin = _authenticated && tenantDataAccess!.IsSuperAdmin;
+            _requestTenantId = _authenticated ? tenantDataAccess!.TenantId : Guid.Empty;
         }
 
         protected override void OnModelCreating(ModelBuilder builder)
         {
             base.OnModelCreating(builder);
+            builder.Entity<SaleCustomerCorrection>(entity =>
+            {
+                entity.ToTable("SaleCustomerCorrections");
+
+                entity.HasKey(x => x.Id);
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.SaleId
+                });
+
+                entity.HasOne(x => x.Sale)
+                    .WithMany()
+                    .HasForeignKey(x => x.SaleId)
+                    .OnDelete(DeleteBehavior.Restrict);
+
+                entity.Property(x => x.Reason)
+                    .HasMaxLength(500)
+                    .IsRequired();
+
+                entity.Property(x => x.TransferredDebt)
+                    .HasPrecision(18, 2);
+            });
+
+            ConfigureTenantFilters(builder);
 
 
-            builder.Entity<ApplicationUser>(
-     entity =>
-     {
-         entity.HasOne(user =>
-                 user.Tenant)
-             .WithMany(tenant =>
-                 tenant.Users)
-             .HasForeignKey(user =>
-                 user.TenantId)
-             .IsRequired(false)
-             .OnDelete(
-                 DeleteBehavior.Restrict);
+            builder.Entity<ApplicationUser>(entity =>
+             {
+                 entity.HasOne(user =>
+                         user.Tenant)
+                     .WithMany(tenant =>
+                         tenant.Users)
+                     .HasForeignKey(user =>
+                         user.TenantId)
+                     .IsRequired(false)
+                     .OnDelete(
+                         DeleteBehavior.Restrict);
 
-         entity.HasIndex(user =>
-             user.TenantId);
-     });
+                 entity.HasIndex(user =>
+                     user.TenantId);
+             });
 
             // ============================
             // INDEXES FOR PERFORMANCE
@@ -564,6 +593,8 @@ namespace Inventory.Infrastructure.Data
         public DbSet<SaleLine> SaleLines => Set<SaleLine>();
         public DbSet<Customer> Customers => Set<Customer>();
         public DbSet<CustomerTransaction> CustomerTransactions => Set<CustomerTransaction>();
+        public DbSet<SaleCustomerCorrection> SaleCustomerCorrections => Set<SaleCustomerCorrection>();
+
         public DbSet<Payment> Payments => Set<Payment>();
         public DbSet<Return> Returns => Set<Return>();
         public DbSet<ReturnLine> ReturnLines => Set<ReturnLine>();

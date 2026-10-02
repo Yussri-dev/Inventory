@@ -12,6 +12,10 @@
 @using Inventory.Ui.Services.Sync
 @using Inventory.Ui.State
 @using Microsoft.AspNetCore.Components.Web
+@using Microsoft.JSInterop
+
+@implements IAsyncDisposable
+
 
 @inject ILocalProductCategoryQueryService LocalCategoryQuery
 @inject ILocalProductCatalogQueryService LocalCatalogQuery
@@ -21,6 +25,8 @@
 
 @inject IProductCatalogApi Api
 @inject AppState State
+
+@inject IJSRuntime JS
 
 <h3>Product Catalogs</h3>
 
@@ -233,8 +239,8 @@
                             {
                                 <div class="card"
                                      style="
-                                                                         background:#f8f9fa;
-                                                                         padding:12px;">
+                                                                                 background:#f8f9fa;
+                                                                                 padding:12px;">
 
                                     <h5>Pack Configuration</h5>
 
@@ -293,11 +299,11 @@
                                                                 form.PackQuantity > 0)
                                     {
                                         <div style="
-                                                                                                margin-top:8px;
-                                                                                                padding:8px;
-                                                                                                background:#e8f5e9;
-                                                                                                border-radius:4px;
-                                                                                                font-size:13px;">
+                                                                                                            margin-top:8px;
+                                                                                                            padding:8px;
+                                                                                                            background:#e8f5e9;
+                                                                                                            border-radius:4px;
+                                                                                                            font-size:13px;">
 
                                             <strong>@form.Name</strong>
                                             contains
@@ -368,10 +374,11 @@
         <div class="search-grid">
 
             <input type="text"
+                   class="barcode-input"
                    placeholder="Search by name, barcode or internal code"
-                   @bind="searchTerm"
-                   @bind:event="oninput"
-                   @onkeyup="OnSearchKeyUp"
+                   value="@searchTerm"
+                   @onchange="OnBarcodeChanged"
+                   @ref="searchInputRef"
                    disabled="@(isLoading || isLoadingData)" />
 
             <div class="search-actions">
@@ -502,12 +509,12 @@
                                 {
                                     <span class="badge"
                                           style="
-                                                                                              background:#6f42c1;
-                                                                                              color:white;
-                                                                                              font-size:10px;
-                                                                                              padding:2px 6px;
-                                                                                              border-radius:4px;
-                                                                                              margin-left:6px;">
+                                                                                                          background:#6f42c1;
+                                                                                                          color:white;
+                                                                                                          font-size:10px;
+                                                                                                          padding:2px 6px;
+                                                                                                          border-radius:4px;
+                                                                                                          margin-left:6px;">
                                         PACK
                                     </span>
                                 }
@@ -587,9 +594,9 @@
                             <button class="btn small danger"
                                     @onclick="() => ConfirmDelete(product)"
                                     disabled="@(
-                                                                                                                                                        isLoading ||
-                                                                                                                                                        isOfflineMode ||
-                                                                                                                                                        isSynchronizing)">
+                                                                                                                                                                                    isLoading ||
+                                                                                                                                                                                    isOfflineMode ||
+                                                                                                                                                                                    isSynchronizing)">
                         Delete
                     </button>
 
@@ -708,6 +715,12 @@
             (int)Math.Ceiling(
                 TotalCount / (double)PageSize));
 
+    private ElementReference searchInputRef;
+    private IJSObjectReference? barcodeScannerModule;
+    private DotNetObjectReference<ProductCatalogs>? barcodeScannerReference;
+
+    private readonly SemaphoreSlim barcodeScanGate = new(1, 1);
+
     protected override async Task OnInitializedAsync()
     {
         Page = 1;
@@ -719,19 +732,106 @@
         await LoadData();
     }
 
-    protected override Task OnAfterRenderAsync(
-        bool firstRender)
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (!firstRender || syncAttempted)
-            return Task.CompletedTask;
+        if (!firstRender)
+            return;
 
-        syncAttempted = true;
+        // 1. Scanner matériel
+        try
+        {
+            barcodeScannerReference = DotNetObjectReference.Create(this);
 
-        // La page est déjà affichée depuis SQLite.
-        _ = InvokeAsync(
-            () => TrySynchronizeWithServerAsync());
+            barcodeScannerModule =
+                await JS.InvokeAsync<IJSObjectReference>(
+                    "import",
+                    "./js/barcodeScanner.js");
 
-        return Task.CompletedTask;
+            await barcodeScannerModule.InvokeVoidAsync(
+                "initialize",
+                barcodeScannerReference);
+        }
+        catch (Exception exception)
+        {
+            System.Diagnostics.Debug.WriteLine(
+                $"Barcode scanner initialization failed: {exception}");
+
+            ShowError("The barcode scanner could not be initialized.");
+            await InvokeAsync(StateHasChanged);
+        }
+
+        // 2. Synchronisation avec le serveur (comme avant)
+        if (!syncAttempted)
+        {
+            syncAttempted = true;
+            await InvokeAsync(() => TrySynchronizeWithServerAsync());
+        }
+    }
+
+    [JSInvokable]
+    public async Task OnHardwareScan(string? rawBarcode)
+    {
+        if (string.IsNullOrWhiteSpace(rawBarcode))
+            return;
+
+        var barcode = rawBarcode.Trim();
+
+        await barcodeScanGate.WaitAsync();
+
+        try
+        {
+            if (isLoading || isLoadingData)
+                return;
+
+            // Formulaire ouvert : le scan remplit le champ Barcode
+            if (showProduct)
+            {
+                if (!isOfflineMode && !isSynchronizing)
+                    form.Barcode = barcode;
+
+                return;
+            }
+
+            if (showDeleteConfirm)
+                return;
+
+            searchTerm = barcode.ToUpperInvariant();
+            isSearching = true;
+            Page = 1;
+
+            await LoadData();
+        }
+        catch (Exception exception)
+        {
+            System.Diagnostics.Debug.WriteLine(exception);
+            ShowError("The barcode could not be processed.");
+        }
+        finally
+        {
+            barcodeScanGate.Release();
+
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        messageVersion++; // invalide les toasts en attente
+
+        if (barcodeScannerModule != null)
+        {
+            try { await barcodeScannerModule.InvokeVoidAsync("dispose"); }
+            catch (JSDisconnectedException) { }
+            catch (ObjectDisposedException) { }
+
+            try { await barcodeScannerModule.DisposeAsync(); }
+            catch (JSDisconnectedException) { }
+            catch (ObjectDisposedException) { }
+        }
+
+        barcodeScannerReference?.Dispose();
+        barcodeScannerModule = null;
+        barcodeScannerReference = null;
     }
 
     private async Task TrySynchronizeWithServerAsync(
@@ -817,6 +917,21 @@
     {
         return TrySynchronizeWithServerAsync(
             showFeedback: true);
+    }
+
+    private async Task OnBarcodeChanged(ChangeEventArgs args)
+    {
+        if (isLoading || isLoadingData)
+        {
+            return;
+        }
+
+        searchTerm = (args.Value?.ToString() ?? string.Empty).Trim().ToUpperInvariant();
+        isSearching = !string.IsNullOrWhiteSpace(searchTerm);
+
+        Page = 1;
+
+        await LoadData();
     }
 
     private async Task LoadCategoriesFromLocalAsync()

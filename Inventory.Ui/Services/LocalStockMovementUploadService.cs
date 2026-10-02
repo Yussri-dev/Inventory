@@ -234,10 +234,7 @@ namespace Inventory.Ui.Services
                 return;
             }
 
-            if (!string.Equals(
-                    movement.Type,
-                    LocalStockMovementType.Adjustment,
-                    StringComparison.OrdinalIgnoreCase))
+            if (!(movement.Type == LocalStockMovementType.Adjustment))
             {
                 queueItem.Status =
                     SyncQueueStatus.Failed;

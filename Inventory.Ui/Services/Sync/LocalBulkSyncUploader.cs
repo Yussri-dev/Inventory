@@ -1,4 +1,4 @@
-﻿using Inventory.Dto.Sync.Requests;
+using Inventory.Dto.Sync.Requests;
 using Inventory.Dto.Sync.Results;
 using Inventory.LocalDB.Models;
 using Inventory.LocalDB.Services.Interfaces;
@@ -192,11 +192,10 @@ namespace Inventory.Ui.Services.Sync
                     }
                     catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                     {
-                        if (claimedBatch?.BatchId !=
-                            Guid.Empty)
+                        if (claimedBatch is not null && claimedBatch.BatchId != Guid.Empty)
                         {
                             await ReleaseBatchSafelyAsync(
-                                claimedBatch!.BatchId,
+                                claimedBatch.BatchId,
                                 "Bulk synchronization was cancelled by the user.");
                         }
 
@@ -210,11 +209,10 @@ namespace Inventory.Ui.Services.Sync
                     }
                     catch (OperationCanceledException exception)
                     {
-                        if (claimedBatch?.BatchId !=
-                            Guid.Empty)
+                        if (claimedBatch is not null && claimedBatch.BatchId != Guid.Empty)
                         {
                             await ReleaseBatchSafelyAsync(
-                                claimedBatch!.BatchId,
+                                claimedBatch.BatchId,
                                 "The synchronization request timed out.");
 
                             result.Failed +=
@@ -232,11 +230,10 @@ namespace Inventory.Ui.Services.Sync
                     }
                     catch (ApiException exception)
                     {
-                        if (claimedBatch?.BatchId !=
-                            Guid.Empty)
+                        if (claimedBatch is not null && claimedBatch.BatchId != Guid.Empty)
                         {
                             await ReleaseBatchSafelyAsync(
-                                claimedBatch!.BatchId,
+                                claimedBatch.BatchId,
                                 CreateApiErrorMessage(
                                     exception));
 
@@ -260,11 +257,10 @@ namespace Inventory.Ui.Services.Sync
                     }
                     catch (HttpRequestException exception)
                     {
-                        if (claimedBatch?.BatchId !=
-                            Guid.Empty)
+                        if (claimedBatch is not null && claimedBatch.BatchId != Guid.Empty)
                         {
                             await ReleaseBatchSafelyAsync(
-                                claimedBatch!.BatchId,
+                                claimedBatch.BatchId,
                                 "The synchronization API is unavailable.");
 
                             result.Failed +=
@@ -283,10 +279,10 @@ namespace Inventory.Ui.Services.Sync
                     }
                     catch (JsonException exception)
                     {
-                        if (claimedBatch?.BatchId != Guid.Empty)
+                        if (claimedBatch is not null && claimedBatch.BatchId != Guid.Empty)
                         {
                             await ReleaseBatchSafelyAsync(
-                                claimedBatch!.BatchId,
+                                claimedBatch.BatchId,
                                 "A queue item contains an invalid JSON payload.");
 
                             result.Failed +=
@@ -308,11 +304,10 @@ namespace Inventory.Ui.Services.Sync
                             GetDetailedErrorMessage(
                                 exception);
 
-                        if (claimedBatch?.BatchId !=
-                            Guid.Empty)
+                        if (claimedBatch is not null && claimedBatch.BatchId != Guid.Empty)
                         {
                             await ReleaseBatchSafelyAsync(
-                                claimedBatch!.BatchId,
+                                claimedBatch.BatchId,
                                 detailedError);
 
                             result.Failed +=

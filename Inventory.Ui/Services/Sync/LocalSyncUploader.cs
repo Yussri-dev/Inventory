@@ -114,38 +114,6 @@ namespace Inventory.Ui.Services.Sync
                     result,
                     cancellationToken);
 
-                /*
-                 * Customer, Supplier, Product, StockMovement and Damage
-                 * are handled exclusively by SyncCoordinator through
-                 * LocalBulkSyncUploader.
-                 *
-                 * Purchase and Sale remain temporarily on this legacy path.
-                 */
-                _logger.LogInformation(
-                    "Synchronizing purchases through the legacy path.");
-
-                await SyncPurchasesAsync(
-                    result,
-                    cancellationToken);
-
-                //_logger.LogInformation(
-                //    "Synchronizing sales through the legacy path.");
-
-                //await SyncSalesAsync(
-                //    result,
-                //    cancellationToken);
-
-                /*
-                 * Close cash sessions only after their dependent
-                 * purchases and sales have been uploaded.
-                 */
-                //_logger.LogInformation(
-                //    "Synchronizing cash-session closure.");
-
-                //await SyncClosedCashSessionsAsync(
-                //    result,
-                //    cancellationToken);
-
                 _logger.LogInformation(
                     "Legacy synchronization completed. " +
                     "Synced={Synced}, Failed={Failed}, Skipped={Skipped}.",
@@ -174,6 +142,85 @@ namespace Inventory.Ui.Services.Sync
                     exception,
                     "Legacy synchronization stopped because " +
                     "the API is unavailable.");
+            }
+            catch
+            {
+                _db.ChangeTracker.Clear();
+
+                throw;
+            }
+            finally
+            {
+                LocalDatabaseWriteGate.Semaphore.Release();
+            }
+
+            return result;
+        }
+
+        public async Task<LocalSyncUploadResult>
+     SyncPurchasesAsync(
+         CancellationToken cancellationToken = default)
+        {
+            var result =
+                new LocalSyncUploadResult();
+
+            var lockAcquired =
+                await LocalDatabaseWriteGate.Semaphore.WaitAsync(
+                    0,
+                    cancellationToken);
+
+            if (!lockAcquired)
+            {
+                result.Skipped++;
+
+                result.Messages.Add(
+                    "A local database operation is already running.");
+
+                return result;
+            }
+
+            try
+            {
+                var tenantId =
+                    CurrentTenantId;
+
+                _db.ChangeTracker.Clear();
+
+                _logger.LogInformation(
+                    "Purchase synchronization started " +
+                    "for tenant {TenantId}.",
+                    tenantId);
+
+                await SyncPurchasesAsync(result, cancellationToken);
+
+                _logger.LogInformation(
+                    "Purchase synchronization completed. " +
+                    "Synced={Synced}, Failed={Failed}, Skipped={Skipped}.",
+                    result.Synced,
+                    result.Failed,
+                    result.Skipped);
+
+                _db.ChangeTracker.Clear();
+            }
+            catch (OperationCanceledException)
+            {
+                _db.ChangeTracker.Clear();
+
+                throw;
+            }
+            catch (HttpRequestException exception)
+            {
+                _db.ChangeTracker.Clear();
+
+                result.Failed++;
+
+                result.Messages.Add(
+                    "API offline. Purchase stopped.");
+
+                _logger.LogWarning(
+                    exception,
+                    "Purchase synchronization stopped " +
+                    "because the API is unavailable.");
             }
             catch
             {
@@ -1572,10 +1619,7 @@ namespace Inventory.Ui.Services.Sync
              * Une vente suspendue ne doit jamais être envoyée
              * comme une vente terminée.
              */
-            if (!string.Equals(
-                    sale.Status,
-                    LocalSaleStatus.Completed,
-                    StringComparison.OrdinalIgnoreCase))
+            if (!(sale.Status == LocalSaleStatus.Completed))
             {
                 queueItem.Status =
                     SyncQueueStatus.Conflict;

@@ -122,7 +122,7 @@ namespace Inventory.LocalDB.Services
 
             var saleStatuses =
                 NormalizeSaleStatuses(
-                    query.SaleStatuses);
+                    query.SaleStatuses).Select(value => Enum.Parse<Inventory.Dto.Enums.SaleStatus>(value, true)).ToList();
 
             if (saleStatuses.Count > 0)
             {
@@ -181,7 +181,7 @@ namespace Inventory.LocalDB.Services
                                 sale.ChangeAmount,
 
                             Status =
-                                sale.Status,
+                                sale.Status.ToString(),
 
                             PaymentStatus =
                                 sale.PaymentStatus,
@@ -533,7 +533,7 @@ namespace Inventory.LocalDB.Services
                     sale.ChangeAmount,
 
                 Status =
-                    sale.Status,
+                    sale.Status.ToString(),
 
                 PaymentStatus =
                     sale.PaymentStatus,
@@ -661,7 +661,7 @@ namespace Inventory.LocalDB.Services
                     value.Trim().ToLowerInvariant() switch
                     {
                         "completed" =>
-                            LocalSaleStatus.Completed,
+                            LocalSaleStatus.Completed.ToString(),
 
                         "pending" =>
                             "Pending",

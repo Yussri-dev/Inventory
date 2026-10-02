@@ -40,6 +40,13 @@ namespace Inventory.Services
                     nameof(createdByUserId));
             }
 
+            if (!await _context.Users.AnyAsync(user =>
+                    user.Id == createdByUserId && user.TenantId == tenantId && !user.IsDeleted,
+                    cancellationToken))
+                throw new TenantIsolationException();
+
+            using var tenantScope = _context.BeginProductProvisioning(tenantId);
+
             var tenant = await _context.Tenants
                 .FirstOrDefaultAsync(
                     x => x.Id == tenantId,

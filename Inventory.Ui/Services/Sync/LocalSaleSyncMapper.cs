@@ -190,8 +190,7 @@ public static class LocalSaleSyncMapper
                 "Payment amount must be greater than zero.");
         }
 
-        if (string.IsNullOrWhiteSpace(
-                payment.Method))
+        if (!Enum.IsDefined(payment.Method))
         {
             throw new InvalidOperationException(
                 "Payment method is required.");
@@ -204,7 +203,7 @@ public static class LocalSaleSyncMapper
                     payment.Amount),
 
             PaymentMethod =
-                payment.Method.Trim(),
+                payment.Method.ToString(),
 
             Reference =
                 NormalizeNullable(

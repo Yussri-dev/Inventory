@@ -9,6 +9,7 @@ namespace Inventory.Ui.Services.Sync
     public interface ILocalSyncUploader
     {
         Task<LocalSyncUploadResult> SyncPendingAsync(CancellationToken cancellationToken = default);
+        Task<LocalSyncUploadResult> SyncPurchasesAsync(CancellationToken cancellationToken = default);
         Task<LocalSyncUploadResult> SyncCashSessionClosuresAsync(CancellationToken cancellationToken = default);
 
     }

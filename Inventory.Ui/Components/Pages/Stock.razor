@@ -1,4 +1,4 @@
-﻿@page "/stock"
+@page "/stock"
 
 @using Inventory.LocalDB.Models
 @using Inventory.LocalDB.Services.Interfaces
@@ -753,43 +753,14 @@
             SuccessMessage =
                 null;
 
-            /*
-             * 1. Push every general pending operation first:
-             * products, purchases, sales, damages, etc.
-             */
-            var uploadResult =
-                await SyncUploader
-                    .SyncPendingAsync();
-
-            /*
-             * Do not pull server stock when one of the general
-             * operations failed. A pending sale/purchase could have
-             * already changed SQLite stock.
-             */
-            if (uploadResult.Failed >
-                0)
-            {
-                ErrorMessage =
-                    $"Synchronization stopped before stock pull. " +
-                    $"{uploadResult.Failed} upload operation(s) failed.";
-
-                return;
-            }
-
-            /*
-             * 2. LocalStockSyncService pushes manual stock
-             * adjustments and then pulls authoritative server stock.
-             */
-            await StockSyncService
-                .FullSyncAsync();
+            await SyncCoordinator.SynchronizeAllAsync();
 
             State.InvalidatePos();
 
             await LoadDataAsync();
 
             SuccessMessage =
-                $"Synchronization completed. " +
-                $"{uploadResult.Synced} general operation(s) uploaded.";
+                "Synchronisation complète terminée.";
         }
         catch (HttpRequestException)
         {

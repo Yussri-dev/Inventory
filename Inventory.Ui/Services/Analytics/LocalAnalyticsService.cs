@@ -1,366 +1,116 @@
-﻿using Inventory.Dto.Analytics.Results;
+using Inventory.Dto.Analytics.Results;
+using Inventory.Dto.Enums;
 using Inventory.LocalDB.Context;
+using Inventory.LocalDB.Models;
+using Inventory.LocalDB.Services.Interfaces;
 using Microsoft.EntityFrameworkCore;
-using System.Collections;
-using System.Reflection;
 
-namespace Inventory.Ui.Services.Analytics
+namespace Inventory.Ui.Services.Analytics;
+
+public class LocalAnalyticsService(PosLocalDbContext db, ILocalTenantContext tenant) : ILocalAnalyticsService
 {
-    public class LocalAnalyticsService : ILocalAnalyticsService
+    private static (DateTime Start, DateTime End) Bounds(DateOnly from, DateOnly to)
     {
-        private readonly PosLocalDbContext _db;
+        if (to < from) throw new ArgumentException("The end date cannot precede the start date.");
+        return (TimeZoneInfo.ConvertTimeToUtc(from.ToDateTime(TimeOnly.MinValue), TimeZoneInfo.Local),
+            TimeZoneInfo.ConvertTimeToUtc(to.AddDays(1).ToDateTime(TimeOnly.MinValue), TimeZoneInfo.Local));
+    }
 
-        public LocalAnalyticsService(PosLocalDbContext db)
+    private IQueryable<LocalSale> Sales(Guid id, DateTime start, DateTime end) => db.Sales.AsNoTracking()
+        .Where(x => x.TenantId == id && x.SaleDateUtc >= start && x.SaleDateUtc < end &&
+            (x.Status == SaleStatus.Completed || x.Status == SaleStatus.PartiallyPaid || x.Status == SaleStatus.Refunded));
+
+    public async Task<DashboardSummaryResult> GetDashboardSummaryAsync(DateOnly from, DateOnly to, CancellationToken cancellationToken = default)
+    {
+        var id = tenant.GetRequiredTenantId();
+        var (start, end) = Bounds(from, to);
+        // No SyncStatus filter: offline sales belong in today's totals immediately.
+        var sales = await Sales(id, start, end).Include(x => x.Lines.Where(l => l.TenantId == id))
+            .Include(x => x.Payments.Where(p => p.TenantId == id)).OrderByDescending(x => x.SaleDateUtc).ToListAsync(cancellationToken);
+        var returns = await db.Returns.AsNoTracking().Where(x => x.TenantId == id && x.IsProcessed &&
+            x.ReturnDateUtc >= start && x.ReturnDateUtc < end).ToListAsync(cancellationToken);
+        var damages = await db.StockMovements.AsNoTracking().Where(x => x.TenantId == id &&
+            x.Type == StockMovementType.Damage && x.MovementDateUtc >= start && x.MovementDateUtc < end)
+            .Select(x => new { x.QuantityChange, x.UnitCost }).ToListAsync(cancellationToken);
+        var customerIds = sales.Where(x => x.CustomerLocalId.HasValue).Select(x => x.CustomerLocalId!.Value).Distinct().ToList();
+        var customers = await db.Customers.AsNoTracking().Where(x => x.TenantId == id && customerIds.Contains(x.Id))
+            .ToDictionaryAsync(x => x.Id, x => x.Name, cancellationToken);
+        var revenue = sales.Sum(x => x.TotalAmount);
+        var refunds = returns.Sum(x => x.TotalAmount);
+        var cost = sales.SelectMany(x => x.Lines).Sum(x => x.UnitCostPrice * (x.UnitQuantity > 0 ? x.UnitQuantity : x.Quantity));
+        var damage = damages.Sum(x => Math.Abs(x.QuantityChange) * x.UnitCost);
+        var profit = revenue - refunds - cost - damage;
+        var payments = sales.SelectMany(x => x.Payments).ToList();
+        return new DashboardSummaryResult
         {
-            _db = db;
-        }
-
-        public async Task<DashboardSummaryResult> GetDashboardSummaryAsync(
-            DateOnly from,
-            DateOnly to,
-            CancellationToken cancellationToken = default)
-        {
-            var fromDate = from.ToDateTime(TimeOnly.MinValue);
-            var toDateExclusive = to.AddDays(1).ToDateTime(TimeOnly.MinValue);
-
-            var sales = await _db.Sales
-                .AsNoTracking()
-                .Include(x => x.Lines)
-                .Include(x => x.Payments)
-                .Where(x =>
-                    x.SaleDateUtc >= fromDate &&
-                    x.SaleDateUtc < toDateExclusive)
-                .OrderByDescending(x => x.SaleDateUtc)
-                .ToListAsync(cancellationToken);
-
-            var dashboard = new DashboardSummaryResult();
-
-            var revenue = sales.Sum(x => GetDecimal(x, "TotalAmount"));
-            var refunds = 0m;
-            var cost = 0m;
-            var profit = revenue - refunds - cost;
-            var salesCount = sales.Count;
-            var averageBasket = salesCount > 0 ? revenue / salesCount : 0m;
-
-            var cashRevenue = sales
-                .SelectMany(x => x.Payments)
-                .Where(x => IsPaymentMethod(x, "Cash"))
-                .Sum(x => GetDecimal(x, "Amount"));
-
-            var cardRevenue = sales
-                .SelectMany(x => x.Payments)
-                .Where(x => IsPaymentMethod(x, "Card"))
-                .Sum(x => GetDecimal(x, "Amount"));
-
-            var creditRevenue = sales
-                .SelectMany(x => x.Payments)
-                .Where(x => IsPaymentMethod(x, "Credit"))
-                .Sum(x => GetDecimal(x, "Amount"));
-
-            Set(dashboard, "Revenue", revenue);
-            Set(dashboard, "Refunds", refunds);
-            Set(dashboard, "Cost", cost);
-            Set(dashboard, "Profit", profit);
-            Set(dashboard, "Margin", revenue > 0 ? profit / revenue * 100m : 0m);
-            Set(dashboard, "CreditRevenue", creditRevenue);
-            Set(dashboard, "SalesCount", salesCount);
-            Set(dashboard, "AverageBasket", averageBasket);
-            Set(dashboard, "CashRevenue", cashRevenue);
-            Set(dashboard, "CardRevenue", cardRevenue);
-            Set(dashboard, "LossRate", 0m);
-            Set(dashboard, "TotalLoss", 0m);
-
-            FillRecentSales(dashboard, sales);
-            FillTopProducts(dashboard, sales);
-
-            return dashboard;
-        }
-
-        public Task<List<LossProductResult>> GetLossProductsAsync(
-            DateOnly from,
-            DateOnly to,
-            int take = 10,
-            CancellationToken cancellationToken = default)
-        {
-            // For now local loss/returns are not implemented yet.
-            // Later we will calculate this from LocalReturn and LocalReturnLine.
-            return Task.FromResult(new List<LossProductResult>());
-        }
-
-        public async Task<WeeklyReportResult> GetWeeklyAsync(
-            DateOnly from,
-            DateOnly to,
-            CancellationToken cancellationToken = default)
-        {
-            var dashboard = await GetDashboardSummaryAsync(from, to, cancellationToken);
-
-            var weekly = new WeeklyReportResult();
-
-            Set(weekly, "Week", $"{from:dd/MM} - {to:dd/MM}");
-            Set(weekly, "Revenue", GetDecimal(dashboard, "Revenue"));
-            Set(weekly, "Expenses", GetDecimal(dashboard, "Cost"));
-            Set(weekly, "Profit", GetDecimal(dashboard, "Profit"));
-            Set(weekly, "SalesCount", GetInt(dashboard, "SalesCount"));
-            Set(weekly, "ReturnsCount", 0);
-
-            return weekly;
-        }
-
-        private static void FillRecentSales(
-            DashboardSummaryResult dashboard,
-            IEnumerable<object> sales)
-        {
-            var recentSalesProperty = dashboard.GetType().GetProperty("RecentSales");
-
-            if (recentSalesProperty == null)
-                return;
-
-            var list = recentSalesProperty.GetValue(dashboard) as IList;
-
-            if (list == null)
+            Revenue = revenue, Refunds = refunds, Cost = cost, Profit = profit,
+            Margin = revenue == 0 ? 0 : profit / revenue * 100, SalesCount = sales.Count,
+            AverageBasket = sales.Count == 0 ? 0 : revenue / sales.Count,
+            CashRevenue = payments.Where(x => x.Method == PaymentMethod.Cash).Sum(x => x.Amount),
+            CardRevenue = payments.Where(x => x.Method == PaymentMethod.Card).Sum(x => x.Amount),
+            CreditRevenue = payments.Where(x => x.Method == PaymentMethod.Credit).Sum(x => x.Amount),
+            TotalLoss = refunds + damage, LossRate = revenue == 0 ? 0 : (refunds + damage) / revenue * 100,
+            RecentSales = sales.Take(10).Select(x => new RecentSaleResult
             {
-                list = CreateListForProperty(recentSalesProperty);
-                recentSalesProperty.SetValue(dashboard, list);
-            }
+                Id = x.Id, InvoiceNumber = x.LocalInvoiceNumber, SaleDate = x.SaleDateUtc.ToLocalTime(),
+                CustomerName = x.CustomerLocalId.HasValue && customers.TryGetValue(x.CustomerLocalId.Value, out var name) ? name : "Walk-in Customer",
+                TotalAmount = x.TotalAmount, PaymentMethod = string.Join(", ", x.Payments.Select(p => p.Method).Distinct()),
+                PaymentSummary = string.Join(", ", x.Payments.GroupBy(p => p.Method).Select(g => $"{g.Key}: {g.Sum(p => p.Amount):N2}"))
+            }).ToList(),
+            TopProducts = sales.SelectMany(x => x.Lines).GroupBy(x => new { x.ProductLocalId, x.ProductName })
+                .Select(g => new TopProductResult { ProductId = g.Key.ProductLocalId, ProductName = g.Key.ProductName,
+                    QuantitySold = g.Sum(x => x.Quantity), TotalRevenue = g.Sum(x => x.LineTTC) })
+                .OrderByDescending(x => x.TotalRevenue).Take(10).ToList()
+        };
+    }
 
-            list.Clear();
+    public async Task<ProfitAnalyticsResult> GetProfitAsync(DateOnly from, DateOnly to, CancellationToken cancellationToken = default)
+    {
+        var summary = await GetDashboardSummaryAsync(from, to, cancellationToken);
+        return new ProfitAnalyticsResult { From = from, To = to, TotalRevenue = summary.Revenue,
+            TotalCost = summary.Cost, TotalRefunds = summary.Refunds, TotalDamages = summary.TotalLoss - summary.Refunds,
+            GrossProfit = summary.Profit, ProfitMargin = summary.Margin, CreditRevenue = summary.CreditRevenue };
+    }
 
-            var itemType = GetListItemType(recentSalesProperty);
+    public async Task<List<LossProductResult>> GetLossProductsAsync(DateOnly from, DateOnly to, int take = 10, CancellationToken cancellationToken = default)
+    {
+        var id = tenant.GetRequiredTenantId();
+        var (start, end) = Bounds(from, to);
+        var returns = await db.ReturnLines.AsNoTracking().Where(x => x.TenantId == id && x.LocalReturn.TenantId == id &&
+            x.LocalReturn.IsProcessed && x.LocalReturn.ReturnDateUtc >= start && x.LocalReturn.ReturnDateUtc < end).ToListAsync(cancellationToken);
+        var damages = await db.StockMovements.AsNoTracking().Where(x => x.TenantId == id && x.Type == StockMovementType.Damage &&
+            x.MovementDateUtc >= start && x.MovementDateUtc < end).ToListAsync(cancellationToken);
+        return returns.Select(x => new LossProductResult { ProductId = x.ProductLocalId, ProductName = x.ProductName,
+                ReturnedQuantity = x.Quantity, LostRevenue = x.LineAmount, LossReason = "Return" })
+            .Concat(damages.Select(x => new LossProductResult { ProductId = x.ProductLocalId, ProductName = x.ProductName,
+                ReturnedQuantity = Math.Abs(x.QuantityChange), LostRevenue = Math.Abs(x.QuantityChange) * x.UnitCost, LossReason = "Damage" }))
+            .GroupBy(x => new { x.ProductId, x.ProductName }).Select(g => new LossProductResult
+            { ProductId = g.Key.ProductId, ProductName = g.Key.ProductName, ReturnedQuantity = g.Sum(x => x.ReturnedQuantity),
+                LostRevenue = g.Sum(x => x.LostRevenue), LossReason = string.Join(", ", g.Select(x => x.LossReason).Distinct()) })
+            .OrderByDescending(x => x.LostRevenue).Take(Math.Max(0, take)).ToList();
+    }
 
-            if (itemType == null)
-                return;
+    public async Task<WeeklyReportResult> GetWeeklyAsync(DateOnly from, DateOnly to, CancellationToken cancellationToken = default)
+    {
+        var id = tenant.GetRequiredTenantId();
+        var (start, end) = Bounds(from, to);
+        var summary = await GetDashboardSummaryAsync(from, to, cancellationToken);
+        var count = await db.Returns.CountAsync(x => x.TenantId == id && x.IsProcessed && x.ReturnDateUtc >= start && x.ReturnDateUtc < end, cancellationToken);
+        var sessions = await db.CashSessions.AsNoTracking().Where(x => x.TenantId == id &&
+            ((x.OpenedAtUtc >= start && x.OpenedAtUtc < end) || (x.ClosedAtUtc >= start && x.ClosedAtUtc < end))).ToListAsync(cancellationToken);
+        return new WeeklyReportResult { Week = $"{from:dd/MM} - {to:dd/MM}", Revenue = summary.Revenue,
+            Expenses = summary.Cost + summary.TotalLoss, Profit = summary.Profit, SalesCount = summary.SalesCount, ReturnsCount = count,
+            CashOpening = sessions.Where(x => x.OpenedAtUtc >= start && x.OpenedAtUtc < end).Sum(x => x.OpeningAmount),
+            CashClosing = sessions.Where(x => x.ClosedAtUtc >= start && x.ClosedAtUtc < end).Sum(x => x.ClosingAmountCounted) };
+    }
 
-            foreach (var sale in sales.Take(10))
-            {
-                var item = Activator.CreateInstance(itemType);
-
-                if (item == null)
-                    continue;
-
-                Set(item, "InvoiceNumber", GetString(sale, "LocalInvoiceNumber"));
-                Set(item, "SaleDate", GetDateTime(sale, "SaleDateUtc"));
-                Set(item, "CustomerName", GetString(sale, "CustomerName") ?? "Walk-in");
-                Set(item, "PaymentSummary", BuildPaymentSummary(sale));
-                Set(item, "TotalAmount", GetDecimal(sale, "TotalAmount"));
-
-                list.Add(item);
-            }
-        }
-
-        private static void FillTopProducts(
-            DashboardSummaryResult dashboard,
-            IEnumerable<object> sales)
-        {
-            var topProductsProperty = dashboard.GetType().GetProperty("TopProducts");
-
-            if (topProductsProperty == null)
-                return;
-
-            var list = topProductsProperty.GetValue(dashboard) as IList;
-
-            if (list == null)
-            {
-                list = CreateListForProperty(topProductsProperty);
-                topProductsProperty.SetValue(dashboard, list);
-            }
-
-            list.Clear();
-
-            var itemType = GetListItemType(topProductsProperty);
-
-            if (itemType == null)
-                return;
-
-            var lines = sales
-                .SelectMany(sale => GetEnumerable(sale, "Lines"))
-                .GroupBy(line => GetString(line, "ProductName") ?? "Unknown product")
-                .Select(group => new
-                {
-                    ProductName = group.Key,
-                    QuantitySold = group.Sum(x => GetDecimal(x, "Quantity")),
-                    TotalRevenue = group.Sum(x =>
-                    {
-                        var lineTotal = GetDecimal(x, "LineAmountInclVat");
-
-                        if (lineTotal > 0)
-                            return lineTotal;
-
-                        var quantity = GetDecimal(x, "Quantity");
-                        var unitPrice = GetDecimal(x, "UnitPrice");
-                        var discount = GetDecimal(x, "DiscountAmount");
-
-                        return Math.Max(0, quantity * unitPrice - discount);
-                    })
-                })
-                .OrderByDescending(x => x.TotalRevenue)
-                .Take(10)
-                .ToList();
-
-            foreach (var line in lines)
-            {
-                var item = Activator.CreateInstance(itemType);
-
-                if (item == null)
-                    continue;
-
-                Set(item, "ProductName", line.ProductName);
-                Set(item, "QuantitySold", line.QuantitySold);
-                Set(item, "TotalRevenue", line.TotalRevenue);
-
-                list.Add(item);
-            }
-        }
-
-        private static string BuildPaymentSummary(object sale)
-        {
-            var payments = GetEnumerable(sale, "Payments").ToList();
-
-            if (payments.Count == 0)
-                return "Unpaid";
-
-            return string.Join(
-                " + ",
-                payments
-                    .Select(x => GetString(x, "Method") ?? GetString(x, "PaymentMethod") ?? "Payment")
-                    .Distinct());
-        }
-
-        private static bool IsPaymentMethod(object payment, string method)
-        {
-            var value = GetString(payment, "Method")
-                ?? GetString(payment, "PaymentMethod")
-                ?? string.Empty;
-
-            return value.Equals(method, StringComparison.OrdinalIgnoreCase);
-        }
-
-        private static IList CreateListForProperty(PropertyInfo property)
-        {
-            var itemType = GetListItemType(property) ?? typeof(object);
-            var listType = typeof(List<>).MakeGenericType(itemType);
-
-            return (IList)Activator.CreateInstance(listType)!;
-        }
-
-        private static Type? GetListItemType(PropertyInfo property)
-        {
-            if (property.PropertyType.IsGenericType)
-            {
-                return property.PropertyType.GetGenericArguments().FirstOrDefault();
-            }
-
-            return null;
-        }
-
-        private static IEnumerable<object> GetEnumerable(object source, string propertyName)
-        {
-            var value = source.GetType().GetProperty(propertyName)?.GetValue(source);
-
-            if (value is IEnumerable enumerable)
-            {
-                foreach (var item in enumerable)
-                {
-                    if (item != null)
-                        yield return item;
-                }
-            }
-        }
-
-        private static string? GetString(object source, string propertyName)
-        {
-            var value = source.GetType().GetProperty(propertyName)?.GetValue(source);
-
-            return value?.ToString();
-        }
-
-        private static decimal GetDecimal(object source, string propertyName)
-        {
-            var value = source.GetType().GetProperty(propertyName)?.GetValue(source);
-
-            if (value == null)
-                return 0m;
-
-            if (value is decimal d)
-                return d;
-
-            if (value is int i)
-                return i;
-
-            if (value is double db)
-                return Convert.ToDecimal(db);
-
-            if (value is float f)
-                return Convert.ToDecimal(f);
-
-            return decimal.TryParse(value.ToString(), out var parsed)
-                ? parsed
-                : 0m;
-        }
-
-        private static int GetInt(object source, string propertyName)
-        {
-            var value = source.GetType().GetProperty(propertyName)?.GetValue(source);
-
-            if (value == null)
-                return 0;
-
-            if (value is int i)
-                return i;
-
-            if (value is decimal d)
-                return (int)d;
-
-            return int.TryParse(value.ToString(), out var parsed)
-                ? parsed
-                : 0;
-        }
-
-        private static DateTime GetDateTime(object source, string propertyName)
-        {
-            var value = source.GetType().GetProperty(propertyName)?.GetValue(source);
-
-            if (value == null)
-                return DateTime.UtcNow;
-
-            if (value is DateTime dt)
-                return dt;
-
-            return DateTime.TryParse(value.ToString(), out var parsed)
-                ? parsed
-                : DateTime.UtcNow;
-        }
-
-        private static void Set(object target, string propertyName, object? value)
-        {
-            var property = target.GetType().GetProperty(propertyName);
-
-            if (property == null || !property.CanWrite)
-                return;
-
-            if (value == null)
-            {
-                property.SetValue(target, null);
-                return;
-            }
-
-            var targetType = Nullable.GetUnderlyingType(property.PropertyType)
-                ?? property.PropertyType;
-
-            try
-            {
-                if (targetType.IsEnum)
-                {
-                    property.SetValue(target, Enum.Parse(targetType, value.ToString()!));
-                    return;
-                }
-
-                var converted = Convert.ChangeType(value, targetType);
-                property.SetValue(target, converted);
-            }
-            catch
-            {
-                // Ignore property mismatch to keep local analytics robust.
-            }
-        }
+    public async Task<List<KeyValuePair<DateOnly, decimal>>> GetDailyRevenueAsync(DateOnly from, DateOnly to, CancellationToken cancellationToken = default)
+    {
+        var id = tenant.GetRequiredTenantId();
+        var (start, end) = Bounds(from, to);
+        var sales = await Sales(id, start, end).Select(x => new { x.SaleDateUtc, x.TotalAmount }).ToListAsync(cancellationToken);
+        var totals = sales.GroupBy(x => DateOnly.FromDateTime(x.SaleDateUtc.ToLocalTime())).ToDictionary(g => g.Key, g => g.Sum(x => x.TotalAmount));
+        return Enumerable.Range(0, to.DayNumber - from.DayNumber + 1).Select(offset => from.AddDays(offset))
+            .Select(day => new KeyValuePair<DateOnly, decimal>(day, totals.GetValueOrDefault(day))).ToList();
     }
 }

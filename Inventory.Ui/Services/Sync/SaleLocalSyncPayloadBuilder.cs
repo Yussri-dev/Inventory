@@ -82,10 +82,7 @@ namespace Inventory.Ui.Services.Sync
                     "was not found.");
             }
 
-            if (!string.Equals(
-                    sale.Status,
-                    LocalSaleStatus.Completed,
-                    StringComparison.OrdinalIgnoreCase))
+            if (!(sale.Status == LocalSaleStatus.Completed))
             {
                 throw new InvalidOperationException(
                     $"Local Sale '{sale.Id}' is not completed. " +

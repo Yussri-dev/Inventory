@@ -1,4 +1,4 @@
-﻿@page "/cashSessions"
+@page "/cashSessions"
 
 @using Inventory.Dto.CashSessions.Results
 @using Inventory.LocalDB.Models
@@ -546,7 +546,7 @@
     {
         await LoadData();
 
-        SyncCoordinator.SyncNow();
+        SyncCoordinator.RequestSync();
     }
 
     private async Task LoadData()
@@ -801,26 +801,7 @@
 
                 CloseCloseModal();
 
-                var syncResult =
-                    await LocalSyncUploader
-                        .SyncPendingAsync();
-
-                if (syncResult.Failed > 0)
-                {
-                    ErrorMessage =
-                        string.Join(
-                            Environment.NewLine,
-                            syncResult.Messages);
-                }
-                else if (syncResult.Messages.Count > 0)
-                {
-                    SuccessMessage +=
-                        " " +
-                        string.Join(
-                            " ",
-                            syncResult.Messages);
-                }
-
+                SyncCoordinator.RequestSync();
                 await LoadData();
 
                 return;
@@ -847,7 +828,7 @@
                         ClosingNotes);
 
 
-            SyncCoordinator.SyncNow();
+            SyncCoordinator.RequestSync();
 
             SuccessMessage =
                 $"Cash session " +

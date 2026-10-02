@@ -151,6 +151,8 @@ public sealed class LocalStockSyncService
                         localStock = stockByProduct;
                     }
 
+                    var isNewStock = localStock == null;
+
                     if (localStock == null)
                     {
                         localStock = new LocalStock
@@ -163,7 +165,7 @@ public sealed class LocalStockSyncService
                         localStocks.Add(localStock);
                     }
 
-                    var localStockChangedDuringDownload = localStock.LastUpdatedUtc >= downloadStartedAtUtc;
+                    var localStockChangedDuringDownload = !isNewStock && localStock.LastUpdatedUtc >= downloadStartedAtUtc;
 
                     if (protectedProductLocalIds.Contains(
                             localProduct.Id) ||

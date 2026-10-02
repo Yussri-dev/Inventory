@@ -222,8 +222,8 @@
                     @onclick="ResetPurchaseAsync"
                     @onclick:stopPropagation="true"
                     disabled="@(IsSaving ||
-                                                                                                                (Lines.Count == 0 &&
-                                                                                                                 SelectedSupplier == null))">
+                                                                                                                                    (Lines.Count == 0 &&
+                                                                                                                                     SelectedSupplier == null))">
                 Reset
             </button>
 
@@ -268,14 +268,11 @@
         <div class="card search-section">
             <div class="search-box">
                 <input type="text"
-                       class="search-input"
-                       placeholder="Scan barcode or type product code..."
-                       @bind="BarcodeInput"
-                       @bind:event="oninput"
-                       @onkeydown="OnBarcodeKeyDown"
+                       class="search-input barcode-input"
+                       placeholder="Scan barcode..."
+                       @onchange="OnBarcodeChanged"
                        @ref="barcodeInputRef"
-                       disabled="@IsSaving"
-                       autofocus />
+                       disabled="@IsSaving" />
 
                 <span class="search-icon">🔍</span>
             </div>
@@ -638,6 +635,8 @@
                 barcode);
 
             await AddProductByBarcodeAsync(barcode);
+
+            await InvokeAsync(StateHasChanged);
         }
         catch (Exception exception)
         {
@@ -690,7 +689,18 @@
                 StateHasChanged);
         }
 
-        await FocusBarcodeInput();
+    }
+
+    private async Task OnBarcodeChanged(ChangeEventArgs args)
+    {
+        var barcode = args.Value?.ToString()?.Trim();
+
+        if (string.IsNullOrWhiteSpace(barcode))
+        {
+            return;
+        }
+
+        await OnHardwareScan(barcode);
     }
 
     public async ValueTask DisposeAsync()
@@ -1501,6 +1511,7 @@ StringComparer.OrdinalIgnoreCase);
         ScheduleDraftSave();
 
         await FocusBarcodeInput();
+
     }
 
     private void Increment(

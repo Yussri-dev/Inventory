@@ -16,131 +16,86 @@ public partial class App : Application
         InitializeComponent();
     }
 
-    protected override Window CreateWindow(
-        IActivationState? activationState)
+    protected override Window CreateWindow(IActivationState? activationState)
     {
-        var mainWindow =
-            new Window(
-                new MainPage())
-            {
-                Title = "Inventory POS"
-            };
+        var mainWindow = new Window(new MainPage()) { Title = "Inventory POS" };
 
-        mainWindow.Created +=
-            OnMainWindowCreated;
+        mainWindow.Created += OnMainWindowCreated;
+        mainWindow.Destroying += (_, _) =>
+        {
+            var window = _customerDisplayWindow;
+            _customerDisplayWindow = null;
+
+            if (window is null)
+                return;
+
+            try { CloseWindow(window); }
+            catch { /* already closing */ }
+        };
 
         return mainWindow;
     }
 
-    private void OnMainWindowCreated(
-        object? sender,
-        EventArgs e)
-    {
-        if (_customerDisplayWindow is not null)
-        {
-            return;
-        }
-
-        //_customerDisplayWindow =
-        //    new Window(
-        //        new CustomerDisplayPage())
-        //    {
-        //        Title = "Customer Display"
-        //    };
-
-        //// Exécuté lorsque la fenêtre native Windows est disponible.
-        //_customerDisplayWindow.Created +=
-        //    OnCustomerDisplayCreated;
-
-        //_customerDisplayWindow.Destroying +=
-        //    OnCustomerDisplayDestroyed;
-
-        //OpenWindow(
-        //    _customerDisplayWindow);
-    }
-
-    private void OnCustomerDisplayCreated(
-     object? sender,
-     EventArgs e)
+    private void OnMainWindowCreated(object? sender, EventArgs e)
     {
 #if WINDOWS
-    if (
-        sender is not Window mauiWindow ||
-        mauiWindow.Handler?.PlatformView
-            is not Microsoft.Maui.MauiWinUIWindow nativeWindow)
-    {
+    if (_customerDisplayWindow is not null || FindSecondaryDisplay() is null)
         return;
+
+    _customerDisplayWindow = new Window(new CustomerDisplayPage())
+    {
+        Title = "Customer Display"
+    };
+
+    _customerDisplayWindow.Created += OnCustomerDisplayCreated;
+    _customerDisplayWindow.Destroying += OnCustomerDisplayDestroyed;
+
+    OpenWindow(_customerDisplayWindow);
+#endif
     }
 
-    var windowHandle =
-        WindowNative.GetWindowHandle(
-            nativeWindow);
 
-    var windowId =
-        Microsoft.UI.Win32Interop
-            .GetWindowIdFromWindow(
-                windowHandle);
+#if WINDOWS
+private static DisplayArea? FindSecondaryDisplay()
+{
+    var areas = DisplayArea.FindAll();
 
-    var appWindow =
-        AppWindow.GetFromWindowId(
-            windowId);
-
-    if (appWindow is null)
+    for (var i = 0; i < areas.Count; i++)   // no foreach (WinRT enumerator issue)
     {
+        if (!areas[i].IsPrimary)
+            return areas[i];
+    }
+
+    return null;
+}
+#endif
+
+    private void OnCustomerDisplayCreated(object? sender, EventArgs e)
+    {
+#if WINDOWS
+    if (sender is not Window mauiWindow ||
+        mauiWindow.Handler?.PlatformView is not Microsoft.Maui.MauiWinUIWindow nativeWindow)
         return;
-    }
 
-    var displayAreas =
-        DisplayArea.FindAll();
+    var hwnd = WindowNative.GetWindowHandle(nativeWindow);
+    var windowId = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hwnd);
+    var appWindow = AppWindow.GetFromWindowId(windowId);
 
-    DisplayArea? secondDisplay =
-        null;
-
-    // Ne pas utiliser foreach ici.
-    // L'énumérateur WinRT peut provoquer InvalidCastException.
-    for (
-        var index = 0;
-        index < displayAreas.Count;
-        index++)
-    {
-        var display =
-            displayAreas[index];
-
-        if (!display.IsPrimary)
-        {
-            secondDisplay =
-                display;
-
-            break;
-        }
-    }
-
-    // Aucun écran secondaire connecté.
-    if (secondDisplay is null)
-    {
+    var second = FindSecondaryDisplay();
+    if (appWindow is null || second is null)
         return;
-    }
 
-    // Restaurer avant le déplacement.
-    if (
-        appWindow.Presenter
-            is OverlappedPresenter presenter)
-    {
-        presenter.Restore();
-    }
+    // 1. Restore (a maximized window cannot be moved between screens)
+    if (appWindow.Presenter is OverlappedPresenter p)
+        p.Restore();
 
-    // Déplacer vers le deuxième écran.
-    appWindow.MoveAndResize(
-        secondDisplay.WorkArea,
-        secondDisplay);
+    // 2. Move to the second display (inside its work area)
+    appWindow.Move(new Windows.Graphics.PointInt32(
+        second.WorkArea.X + 50,
+        second.WorkArea.Y + 50));
 
-    // Maximiser sur le deuxième écran.
-    if (
-        appWindow.Presenter
-            is OverlappedPresenter maximizedPresenter)
-    {
-        maximizedPresenter.Maximize();
-    }
+    // 3. Full screen on that display (no title bar, no taskbar)
+    appWindow.SetPresenter(AppWindowPresenterKind.FullScreen);
 #endif
     }
 

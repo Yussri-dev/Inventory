@@ -1,4 +1,4 @@
-﻿@using System.Security.Claims
+@using System.Security.Claims
 @using Inventory.Ui.Authentification
 @using Inventory.Ui.State
 @using Microsoft.AspNetCore.Components.Authorization
@@ -7,6 +7,7 @@
 @inject AuthenticationStateProvider AuthStateProvider
 @inject NavigationManager NavigationManager
 @inject IJSRuntime JS
+@inject Inventory.Ui.Services.Sync.SyncCoordinator CorrectionSync
 
 @if (!IsInitialized)
 {
@@ -77,6 +78,7 @@ else
         if (user.Identity?.IsAuthenticated == true)
         {
             IsLoggedIn = true;
+            if (!user.IsInRole("SuperAdmin")) CorrectionSync.RequestSync();
             UserName = user.FindFirst("email")?.Value
                     ?? user.FindFirst("name")?.Value
                     ?? user.Identity.Name

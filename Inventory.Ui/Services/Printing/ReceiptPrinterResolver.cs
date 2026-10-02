@@ -96,7 +96,7 @@ namespace Inventory.Ui.Services.Printing
                                     selectedPrinterName,
                                     StringComparison.OrdinalIgnoreCase));
 
-                    if (selectedPrinter != null)
+                    if (selectedPrinter != null && !IsVirtualPrinter(selectedPrinter.Name))
                     {
                         return selectedPrinter.Name;
                     }
@@ -108,6 +108,10 @@ namespace Inventory.Ui.Services.Printing
                     _printerSettingsService
                         .ClearSelectedPrinter();
                 }
+
+                // Respect the Windows default even when it is an ordinary office printer.
+                var defaultPrinter = installedPrinters.FirstOrDefault(p => p.IsDefault && !IsVirtualPrinter(p.Name));
+                if (defaultPrinter != null) return defaultPrinter.Name;
 
                 var thermalCandidates =
                     installedPrinters
@@ -197,7 +201,7 @@ namespace Inventory.Ui.Services.Printing
                 VirtualPrinterMarkers);
         }
 
-        private static bool IsThermalPrinter(
+        public static bool IsThermalPrinter(
             string printerName)
         {
             return ContainsAnyMarker(

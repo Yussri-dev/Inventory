@@ -1150,6 +1150,7 @@ namespace Inventory.LocalDB.Context
                     .HasMaxLength(100);
 
                 entity.Property(x => x.Status)
+                    .HasConversion<string>()
                     .HasMaxLength(50)
                     .IsRequired();
 
@@ -1309,8 +1310,9 @@ namespace Inventory.LocalDB.Context
                 });
 
                 entity.Property(x => x.Method)
-                    .HasMaxLength(50)
-                    .IsRequired();
+                 .HasConversion<string>()
+                 .HasMaxLength(50)
+                 .IsRequired();
 
                 entity.Property(x => x.TransactionRef)
                     .HasMaxLength(200);
@@ -1560,6 +1562,7 @@ namespace Inventory.LocalDB.Context
 
             entity.Property(movement =>
                     movement.Type)
+                .HasConversion<string>()
                 .IsRequired()
                 .HasMaxLength(50);
 
@@ -2017,8 +2020,9 @@ namespace Inventory.LocalDB.Context
                     .HasMaxLength(100);
 
                 entity.Property(x => x.RefundMethod)
-                    .HasMaxLength(50)
-                    .IsRequired();
+                 .HasConversion<string>()
+                 .HasMaxLength(50)
+                 .IsRequired();
 
                 entity.Property(x => x.Reason)
                     .HasMaxLength(1000);

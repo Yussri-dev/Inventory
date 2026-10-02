@@ -4,11 +4,9 @@
 @using System.Globalization
 @using Inventory.Ui.Services.Analytics
 @using Microsoft.Extensions.Logging
-@using System.Net
 @using ApexCharts
 @inject NavigationManager Nav
 @inject ILogger<Home> Logger
-@inject IAnalyticsApi AnalyticsApi
 @inject ILocalAnalyticsService LocalAnalyticsService
 
 <div class="analytics-page">
@@ -16,10 +14,10 @@
     <div class="dashboard-header">
         <h1>📊 Analytics Dashboard</h1>
         <div class="period-selector">
-            <button class="@(SelectedPeriod == Period.Today ? "active" : "")" @onclick="() => SelectPeriod(Period.Today)">Today</button>
-            <button class="@(SelectedPeriod == Period.Week ? "active" : "")" @onclick="() => SelectPeriod(Period.Week)">This Week</button>
-            <button class="@(SelectedPeriod == Period.Month ? "active" : "")" @onclick="() => SelectPeriod(Period.Month)">This Month</button>
-            <button class="@(SelectedPeriod == Period.Year ? "active" : "")" @onclick="() => SelectPeriod(Period.Year)">This Year</button>
+            <button class="@(SelectedPeriod == Period.Today ? "active" : "")" disabled="@IsLoading" @onclick="() => SelectPeriod(Period.Today)">Today</button>
+            <button class="@(SelectedPeriod == Period.Week ? "active" : "")" disabled="@IsLoading" @onclick="() => SelectPeriod(Period.Week)">This Week</button>
+            <button class="@(SelectedPeriod == Period.Month ? "active" : "")" disabled="@IsLoading" @onclick="() => SelectPeriod(Period.Month)">This Month</button>
+            <button class="@(SelectedPeriod == Period.Year ? "active" : "")" disabled="@IsLoading" @onclick="() => SelectPeriod(Period.Year)">This Year</button>
         </div>
     </div>
 
@@ -29,6 +27,11 @@
             <div class="spinner"></div>
             <span>Loading analytics…</span>
         </div>
+    }
+    else if (LoadError != null)
+    {
+        <div role="alert">@LoadError</div>
+        <button @onclick="LoadAnalytics">Retry</button>
     }
     else
     {
@@ -344,7 +347,6 @@
     // RECORDS & MODELS
     // =========================
 
-    record CacheEntry<T>(T Data, DateTime ExpiresAt);
 
     public class ChartSlice
     {
@@ -369,8 +371,6 @@
     List<LossProductResult> LossProducts = new();
     WeeklyReportResult Weekly = new();
 
-    Dictionary<string, CacheEntry<List<LossProductResult>>> LossCache = new();
-    Dictionary<string, CacheEntry<WeeklyReportResult>> WeeklyCache = new();
 
     Period SelectedPeriod = Period.Today;
     Tab ActiveTab = Tab.RecentSales;
@@ -378,9 +378,7 @@
     DateOnly To;
     bool IsLoading = true;
     bool _isFetching = false;
-    static bool _redirectingToLogin = false;
 
-    string GetKey() => $"{From:yyyyMMdd}-{To:yyyyMMdd}";
 
     // =========================
     // CHART SERIES
@@ -539,208 +537,38 @@
         }
     }
 
-    private static TimeZoneInfo GetBusinessTimeZone()
-    {
-        try
-        {
-            return TimeZoneInfo.FindSystemTimeZoneById(
-                "Europe/Brussels");
-        }
-        catch (TimeZoneNotFoundException)
-        {
-            return TimeZoneInfo.FindSystemTimeZoneById(
-                "Romance Standard Time");
-        }
-    }
+    private static TimeZoneInfo GetBusinessTimeZone() => TimeZoneInfo.Local;
 
     // =========================
     // LOAD
     // =========================
-    /*
+    private string? LoadError;
+
     async Task LoadAnalytics()
     {
         if (_isFetching) return;
-
         _isFetching = true;
         IsLoading = true;
-        StateHasChanged();
-
-        var key = GetKey();
-        var now = DateTime.UtcNow;
-
-        if (LossCache.TryGetValue(key, out var cachedLoss) && cachedLoss.ExpiresAt > now &&
-            WeeklyCache.TryGetValue(key, out var cachedWeekly) && cachedWeekly.ExpiresAt > now)
-        {
-            try { Dashboard = await AnalyticsApi.GetDashboardSummaryAsync(From, To); }
-            catch (Refit.ApiException ex) when (ex.StatusCode == HttpStatusCode.Unauthorized)
-            { HandleUnauthorized(); return; }
-
-            LossProducts = cachedLoss.Data;
-            Weekly = cachedWeekly.Data;
-            BuildChartData();
-
-            _isFetching = false;
-            IsLoading = false;
-            StateHasChanged();
-            return;
-        }
-
+        LoadError = null;
         try
         {
-            Dashboard = await AnalyticsApi.GetDashboardSummaryAsync(From, To);
-
-            var loss = await AnalyticsApi.GetLossProductsAsync(From, To, 10);
-            var referenceDate = From.ToDateTime(TimeOnly.MinValue);
-            var weekly = await AnalyticsApi.GetWeeklyAsync(
-                referenceDate.Year,
-                ISOWeek.GetWeekOfYear(referenceDate));
-
-            var expiry = now.AddMinutes(2);
-            LossCache[key] = new(loss.Items.ToList(), expiry);
-            WeeklyCache[key] = new(weekly, expiry);
-
-            LossProducts = LossCache[key].Data;
-            Weekly = weekly;
-
+            Dashboard = await LocalAnalyticsService.GetDashboardSummaryAsync(From, To);
+            LossProducts = await LocalAnalyticsService.GetLossProductsAsync(From, To, 10);
+            Weekly = await LocalAnalyticsService.GetWeeklyAsync(From, To);
             BuildChartData();
         }
-        catch (Refit.ApiException ex) when (ex.StatusCode == HttpStatusCode.Unauthorized)
+        catch (Exception ex)
         {
-            HandleUnauthorized();
+            Logger.LogError(ex, "Cannot load local dashboard analytics.");
+            LoadError = "Unable to load this store's local data. Please try again.";
         }
         finally
         {
             _isFetching = false;
             IsLoading = false;
-            StateHasChanged();
         }
     }
-    */
 
-   async Task LoadAnalytics()
-{
-    if (_isFetching) return;
-
-    _isFetching = true;
-    IsLoading = true;
-    StateHasChanged();
-
-    var key = GetKey();
-    var now = DateTime.UtcNow;
-
-        try
-        {
-            Logger.LogInformation(
-                "Loading dashboard summary. Period={Period}, " +
-                "From={From}, To={To}",
-                SelectedPeriod,
-                From,
-                To);
-
-            Dashboard =
-                await AnalyticsApi.GetDashboardSummaryAsync(
-                    From,
-                    To);
-
-            Logger.LogInformation(
-                "Dashboard API result: Revenue={Revenue}, " +
-                "Sales={Sales}, Cost={Cost}, " +
-                "Cash={Cash}, Card={Card}, Credit={Credit}",
-                Dashboard.Revenue,
-                Dashboard.SalesCount,
-                Dashboard.Cost,
-                Dashboard.CashRevenue,
-                Dashboard.CardRevenue,
-                Dashboard.CreditRevenue);
-
-            var loss =
-                await AnalyticsApi.GetLossProductsAsync(
-                    From,
-                    To,
-                    10);
-
-            var referenceDate =
-                From.ToDateTime(
-                    TimeOnly.MinValue);
-
-            var weekly =
-                await AnalyticsApi.GetWeeklyAsync(
-                    referenceDate.Year,
-                    ISOWeek.GetWeekOfYear(
-                        referenceDate));
-
-            var expiry =
-                now.AddMinutes(2);
-
-            LossCache[key] =
-                new CacheEntry<List<LossProductResult>>(
-                    loss.Items.ToList(),
-                    expiry);
-
-            WeeklyCache[key] =
-                new CacheEntry<WeeklyReportResult>(
-                    weekly,
-                    expiry);
-
-            LossProducts =
-                LossCache[key].Data;
-
-            Weekly =
-                weekly;
-
-            BuildChartData();
-        }
-    catch (Refit.ApiException ex) when (ex.StatusCode == HttpStatusCode.Unauthorized)
-    {
-        HandleUnauthorized();
-    }
-    catch (Exception ex) when (IsOfflineException(ex))
-    {
-        Logger.LogWarning(ex, "API unavailable. Loading local analytics.");
-
-        await LoadLocalAnalytics();
-    }
-    finally
-    {
-        _isFetching = false;
-        IsLoading = false;
-        StateHasChanged();
-    }
-}
-
-    private async Task LoadLocalAnalytics()
-{
-    Dashboard = await LocalAnalyticsService.GetDashboardSummaryAsync(From, To);
-
-    LossProducts = await LocalAnalyticsService.GetLossProductsAsync(
-        From,
-        To,
-        10);
-
-    Weekly = await LocalAnalyticsService.GetWeeklyAsync(
-        From,
-        To);
-
-    BuildChartData();
-}
-
-private static bool IsOfflineException(Exception ex)
-{
-    if (ex is HttpRequestException)
-        return true;
-
-    if (ex is TaskCanceledException)
-        return true;
-
-    if (ex is Refit.ApiException apiEx &&
-        apiEx.StatusCode != HttpStatusCode.Unauthorized)
-        return true;
-
-    if (ex.InnerException is System.Net.Sockets.SocketException)
-        return true;
-
-    return false;
-}
     // =========================
     // CHART DATA BUILDER
     // =========================
@@ -777,15 +605,4 @@ private static bool IsOfflineException(Exception ex)
         };
     }
 
-    // =========================
-    // AUTH
-    // =========================
-
-    void HandleUnauthorized()
-    {
-        if (_redirectingToLogin || Nav.Uri.Contains("/login")) return;
-        _redirectingToLogin = true;
-        Logger.LogWarning("Unauthorized → redirecting to login");
-        Nav.NavigateTo("/login", replace: true);
-    }
 }

@@ -30,10 +30,8 @@ public static class LocalReturnSyncMapper
                 "The local return contains no lines.");
         }
 
-        if (!Enum.TryParse<RefundMethod>(
-                localReturn.RefundMethod,
-                ignoreCase: true,
-                out var refundMethod))
+        var refundMethod = localReturn.RefundMethod;
+        if (!Enum.IsDefined(refundMethod))
         {
             throw new InvalidOperationException(
                 $"Unsupported refund method: " +

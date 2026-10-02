@@ -1,10 +1,11 @@
-﻿namespace Inventory.LocalDB.Models
+﻿using Inventory.Dto.Enums;
+namespace Inventory.LocalDB.Models
 {
     public static class LocalSaleStatus
     {
-        public const string Draft = "Draft";
-        public const string Completed = "Completed";
-        public const string Cancelled = "Cancelled";
-        public const string Refunded = "Refunded";
+        public const SaleStatus Draft = SaleStatus.Draft;
+        public const SaleStatus Completed = SaleStatus.Completed;
+        public const SaleStatus Cancelled = SaleStatus.Cancelled;
+        public const SaleStatus Refunded = SaleStatus.Refunded;
     }
 }

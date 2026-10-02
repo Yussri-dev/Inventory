@@ -1,4 +1,4 @@
-﻿using Inventory.Ui.Services.Sync;
+using Inventory.Ui.Services.Sync;
 using Microsoft.Extensions.Logging;
 
 namespace Inventory.Ui.Services;
@@ -93,7 +93,7 @@ public sealed class LocalDataBootstrapService
     /// <summary>
     /// Synchronisation complète non bloquante.
     ///
-    /// Une erreur dans un module ne bloque pas les modules suivants.
+    /// Appelée après les envois. Toute erreur remonte au coordinateur.
     /// </summary>
     public async Task RefreshAllInBackgroundAsync(
         CancellationToken cancellationToken = default)
@@ -101,35 +101,25 @@ public sealed class LocalDataBootstrapService
         _logger.LogInformation(
             "Starting background synchronization.");
 
-        /*
-         * Envoyer les opérations locales avant de récupérer
-         * le stock autoritatif du serveur.
-         */
-        await ExecuteOptionalStepAsync(
-            "pending upload queue",
-            () => _syncUploader
-                .SyncPendingAsync(cancellationToken),
-            cancellationToken);
-
-        await ExecuteOptionalStepAsync(
+        await ExecuteRequiredStepAsync(
             "store profile",
             () => _tenantStoreProfileSyncService
                 .SynchronizeAsync(cancellationToken),
             cancellationToken);
 
-        await ExecuteOptionalStepAsync(
+        await ExecuteRequiredStepAsync(
             "product categories",
             () => _categorySync
                 .FullSyncAsync(cancellationToken),
             cancellationToken);
 
-        await ExecuteOptionalStepAsync(
+        await ExecuteRequiredStepAsync(
             "product catalogs",
             () => _catalogSync
                 .FullSyncAsync(cancellationToken),
             cancellationToken);
 
-        await ExecuteOptionalStepAsync(
+        await ExecuteRequiredStepAsync(
             "tenant products",
             () => _productSync
                 .FullSyncAsync(cancellationToken),
@@ -139,25 +129,25 @@ public sealed class LocalDataBootstrapService
          * Le stock est récupéré après l'upload des ventes,
          * achats, retours et ajustements en attente.
          */
-        //await ExecuteOptionalStepAsync(
+        //await ExecuteRequiredStepAsync(
         //    "stocks",
         //    () => _stockSync
         //        .FullSyncAsync(cancellationToken),
         //    cancellationToken);
 
-        await ExecuteOptionalStepAsync(
+        await ExecuteRequiredStepAsync(
             "customers",
             () => _customerSync
                 .FullSyncAsync(cancellationToken),
             cancellationToken);
 
-        await ExecuteOptionalStepAsync(
+        await ExecuteRequiredStepAsync(
             "suppliers",
             () => _supplierSync
                 .FullSyncAsync(cancellationToken),
             cancellationToken);
 
-        await ExecuteOptionalStepAsync(
+        await ExecuteRequiredStepAsync(
             "damages",
             () => _damageSync
                 .FullSyncAsync(cancellationToken),
@@ -201,44 +191,6 @@ public sealed class LocalDataBootstrapService
             throw new InvalidOperationException(
                 $"The required synchronization step '{stepName}' failed.",
                 exception);
-        }
-    }
-
-    private async Task ExecuteOptionalStepAsync(
-        string stepName,
-        Func<Task> action,
-        CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-
-        try
-        {
-            _logger.LogInformation(
-                "Starting background synchronization step {StepName}.",
-                stepName);
-
-            await action();
-
-            _logger.LogInformation(
-                "Background synchronization step {StepName} completed.",
-                stepName);
-        }
-        catch (OperationCanceledException)
-            when (cancellationToken.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception exception)
-        {
-            /*
-             * En arrière-plan, l'échec d'un module ne doit pas
-             * arrêter toute la synchronisation.
-             */
-            _logger.LogWarning(
-                exception,
-                "Background synchronization step {StepName} failed. " +
-                "The next step will continue.",
-                stepName);
         }
     }
 

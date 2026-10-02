@@ -75,6 +75,7 @@ namespace Inventory.Api.Installers
 
             builder.Services.AddHttpContextAccessor();
             builder.Services.AddScoped<ITenantContext, TenantContext>();
+            builder.Services.AddScoped<Inventory.Infrastructure.Data.ITenantDataAccess, TenantDataAccess>();
 
             builder.Services.AddScoped<ISyncOperationExecutor, SyncOperationExecutor>();
 

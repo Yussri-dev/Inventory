@@ -8,6 +8,9 @@ namespace Inventory.Ui.Interfaces
 {
     public interface ISaleApi
     {
+        [Post("/api/sync/sale-customers")]
+        Task<SaleCustomerSyncResult> GetCustomerSnapshots([Body] Guid[] saleIds, CancellationToken cancellationToken = default);
+
         [Post("/api/v1/sales")]
         Task<SaleResult> Create(
             [Body] CreateSaleRequest request);

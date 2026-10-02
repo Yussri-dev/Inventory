@@ -1,0 +1,76 @@
+@using Inventory.Dto.AppUpdates
+@using Inventory.Ui.Services.Updates
+@inject IAppUpdateService Updates
+
+@if (checking)
+{
+    <div role="status" style="padding:32px">Checking Inventory POS version…</div>
+}
+else if (Status == AppUpdateStatus.Required)
+{
+    <main style="max-width:620px;margin:10vh auto;padding:24px" role="alert">
+        <h1>Update required</h1>
+        <p>Installed: @Updates.InstalledVersion. Minimum supported: @manifest!.MinimumVersion.</p>
+        <p>Install Inventory POS @manifest.LatestVersion, then restart the application to continue.</p>
+        @if (!string.IsNullOrWhiteSpace(manifest.ReleaseNotes)) { <p>@manifest.ReleaseNotes</p> }
+        <button @onclick="Download"
+                disabled="@opening">
+            @(opening ? "Opening..." : "Download update")
+        </button>
+        <button @onclick="Check"
+                disabled="@(checking || opening)">
+            Check again
+        </button>
+        @if (error != null) { <p role="alert">@error</p> }
+    </main>
+}
+else
+{
+    @if (Status == AppUpdateStatus.Available && !dismissed)
+    {
+        <aside role="status" style="padding:12px;background:#e0f2fe;color:#0c4a6e">
+            Inventory POS @manifest!.LatestVersion is available (installed: @Updates.InstalledVersion).
+            <button @onclick="Download" disabled="@opening">Download update</button>
+            <button @onclick="() => dismissed = true">Later</button>
+            @if (error != null) { <span role="alert">@error</span> }
+        </aside>
+    }
+    @ChildContent
+}
+
+@code {
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    private AppUpdateManifest? manifest;
+    private bool checking = true, dismissed, opening;
+    private string? error;
+    private AppUpdateStatus Status => manifest?.Compare(Updates.InstalledVersion) ?? AppUpdateStatus.None;
+    protected override Task OnInitializedAsync() => Check();
+    private async Task Check()
+    {
+        checking = true;
+        dismissed = false;
+        error = null;
+
+        try
+        {
+            manifest = await Updates.CheckAsync();
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+        }
+        finally
+        {
+            checking = false;
+        }
+    }
+    private async Task Download()
+    {
+        if (manifest == null || opening) return;
+        opening = true;
+        error = null;
+        try { await Updates.OpenDownloadAsync(manifest); }
+        catch (Exception ex) { error = ex.Message; }
+        finally { opening = false; }
+    }
+}

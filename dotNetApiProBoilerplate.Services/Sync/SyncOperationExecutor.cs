@@ -150,6 +150,11 @@ namespace Inventory.Services.Sync
                 await _db.SaveChangesAsync(
                     cancellationToken);
 
+                // The handler may call SaveChanges before discovering a business conflict.
+                // Keep the idempotency claim, but isolate all subsequent business writes.
+                const string handlerSavepoint = "BeforeSyncHandler";
+                await transaction.CreateSavepointAsync(handlerSavepoint, cancellationToken);
+
                 var itemResult =
                     await handler.ProcessAsync(
                         operation,
@@ -194,6 +199,13 @@ namespace Inventory.Services.Sync
                         operation,
                         "The synchronization handler returned an " +
                         "unsupported status.");
+                }
+
+                if (IsStatus(itemResult.Status, SyncBatchItemStatus.Conflict))
+                {
+                    await transaction.RollbackToSavepointAsync(handlerSavepoint, cancellationToken);
+                    _db.ChangeTracker.Clear();
+                    _db.SyncOperationRecords.Attach(record);
                 }
 
                 record.ServerEntityId =

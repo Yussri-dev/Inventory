@@ -1,4 +1,5 @@
-﻿using System.ComponentModel.DataAnnotations;
+﻿using Inventory.Dto.Enums;
+using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Inventory.LocalDB.Models
@@ -49,7 +50,7 @@ namespace Inventory.LocalDB.Models
         public decimal ChangeAmount { get; set; }
 
         [Required, MaxLength(50)]
-        public string Status { get; set; } = LocalSaleStatus.Completed;
+        public SaleStatus Status { get; set; } = SaleStatus.Completed;
 
         [Required, MaxLength(50)]
         public string PaymentStatus { get; set; } = LocalPaymentStatus.Paid;

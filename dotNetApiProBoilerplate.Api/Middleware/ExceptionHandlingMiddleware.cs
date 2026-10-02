@@ -78,6 +78,12 @@ namespace Inventory.Api.Middleware
             // Map known exception types to HTTP status codes and messages
             switch (exception)
             {
+                case Inventory.Infrastructure.Data.TenantIsolationException:
+                    context.Response.StatusCode = (int)HttpStatusCode.Forbidden;
+                    response.Status = (int)HttpStatusCode.Forbidden;
+                    response.Title = "Forbidden";
+                    response.Detail = "The operation is not permitted for the current company.";
+                    break;
                 // Validation errors (bad input, failed business rules)
                 case ValidationException validationEx:
                     context.Response.StatusCode = (int)HttpStatusCode.BadRequest;

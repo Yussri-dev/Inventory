@@ -13,13 +13,16 @@ using Inventory.Ui.Services.Analytics;
 using Inventory.Ui.Services.Labels;
 using Inventory.Ui.Services.Printing;
 using Inventory.Ui.Services.Sync;
-using Inventory.Ui.Services.Sync.Testing;
 using Inventory.Ui.State;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.Extensions.Logging;
 using MudBlazor.Services;
 using QuestPDF.Infrastructure;
 using System.Text;
+
+#if DEBUG
+using Inventory.Ui.Services.Sync.Testing;
+#endif
 
 #if WINDOWS
 using Inventory.Ui.Platforms.Windows.Printing;
@@ -57,6 +60,12 @@ public static class MauiProgram
         const string apiBaseUrl = "https://localhost:7190";
 #endif
 
+        builder.Services.AddHttpClient<Inventory.Ui.Services.Updates.IAppUpdateService, Inventory.Ui.Services.Updates.AppUpdateService>(client =>
+        {
+            client.BaseAddress = new Uri(apiBaseUrl);
+            client.Timeout = TimeSpan.FromSeconds(5);
+        });
+
         // =========================
         // LOCAL OFFLINE DATABASE
         // =========================
@@ -80,6 +89,7 @@ public static class MauiProgram
         builder.Services.AddSingleton<ISecureStorageService, SecureStorageService>();
         builder.Services.AddSingleton<CustomerDisplayState>();
         builder.Services.AddSingleton<SyncCoordinator>();
+        builder.Services.AddScoped<SaleCustomerCorrectionSyncService>();
 
         builder.Services.AddTransient<AuthHeaderHandler>();
         builder.Services.AddTransient<AuthExpiredHandler>();
@@ -355,9 +365,12 @@ public static class MauiProgram
             IReceiptPdfGenerator,
             ReceiptPdfGenerator>();
 
-        builder.Services.AddScoped<
-            IReceiptPrinter,
-            ReceiptPrinter>();
+#if WINDOWS
+        builder.Services.AddScoped<ReceiptPrinter>();
+        builder.Services.AddScoped<IReceiptPrinter, Inventory.Ui.Platforms.Windows.Printing.WindowsReceiptPrinter>();
+#else
+        builder.Services.AddScoped<IReceiptPrinter, ReceiptPrinter>();
+#endif
 
 #if WINDOWS
         builder.Services.AddSingleton<

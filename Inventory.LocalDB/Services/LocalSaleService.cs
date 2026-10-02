@@ -1,4 +1,5 @@
-﻿using Inventory.LocalDB.Context;
+﻿using Inventory.Dto.Enums;
+using Inventory.LocalDB.Context;
 using Inventory.LocalDB.Models;
 using Inventory.LocalDB.Services.Interfaces;
 using Microsoft.EntityFrameworkCore;
@@ -357,11 +358,10 @@ public sealed class LocalSaleService : ILocalSaleService
                     "Every payment amount must be greater than zero.");
             }
 
-            if (string.IsNullOrWhiteSpace(
-                    payment.Method))
+            if (!Enum.IsDefined(payment.Method))
             {
                 throw new InvalidOperationException(
-                    "Every payment requires a payment method.");
+                    "Invalid payment method.");
             }
         }
     }
@@ -483,6 +483,12 @@ public sealed class LocalSaleService : ILocalSaleService
                     Guid.NewGuid();
             }
 
+            if (!Enum.IsDefined(payment.Method))
+            {
+                throw new InvalidOperationException(
+                    $"Invalid payment method: {payment.Method}.");
+            }
+
             payment.TenantId =
                 tenantId;
 
@@ -495,9 +501,6 @@ public sealed class LocalSaleService : ILocalSaleService
             payment.Amount =
                 RoundMoney(
                     payment.Amount);
-
-            payment.Method =
-                payment.Method.Trim();
 
             payment.TransactionRef =
                 NormalizeNullable(
@@ -608,10 +611,7 @@ public sealed class LocalSaleService : ILocalSaleService
             RoundMoney(
                 sale.Payments
                     .Where(payment =>
-                        string.Equals(
-                            payment.Method,
-                            "Credit",
-                            StringComparison.OrdinalIgnoreCase))
+                        payment.Method == PaymentMethod.Credit)
                     .Sum(payment =>
                         payment.Amount));
 
@@ -619,10 +619,7 @@ public sealed class LocalSaleService : ILocalSaleService
             RoundMoney(
                 sale.Payments
                     .Where(payment =>
-                        !string.Equals(
-                            payment.Method,
-                            "Credit",
-                            StringComparison.OrdinalIgnoreCase))
+                    payment.Method != PaymentMethod.Credit)
                     .Sum(payment =>
                         payment.Amount));
 
@@ -674,11 +671,8 @@ public sealed class LocalSaleService : ILocalSaleService
         {
             var cashPaid =
                 sale.Payments
-                    .Where(payment =>
-                        string.Equals(
-                            payment.Method,
-                            "Cash",
-                            StringComparison.OrdinalIgnoreCase))
+                   .Where(payment =>
+                    payment.Method == PaymentMethod.Cash)
                     .Sum(payment =>
                         payment.Amount);
 
@@ -1018,10 +1012,7 @@ public sealed class LocalSaleService : ILocalSaleService
         var cashPaid =
             sale.Payments
                 .Where(payment =>
-                    string.Equals(
-                        payment.Method,
-                        "Cash",
-                        StringComparison.OrdinalIgnoreCase))
+                payment.Method == PaymentMethod.Cash)
                 .Sum(payment =>
                     payment.Amount);
 
@@ -1234,7 +1225,7 @@ public sealed class LocalSaleService : ILocalSaleService
     // PENDING SALES
     // ============================================================
 
-    private const string PendingSaleStatus = "Pending";
+    private const Inventory.Dto.Enums.SaleStatus PendingSaleStatus = Inventory.Dto.Enums.SaleStatus.Pending;
 
     public async Task<IReadOnlyList<LocalSale>> GetPendingAsync(
         CancellationToken cancellationToken = default)
@@ -1550,10 +1541,7 @@ public sealed class LocalSaleService : ILocalSaleService
              * une tentative précédente peut avoir réussi malgré la perte
              * du résultat côté interface.
              */
-            if (string.Equals(
-                    pendingSale.Status,
-                    LocalSaleStatus.Completed,
-                    StringComparison.OrdinalIgnoreCase))
+            if ((pendingSale.Status == LocalSaleStatus.Completed))
             {
                 await transaction.CommitAsync(
                     cancellationToken);
@@ -1573,10 +1561,7 @@ public sealed class LocalSaleService : ILocalSaleService
                         cancellationToken);
             }
 
-            if (!string.Equals(
-                    pendingSale.Status,
-                    PendingSaleStatus,
-                    StringComparison.OrdinalIgnoreCase))
+            if (!(pendingSale.Status == PendingSaleStatus))
             {
                 throw new InvalidOperationException(
                     $"Sale {pendingSale.LocalInvoiceNumber} cannot be " +
@@ -1945,10 +1930,7 @@ public sealed class LocalSaleService : ILocalSaleService
             RoundMoney(
                 sale.Payments
                     .Where(payment =>
-                        string.Equals(
-                            payment.Method,
-                            "Credit",
-                            StringComparison.OrdinalIgnoreCase))
+                        payment.Method == PaymentMethod.Credit)
                     .Sum(payment =>
                         payment.Amount));
 

@@ -8,12 +8,12 @@ namespace Inventory.Ui.Interfaces;
 
 public interface IStockMovementApi
 {
-    [Post("/api/v1/stockMouvements")]
+    [Post("/api/v1/stockMovements")]
     Task<StockMouvementResult> Create(
         [Body] CreateStockMouvementRequest request,
         CancellationToken cancellationToken = default);
 
-    [Get("/api/v1/stockMouvements/search")]
+    [Get("/api/v1/stockMovements/search")]
     Task<PagedResult<StockMouvementResult>> Search(
         [Query] StockMouvementQuery query,
         CancellationToken cancellationToken = default);

@@ -4,6 +4,9 @@ namespace Inventory.Ui.Services.Analytics
 {
     public interface ILocalAnalyticsService
     {
+        Task<List<KeyValuePair<DateOnly, decimal>>> GetDailyRevenueAsync(
+            DateOnly from, DateOnly to, CancellationToken cancellationToken = default);
+
         Task<DashboardSummaryResult> GetDashboardSummaryAsync(
             DateOnly from,
             DateOnly to,
@@ -16,6 +19,11 @@ namespace Inventory.Ui.Services.Analytics
             CancellationToken cancellationToken = default);
 
         Task<WeeklyReportResult> GetWeeklyAsync(
+            DateOnly from,
+            DateOnly to,
+            CancellationToken cancellationToken = default);
+
+        Task<ProfitAnalyticsResult> GetProfitAsync(
             DateOnly from,
             DateOnly to,
             CancellationToken cancellationToken = default);

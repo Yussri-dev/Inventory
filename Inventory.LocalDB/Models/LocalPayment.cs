@@ -1,4 +1,5 @@
-﻿using System.ComponentModel.DataAnnotations;
+﻿using Inventory.Dto.Enums;
+using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Inventory.LocalDB.Models
@@ -20,7 +21,7 @@ namespace Inventory.LocalDB.Models
 
         [Required]
         [MaxLength(50)]
-        public string Method { get; set; } = string.Empty;
+        public PaymentMethod Method { get; set; }
         // Cash, Card, Credit, Mixed, BankTransfer
 
         [Column(TypeName = "decimal(18,2)")]

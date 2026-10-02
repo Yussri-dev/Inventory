@@ -308,7 +308,7 @@
                     new LocalPayment
                     {
                         Id = Guid.NewGuid(),
-                        Method = "Cash",
+                        Method = Inventory.Dto.Enums.PaymentMethod.Cash,
                         Amount = ScanResult.UnitPrice,
                         PaidAtUtc = DateTime.UtcNow,
                         Notes = "Offline test cash payment",

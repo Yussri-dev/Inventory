@@ -139,6 +139,9 @@ namespace Inventory.LocalDB.Services.Sync.Handlers
 
             if (existingOwner != null)
             {
+                if (await CustomerDuplicateReconciler.TryArchiveAsync(_db, queueItem, customer, existingOwner, cancellationToken))
+                    return;
+
                 result.Status =
                     SyncBatchItemStatus.Conflict;
 

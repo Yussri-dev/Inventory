@@ -117,10 +117,7 @@ namespace Inventory.LocalDB.Services
                         $"Local sale '{localSaleId}' was not found.");
                 }
 
-                if (!string.Equals(
-                        sale.Status,
-                        LocalSaleStatus.Completed,
-                        StringComparison.OrdinalIgnoreCase))
+                if (!(sale.Status == LocalSaleStatus.Completed))
                 {
                     throw new InvalidOperationException(
                         $"Receipt creation is only allowed for a completed sale. " +
@@ -670,7 +667,7 @@ namespace Inventory.LocalDB.Services
                         new ReceiptPaymentSnapshot
                         {
                             Method =
-                                payment.Method,
+                                payment.Method.ToString(),
 
                             Amount =
                                 RoundMoney(

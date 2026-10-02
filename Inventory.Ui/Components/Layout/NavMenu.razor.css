@@ -491,3 +491,222 @@
     font-weight: 700;
     flex-shrink: 0;
 }
+
+.inv-version {
+    font-size: 8px;
+}
+
+/* =========================================================
+   BRAND HEADER - FINAL OVERRIDE
+   ========================================================= */
+
+.inv-brand {
+    height: 68px;
+    min-height: 68px;
+
+    display: grid;
+    grid-template-columns: 34px minmax(0, 1fr) 32px;
+    grid-template-rows: 22px 18px;
+
+    column-gap: 10px;
+    row-gap: 1px;
+
+    align-content: center;
+    align-items: center;
+
+    padding: 0 14px;
+
+    border-bottom: 1px solid rgba(255, 255, 255, .07);
+    box-sizing: border-box;
+
+    flex-shrink: 0;
+}
+
+
+/* LOGO */
+
+.inv-brand .inv-logo {
+    grid-column: 1;
+    grid-row: 1 / 3;
+
+    width: 32px;
+    height: 32px;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    border-radius: 8px;
+
+    font-size: 10px;
+    font-weight: 800;
+
+    flex-shrink: 0;
+}
+
+
+/* INVENTORY */
+
+.inv-brand .inv-brand-name {
+    grid-column: 2;
+    grid-row: 1;
+
+    width: 100%;
+    min-width: 0;
+
+    margin: 0;
+
+    font-size: 14px;
+    font-weight: 700;
+    line-height: 18px;
+
+    color: #f1f5f9;
+
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+
+/* VERSION */
+
+.inv-brand .inv-version {
+    grid-column: 2;
+    grid-row: 2;
+
+    display: flex;
+    align-items: center;
+
+    gap: 6px;
+
+    width: 100%;
+    min-width: 0;
+
+    margin: 0;
+
+    font-size: 9px;
+    font-weight: 500;
+    line-height: 14px;
+
+    color: #64748b;
+
+    white-space: nowrap;
+    overflow: hidden;
+}
+
+.inv-brand .inv-version span {
+    display: block;
+    white-space: nowrap;
+}
+
+
+/* COLLAPSE BUTTON */
+
+.inv-brand .collapse-btn {
+    grid-column: 3;
+    grid-row: 1 / 3;
+
+    width: 32px;
+    height: 32px;
+
+    padding: 0;
+    margin: 0;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    background: transparent;
+    border: none;
+    border-radius: 7px;
+
+    color: #94a3b8;
+
+    font-size: 17px;
+    cursor: pointer;
+}
+
+.inv-brand .collapse-btn:hover {
+    background: rgba(255, 255, 255, .07);
+    color: #e2e8f0;
+}
+
+
+/* =========================================================
+   COLLAPSED SIDEBAR
+   ========================================================= */
+
+.inv-sidebar.collapsed .inv-brand {
+    height: 58px;
+    min-height: 58px;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    padding: 0;
+}
+
+.inv-sidebar.collapsed .inv-brand-name,
+.inv-sidebar.collapsed .inv-version,
+.inv-sidebar.collapsed .inv-logo {
+    display: none;
+}
+
+.inv-sidebar.collapsed .collapse-btn {
+    margin: 0 auto;
+}
+
+
+/* =========================================================
+   MOBILE
+   ========================================================= */
+
+@media (max-width: 900px) {
+
+    .inv-sidebar.collapsed .inv-brand {
+        height: 68px;
+        min-height: 68px;
+
+        display: grid;
+
+        grid-template-columns: 34px minmax(0, 1fr) 32px;
+        grid-template-rows: 22px 18px;
+
+        column-gap: 10px;
+        row-gap: 1px;
+
+        align-content: center;
+        align-items: center;
+
+        padding: 0 14px;
+    }
+
+    .inv-sidebar.collapsed .inv-brand .inv-logo {
+        display: flex;
+
+        grid-column: 1;
+        grid-row: 1 / 3;
+    }
+
+    .inv-sidebar.collapsed .inv-brand .inv-brand-name {
+        display: block;
+
+        grid-column: 2;
+        grid-row: 1;
+    }
+
+    .inv-sidebar.collapsed .inv-brand .inv-version {
+        display: flex;
+
+        grid-column: 2;
+        grid-row: 2;
+    }
+
+    .inv-sidebar.collapsed .inv-brand .collapse-btn {
+        grid-column: 3;
+        grid-row: 1 / 3;
+
+        margin: 0;
+    }
+}

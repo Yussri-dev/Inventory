@@ -1,11 +1,12 @@
-﻿namespace Inventory.LocalDB.Services.Results
+﻿using Inventory.Dto.Enums;
+
+namespace Inventory.LocalDB.Services.Results
 {
     public sealed class LocalSalesHistoryPaymentResult
     {
         public Guid LocalId { get; set; }
 
-        public string Method { get; set; } =
-            string.Empty;
+        public PaymentMethod Method { get; set; }
 
         public decimal Amount { get; set; }
 

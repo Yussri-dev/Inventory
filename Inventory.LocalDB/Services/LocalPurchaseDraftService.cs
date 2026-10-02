@@ -61,7 +61,7 @@ public sealed class LocalPurchaseDraftService
     }
 
     public async Task<Guid> SaveAsync(
-        SaveLocalPurchaseDraftRequest request)
+    SaveLocalPurchaseDraftRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
 
@@ -80,78 +80,81 @@ public sealed class LocalPurchaseDraftService
                 tenantId,
                 request);
 
+            await using var transaction =
+                await _db.Database.BeginTransactionAsync();
+
             LocalPurchaseDraft? draft;
 
             if (request.DraftId.HasValue)
             {
-                draft = await GetTrackedDraftAsync(
-                    tenantId,
-                    request.DraftId.Value);
+                draft = await _db.PurchaseDrafts
+                    .SingleOrDefaultAsync(current =>
+                        current.Id == request.DraftId.Value &&
+                        current.TenantId == tenantId);
 
                 if (draft == null)
                 {
                     throw new KeyNotFoundException(
-                        $"Purchase draft '{request.DraftId}' was not found.");
+                        $"Purchase draft '{request.DraftId.Value}' was not found.");
                 }
             }
             else
             {
                 draft = await _db.PurchaseDrafts
-                    .Include(current => current.Lines)
-                        .ThenInclude(line => line.Adjustments)
                     .Where(current =>
                         current.TenantId == tenantId &&
-                        (current.Status ==
-                            PurchaseDraftStatus.Active ||
-                         current.Status ==
-                            PurchaseDraftStatus.Suspended))
+                        (
+                            current.Status == PurchaseDraftStatus.Active ||
+                            current.Status == PurchaseDraftStatus.Suspended
+                        ))
                     .OrderByDescending(current =>
                         current.UpdatedAtUtc)
                     .FirstOrDefaultAsync();
             }
 
-            var now =
-                DateTime.UtcNow;
+            var now = DateTime.UtcNow;
 
             if (draft == null)
             {
-                draft =
-                    new LocalPurchaseDraft
-                    {
-                        Id = Guid.NewGuid(),
-                        TenantId = tenantId,
-                        CreatedAtUtc = now,
-                        UpdatedAtUtc = now,
-                        Status = PurchaseDraftStatus.Active,
-                        Lines = new List<LocalPurchaseDraftLine>()
-                    };
+                draft = new LocalPurchaseDraft
+                {
+                    Id = Guid.NewGuid(),
+                    TenantId = tenantId,
+                    SupplierLocalId = request.SupplierLocalId,
+                    CreatedAtUtc = now,
+                    UpdatedAtUtc = now,
+                    Status = PurchaseDraftStatus.Active,
+                    Lines = new List<LocalPurchaseDraftLine>()
+                };
 
                 _db.PurchaseDrafts.Add(draft);
             }
             else
             {
                 /*
-                 * Le brouillon est remplacé par l'état courant du panier.
-                 * Les anciennes lignes et leurs ajustements sont supprimés.
+                 * Delete directly in SQLite.
+                 *
+                 * We intentionally do not load the old Lines/Adjustments
+                 * into EF's ChangeTracker.
+                 *
+                 * Adjustments are removed by ON DELETE CASCADE.
                  */
-                if (draft.Lines.Count > 0)
-                {
-                    _db.RemoveRange(
-                        draft.Lines);
+                await _db.PurchaseDraftLines
+                    .Where(line =>
+                        line.PurchaseDraftId == draft.Id)
+                    .ExecuteDeleteAsync();
 
-                    draft.Lines.Clear();
-                }
+                draft.SupplierLocalId =
+                    request.SupplierLocalId;
 
                 draft.UpdatedAtUtc = now;
                 draft.Status = PurchaseDraftStatus.Active;
             }
 
-            draft.SupplierLocalId =
-                request.SupplierLocalId;
-
             foreach (var lineRequest in
-         request.Lines.OrderBy(line =>
-             line.DisplayOrder))
+                     request.Lines
+                         .OrderBy(line =>
+                             line.DisplayOrder))
             {
                 var orderedAdjustments =
                     lineRequest.Adjustments
@@ -164,10 +167,13 @@ public sealed class LocalPurchaseDraftService
                         lineRequest.BasePurchasePrice,
                         orderedAdjustments);
 
+                var lineId =
+                    Guid.NewGuid();
+
                 var line =
                     new LocalPurchaseDraftLine
                     {
-                        Id = Guid.NewGuid(),
+                        Id = lineId,
 
                         PurchaseDraftId =
                             draft.Id,
@@ -208,7 +214,7 @@ public sealed class LocalPurchaseDraftService
                             Id = Guid.NewGuid(),
 
                             PurchaseDraftLineId =
-                                line.Id,
+                                lineId,
 
                             Type =
                                 adjustmentRequest.Type,
@@ -223,19 +229,36 @@ public sealed class LocalPurchaseDraftService
                         });
                 }
 
-                draft.Lines.Add(line);
+                _db.PurchaseDraftLines.Add(line);
             }
 
             await _db.SaveChangesAsync();
 
+            await transaction.CommitAsync();
+
             _logger.LogDebug(
                 "Purchase draft {DraftId} saved with {LineCount} lines.",
                 draft.Id,
-                draft.Lines.Count);
+                request.Lines.Count);
 
             DetachPurchaseDraftEntities();
 
             return draft.Id;
+        }
+        catch (DbUpdateConcurrencyException exception)
+        {
+            foreach (var entry in exception.Entries)
+            {
+                _logger.LogError(
+                    "Concurrency conflict while saving purchase draft. " +
+                    "Entity={Entity}, State={State}",
+                    entry.Metadata.ClrType.Name,
+                    entry.State);
+            }
+
+            DetachPurchaseDraftEntities();
+
+            throw;
         }
         catch
         {
@@ -306,17 +329,23 @@ public sealed class LocalPurchaseDraftService
 
             var tenantId = _tenantContext.GetRequiredTenantId();
 
-            await _db.PurchaseDrafts
-                .Where(draft =>
-                    draft.Id == draftId &&
-                    draft.TenantId == tenantId)
-                .ExecuteUpdateAsync(update => update
-                    .SetProperty(
-                        draft => draft.Status,
-                        PurchaseDraftStatus.Suspended)
-                    .SetProperty(
-                        draft => draft.UpdatedAtUtc,
-                        DateTime.UtcNow));
+            var affectedRows = await _db.PurchaseDrafts
+        .Where(draft =>
+            draft.Id == draftId &&
+            draft.TenantId == tenantId)
+        .ExecuteUpdateAsync(update => update
+            .SetProperty(
+                draft => draft.Status,
+                PurchaseDraftStatus.Suspended)
+            .SetProperty(
+                draft => draft.UpdatedAtUtc,
+                DateTime.UtcNow));
+
+            if (affectedRows == 0)
+            {
+                throw new KeyNotFoundException(
+                    $"Purchase draft '{draftId}' was not found.");
+            }
 
             DetachPurchaseDraftEntities();
         }
@@ -354,18 +383,6 @@ public sealed class LocalPurchaseDraftService
         {
             _mutationGate.Release();
         }
-    }
-
-    private async Task<LocalPurchaseDraft?> GetTrackedDraftAsync(
-        Guid tenantId,
-        Guid draftId)
-    {
-        return await _db.PurchaseDrafts
-            .Include(draft => draft.Lines)
-                .ThenInclude(line => line.Adjustments)
-            .SingleOrDefaultAsync(draft =>
-                draft.Id == draftId &&
-                draft.TenantId == tenantId);
     }
 
     private async Task ValidateReferencesAsync(

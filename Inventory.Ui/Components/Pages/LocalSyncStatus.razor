@@ -1,17 +1,19 @@
-﻿@page "/local-sync-status"
+@page "/local-sync-status"
 
 @using Inventory.LocalDB.Context
 @using Inventory.LocalDB.Models
 @using Inventory.Ui.Services.Sync
 @using Microsoft.EntityFrameworkCore
 
-@inject ILocalSyncUploader LocalSyncUploader
+@inject SyncCoordinator Coordinator
+@inject Inventory.LocalDB.Services.Interfaces.ILocalTenantContext Tenant
 @inject PosLocalDbContext Db
 @inject NavigationManager Nav
 
 <div style="padding:24px;max-width:1200px;margin:auto;">
 
-    <h2>Local Sync Status</h2>
+    <h2>Synchronisation</h2>
+    <p>Synchronisation automatique chaque jour à 21 h (heure du PC du magasin). Si le poste est fermé ou hors ligne, rattrapage à la prochaine ouverture avec Internet.</p>
 
     <div style="display:flex;gap:12px;margin-bottom:20px;">
         <button @onclick="LoadData" style="padding:10px 16px;">
@@ -25,15 +27,15 @@
         <button @onclick="GoLocalPosTest" style="padding:10px 16px;">
             Local POS Test
         </button>
-        <button @onclick="SyncNow" style="padding:10px 16px;" disabled="@IsSyncing">
-            @(IsSyncing ? "Syncing..." : "Sync Now")
+        <button @onclick="SyncNow" style="padding:10px 16px;" disabled="@(IsSyncing || Coordinator.IsSynchronizing || !Tenant.HasTenant)">
+            @(IsSyncing ? "Synchronisation en cours…" : "Synchroniser tout")
         </button>
     </div>
 
 
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px;">
         <div style="padding:16px;border-radius:10px;background:#eef2ff;">
-            <strong>Pending Queue</strong>
+            <strong>Opérations restantes</strong>
             <div style="font-size:26px;">@PendingQueueCount</div>
         </div>
 
@@ -221,8 +223,7 @@
     private string? SyncError;
     private bool IsSyncing;
 
-    private int PendingQueueCount =>
-        SyncQueueItems.Count(x => x.Status == SyncQueueStatus.Pending);
+    private int PendingQueueCount;
 
     protected override async Task OnInitializedAsync()
     {
@@ -231,26 +232,28 @@
 
     private async Task LoadData()
     {
+        PendingQueueCount = await Db.SyncQueueItems.CountAsync(x => x.TenantId == Tenant.TenantId && x.Status != SyncQueueStatus.Done && x.Status != SyncQueueStatus.Draft);
         SyncQueueItems = await Db.SyncQueueItems
-            .AsNoTracking()
-            .OrderByDescending(x => x.CreatedAtUtc)
+            .AsNoTracking().Where(x => x.TenantId == Tenant.TenantId)
+            .OrderBy(x => x.Status == SyncQueueStatus.Done || x.Status == SyncQueueStatus.Draft)
+            .ThenByDescending(x => x.LastAttemptAtUtc ?? x.CreatedAtUtc)
             .Take(50)
             .ToListAsync();
 
         Sales = await Db.Sales
-            .AsNoTracking()
+            .AsNoTracking().Where(x => x.TenantId == Tenant.TenantId)
             .OrderByDescending(x => x.SaleDateUtc)
             .Take(50)
             .ToListAsync();
 
         StockMovements = await Db.StockMovements
-            .AsNoTracking()
+            .AsNoTracking().Where(x => x.TenantId == Tenant.TenantId)
             .OrderByDescending(x => x.MovementDateUtc)
             .Take(50)
             .ToListAsync();
 
         CashMovements = await Db.CashMovements
-            .AsNoTracking()
+            .AsNoTracking().Where(x => x.TenantId == Tenant.TenantId)
             .OrderByDescending(x => x.MovementDateUtc)
             .Take(50)
             .ToListAsync();
@@ -264,21 +267,14 @@
 
         try
         {
-            var result = await LocalSyncUploader.SyncPendingAsync();
-
-            SyncMessage =
-                $"Sync completed. Pending: {result.TotalPending}, Synced: {result.Synced}, Failed: {result.Failed}, Skipped: {result.Skipped}";
-
-            if (result.Messages.Count > 0)
-            {
-                SyncMessage += " | " + string.Join(" | ", result.Messages);
-            }
-
+            await Coordinator.SynchronizeAllAsync();
+            SyncMessage = "Synchronisation terminée : envois et récupération des données effectués.";
             await LoadData();
         }
         catch (Exception ex)
         {
             SyncError = ex.Message;
+            await LoadData();
         }
         finally
         {

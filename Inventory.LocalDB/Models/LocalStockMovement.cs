@@ -1,4 +1,5 @@
-﻿using System.ComponentModel.DataAnnotations;
+﻿using Inventory.Dto.Enums;
+using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Inventory.LocalDB.Models
@@ -35,7 +36,7 @@ namespace Inventory.LocalDB.Models
 
         [Required]
         [MaxLength(50)]
-        public string Type { get; set; } = string.Empty;
+        public StockMovementType Type { get; set; }
         // Sale, Purchase, Return, Adjustment, Transfer, InitialStock
 
         [Column(TypeName = "decimal(18,2)")]
