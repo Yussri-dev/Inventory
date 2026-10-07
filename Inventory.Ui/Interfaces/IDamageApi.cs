@@ -8,6 +8,9 @@ namespace Inventory.Ui.Interfaces;
 
 public interface IDamageApi
 {
+    [Get("/api/sync-downloads/damages")]
+    Task<Inventory.Dto.Sync.SyncDownload<DamageResult>> DownloadSnapshot(CancellationToken cancellationToken = default);
+
     [Post("/api/v1.0/damages")]
     Task<DamageResult> Create(
         [Body] CreateDamageRequest request,

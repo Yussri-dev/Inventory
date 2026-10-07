@@ -17,6 +17,18 @@
 
   <ItemGroup>
     <Using Include="Xunit" />
+    <Compile Include="..\Inventory.Ui\Services\LocalStockSyncService.cs" Link="LocalStockSyncService.cs" />
+    <Compile Include="..\Inventory.Ui\Interfaces\IStockApi.cs" Link="IStockApi.cs" />
+    <Compile Include="..\Inventory.Ui\Services\Sync\ILocalStockSyncService.cs" Link="ILocalStockSyncService.cs" />
+    <Compile Include="..\Inventory.Ui\Services\LocalCustomerSyncService.cs" Link="LocalCustomerSyncService.cs" />
+    <Compile Include="..\Inventory.Ui\Interfaces\ICustomerApi.cs" Link="ICustomerApi.cs" />
+    <Compile Include="..\Inventory.Ui\Services\Sync\ILocalCustomerSyncService.cs" Link="ILocalCustomerSyncService.cs" />
+    <Compile Include="..\Inventory.Ui\Services\LocalProductSyncService.cs" Link="LocalProductSyncService.cs" />
+    <Compile Include="..\Inventory.Ui\Interfaces\IProductApi.cs" Link="IProductApi.cs" />
+    <Compile Include="..\Inventory.Ui\Services\Sync\ILocalProductSyncService.cs" Link="ILocalProductSyncService.cs" />
+    <Compile Include="..\Inventory.Ui\Services\LocalSupplierSyncService.cs" Link="LocalSupplierSyncService.cs" />
+    <Compile Include="..\Inventory.Ui\Interfaces\ISupplierApi.cs" Link="ISupplierApi.cs" />
+    <Compile Include="..\Inventory.Ui\Services\Sync\ILocalSupplierSyncService.cs" Link="ILocalSupplierSyncService.cs" />
     <Compile Include="..\Inventory.Ui\Services\Printing\ReceiptPrinterResolver.cs" Link="ReceiptPrinterResolver.cs" />
     <Compile Include="..\Inventory.Ui\Services\Printing\PrinterInfo.cs" Link="PrinterInfo.cs" />
     <Compile Include="..\Inventory.Ui\Services\Printing\IPrinterDiscoveryService.cs" Link="IPrinterDiscoveryService.cs" />

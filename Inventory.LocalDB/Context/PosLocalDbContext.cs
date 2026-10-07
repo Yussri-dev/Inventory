@@ -791,7 +791,7 @@ namespace Inventory.LocalDB.Context
         }
 
         private static void ConfigureLocalProduct(
-     ModelBuilder builder)
+    ModelBuilder builder)
         {
             builder.Entity<LocalProduct>(entity =>
             {
@@ -805,7 +805,10 @@ namespace Inventory.LocalDB.Context
                     x.ServerId
                 })
                 .IsUnique()
-                .HasFilter("ServerId IS NOT NULL");
+                .HasFilter(
+                    "\"ServerId\" IS NOT NULL")
+                .HasDatabaseName(
+                    "UX_Products_Tenant_ServerId");
 
                 entity.HasIndex(x => new
                 {
@@ -814,8 +817,24 @@ namespace Inventory.LocalDB.Context
                 })
                 .IsUnique()
                 .HasFilter(
-                    "CatalogProductId IS NOT NULL " +
-                    "AND IsDeletedLocally = 0");
+                    "\"CatalogProductId\" IS NOT NULL " +
+                    "AND \"IsDeletedLocally\" = 0")
+                .HasDatabaseName(
+                    "UX_Products_Tenant_CatalogProductId");
+
+                entity.HasIndex(x => new
+                {
+                    x.TenantId,
+                    x.Barcode
+                })
+                .IsUnique()
+                .HasFilter(
+                    "\"Barcode\" IS NOT NULL " +
+                    "AND trim(\"Barcode\") <> '' " +
+                    "AND \"IsDeletedLocally\" = 0 " +
+                    "AND \"IsActive\" = 1")
+                .HasDatabaseName(
+                    "UX_Products_Tenant_Barcode");
 
                 entity.HasIndex(x => new
                 {
@@ -823,7 +842,6 @@ namespace Inventory.LocalDB.Context
                     x.IsDeletedLocally
                 });
 
-                entity.HasIndex(x => x.Barcode);
                 entity.HasIndex(x => x.Name);
                 entity.HasIndex(x => x.UnitProductLocalId);
                 entity.HasIndex(x => x.UnitProductServerId);
@@ -889,13 +907,22 @@ namespace Inventory.LocalDB.Context
             });
         }
 
-        private static void ConfigureLocalProductCatalog(ModelBuilder builder)
+        private static void ConfigureLocalProductCatalog(
+     ModelBuilder builder)
         {
             builder.Entity<LocalProductCatalog>(entity =>
             {
                 entity.HasKey(x => x.Id);
 
-                entity.HasIndex(x => x.Barcode);
+                entity.HasIndex(x => x.Barcode)
+                    .IsUnique()
+                    .HasFilter(
+                        "\"Barcode\" IS NOT NULL " +
+                        "AND trim(\"Barcode\") <> '' " +
+                        "AND \"IsDeleted\" = 0")
+                    .HasDatabaseName(
+                        "UX_ProductCatalogs_Active_Barcode");
+
                 entity.HasIndex(x => x.InternalCode);
                 entity.HasIndex(x => x.Name);
                 entity.HasIndex(x => x.CategoryId);

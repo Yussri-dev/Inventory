@@ -36,47 +36,224 @@ namespace Inventory.Services
         }
 
         // CREATE
-        public async Task<ProductResult> CreateAsync(CreateProductRequest request)
+        public async Task<ProductResult> CreateAsync(
+     CreateProductRequest request)
         {
             var tenantId = _tenantContext.TenantId;
             var userId = _tenantContext.UserId;
 
-            var catalogProduct = await _catalogRepository.GetByIdAsync(request.CatalogProductId);
-            if (catalogProduct == null || catalogProduct.IsDeleted)
-                throw new NotFoundException("Product Catalog", request.CatalogProductId);
+            if (tenantId == Guid.Empty)
+            {
+                throw new UnauthorizedAccessException(
+                    "No tenant is associated with the current session.");
+            }
 
-            var exists = await _repository.ExistsAsync(p =>
-                p.CatalogProductId == request.CatalogProductId &&
-                p.TenantId == tenantId &&
-                !p.IsDeleted);
+            ProductCatalog? catalogProduct = null;
 
-            if (exists)
-                throw new ConflictException($"Product '{catalogProduct.Name}' already exists for this store.");
+            // ==========================================
+            // CASE 1 : PRODUCT COMES FROM GLOBAL CATALOG
+            // ==========================================
+
+            if (request.CatalogProductId.HasValue &&
+                request.CatalogProductId.Value != Guid.Empty)
+            {
+                catalogProduct =
+                    await _catalogRepository.GetByIdAsync(
+                        request.CatalogProductId.Value);
+
+                if (catalogProduct == null ||
+                    catalogProduct.IsDeleted)
+                {
+                    throw new NotFoundException(
+                        "Product Catalog",
+                        request.CatalogProductId.Value);
+                }
+
+                var exists =
+                    await _repository.ExistsAsync(p =>
+                        p.CatalogProductId ==
+                            request.CatalogProductId.Value &&
+                        p.TenantId == tenantId &&
+                        !p.IsDeleted);
+
+                if (exists)
+                {
+                    throw new ConflictException(
+                        $"Product '{catalogProduct.Name}' " +
+                        "already exists for this store.");
+                }
+            }
+
+            // ==========================================
+            // CASE 2 : CUSTOM PRODUCT CREATED BY TENANT
+            // ==========================================
+
+            else
+            {
+                if (string.IsNullOrWhiteSpace(request.Name))
+                {
+                    throw new ValidationException(
+                        new Dictionary<string, string[]>
+                        {
+                    {
+                        nameof(request.Name),
+                        new[]
+                        {
+                            "Product name is required when no catalog product is selected."
+                        }
+                    }
+                        });
+                }
+
+                if (!string.IsNullOrWhiteSpace(request.Barcode))
+                {
+                    var barcode =
+                        request.Barcode.Trim();
+
+                    var barcodeExists =
+                        await _repository.ExistsAsync(p =>
+                            p.TenantId == tenantId &&
+                            p.Barcode == barcode &&
+                            !p.IsDeleted);
+
+                    if (barcodeExists)
+                    {
+                        throw new ConflictException(
+                            "A product with the same barcode already exists for this store.");
+                    }
+                }
+            }
+
+            // ==========================================
+            // PRICE VALIDATION
+            // ==========================================
 
             if (request.PurchasePrice > request.SalePrice ||
                 request.PurchasePrice > request.SalePrice2 ||
                 request.PurchasePrice > request.SalePrice3)
             {
-                throw new ValidationException(new Dictionary<string, string[]>
+                throw new ValidationException(
+                    new Dictionary<string, string[]>
+                    {
                 {
-                    { "Price", new[] { "Purchase price cannot be greater than any sale price." } }
-                });
+                    "Price",
+                    new[]
+                    {
+                        "Purchase price cannot be greater than any sale price."
+                    }
+                }
+                    });
             }
 
-            var product = _mapper.Map<Product>(request);
+            if (request.MinStockLevel >
+                request.MaxStockLevel)
+            {
+                throw new ValidationException(
+                    new Dictionary<string, string[]>
+                    {
+                {
+                    "Stock",
+                    new[]
+                    {
+                        "Min stock cannot be greater than max stock."
+                    }
+                }
+                    });
+            }
 
-            product.Name = catalogProduct.Name;
-            product.Barcode = catalogProduct.Barcode;
-            product.Brand = catalogProduct.Brand;
-            product.Description = catalogProduct.Description;
+            // ==========================================
+            // CREATE PRODUCT
+            // ==========================================
 
-            product.Id = Guid.NewGuid();
-            product.TenantId = tenantId;
-            product.CreatedAt = DateTime.UtcNow;
-            product.ModifiedAt = DateTime.UtcNow;
-            product.CreatedByUserId = userId;
+            var product =
+                _mapper.Map<Product>(request);
+
+            product.Id =
+                Guid.NewGuid();
+
+            product.TenantId =
+                tenantId;
+
+            product.CreatedAt =
+                DateTime.UtcNow;
+
+            product.ModifiedAt =
+                DateTime.UtcNow;
+
+            product.CreatedByUserId =
+                userId;
+
+            // ==========================================
+            // CATALOG PRODUCT
+            // ==========================================
+
+            if (catalogProduct != null)
+            {
+                product.CatalogProductId =
+                    catalogProduct.Id;
+
+                product.Name =
+                    catalogProduct.Name;
+
+                product.Barcode =
+                    catalogProduct.Barcode;
+
+                product.Brand =
+                    catalogProduct.Brand;
+
+                product.Description =
+                    catalogProduct.Description;
+
+                product.Unit =
+                    catalogProduct.UnitOfMeasure;
+            }
+
+            // ==========================================
+            // CUSTOM TENANT PRODUCT
+            // ==========================================
+
+            else
+            {
+                product.CatalogProductId = null;
+
+                product.Name =
+                    request.Name!.Trim();
+
+                product.Sku =
+                    string.IsNullOrWhiteSpace(request.Sku)
+                        ? null
+                        : request.Sku.Trim();
+
+                product.Barcode =
+                    string.IsNullOrWhiteSpace(request.Barcode)
+                        ? null
+                        : request.Barcode.Trim();
+
+                product.Brand =
+                    string.IsNullOrWhiteSpace(request.Brand)
+                        ? null
+                        : request.Brand.Trim();
+
+                product.Description =
+                    string.IsNullOrWhiteSpace(
+                        request.Description)
+                        ? null
+                        : request.Description.Trim();
+
+                product.Category =
+                    string.IsNullOrWhiteSpace(
+                        request.Category)
+                        ? null
+                        : request.Category.Trim();
+
+                product.Unit =
+                    string.IsNullOrWhiteSpace(request.Unit)
+                        ? null
+                        : request.Unit.Trim();
+            }
 
             await _repository.AddAsync(product);
+
             await _unitOfWork.SaveChangesAsync();
 
             return _mapper.Map<ProductResult>(product);
@@ -300,8 +477,8 @@ namespace Inventory.Services
         //}
 
         public async Task<PagedResult<ProductResult>> QueryAsync(
-            ProductQuery query,
-            CancellationToken cancellationToken = default)
+    ProductQuery query,
+    CancellationToken cancellationToken = default)
         {
             ArgumentNullException.ThrowIfNull(query);
 
@@ -359,17 +536,26 @@ namespace Inventory.Services
 
                 productsQuery =
                     productsQuery.Where(product =>
-                        EF.Functions.ILike(
-                            product.CatalogProduct.Name,
-                            $"%{search}%") ||
 
                         EF.Functions.ILike(
-                            product.CatalogProduct.Barcode,
+                            product.Name,
                             $"%{search}%") ||
 
-                        EF.Functions.ILike(
-                            product.CatalogProduct.Brand,
-                            $"%{search}%"));
+                        (product.Barcode != null &&
+                         EF.Functions.ILike(
+                             product.Barcode,
+                             $"%{search}%")) ||
+
+                        (product.Brand != null &&
+                         EF.Functions.ILike(
+                             product.Brand,
+                             $"%{search}%")) ||
+
+                        (product.Sku != null &&
+                         EF.Functions.ILike(
+                             product.Sku,
+                             $"%{search}%"))
+                    );
             }
 
             var sortBy =
@@ -384,38 +570,30 @@ namespace Inventory.Services
                     "name" =>
                         query.Desc
                             ? productsQuery.OrderByDescending(
-                                product =>
-                                    product.CatalogProduct.Name)
+                                product => product.Name)
                             : productsQuery.OrderBy(
-                                product =>
-                                    product.CatalogProduct.Name),
+                                product => product.Name),
 
                     "barcode" =>
                         query.Desc
                             ? productsQuery.OrderByDescending(
-                                product =>
-                                    product.CatalogProduct.Barcode)
+                                product => product.Barcode)
                             : productsQuery.OrderBy(
-                                product =>
-                                    product.CatalogProduct.Barcode),
+                                product => product.Barcode),
 
                     "saleprice" =>
                         query.Desc
                             ? productsQuery.OrderByDescending(
-                                product =>
-                                    product.SalePrice)
+                                product => product.SalePrice)
                             : productsQuery.OrderBy(
-                                product =>
-                                    product.SalePrice),
+                                product => product.SalePrice),
 
                     _ =>
                         query.Desc
                             ? productsQuery.OrderByDescending(
-                                product =>
-                                    product.CreatedAt)
+                                product => product.CreatedAt)
                             : productsQuery.OrderBy(
-                                product =>
-                                    product.CreatedAt)
+                                product => product.CreatedAt)
                 };
 
             var total =
@@ -443,73 +621,123 @@ namespace Inventory.Services
         }
 
         public async Task<PagedResult<ProductResult>> QueryForAdminAsync(
-    ProductQuery query)
+     ProductQuery query)
         {
             if (query.Page < 1)
             {
-                throw new ValidationException(new Dictionary<string, string[]>
-        {
-            { "Page", new[] { "Page must be greater than or equal to 1." } }
-        });
+                throw new ValidationException(
+                    new Dictionary<string, string[]>
+                    {
+                {
+                    "Page",
+                    new[]
+                    {
+                        "Page must be greater than or equal to 1."
+                    }
+                }
+                    });
             }
 
-            if (query.PageSize < 1 || query.PageSize > 100)
+            if (query.PageSize < 1 ||
+                query.PageSize > 100)
             {
-                throw new ValidationException(new Dictionary<string, string[]>
-        {
-            { "PageSize", new[] { "PageSize must be between 1 and 100." } }
-        });
+                throw new ValidationException(
+                    new Dictionary<string, string[]>
+                    {
+                {
+                    "PageSize",
+                    new[]
+                    {
+                        "PageSize must be between 1 and 100."
+                    }
+                }
+                    });
             }
 
-            var productsQuery = _repository.Query()
-                .AsNoTracking()
-                .Where(p => !p.IsDeleted)
-                .Include(p => p.CatalogProduct)
-                    .ThenInclude(c => c.PackComponents)
-                        .ThenInclude(pc => pc.ComponentCatalog)
-                .AsQueryable();
+            var productsQuery =
+                _repository.Query()
+                    .AsNoTracking()
+                    .Where(p => !p.IsDeleted);
 
             if (!string.IsNullOrWhiteSpace(query.Search))
             {
-                var search = query.Search.Trim();
+                var search =
+                    query.Search.Trim();
 
-                productsQuery = productsQuery.Where(p =>
-                    EF.Functions.ILike(p.CatalogProduct.Name, $"%{search}%") ||
-                    EF.Functions.ILike(p.CatalogProduct.Barcode, $"%{search}%") ||
-                    EF.Functions.ILike(p.CatalogProduct.Brand, $"%{search}%") ||
-                    EF.Functions.ILike(p.Name, $"%{search}%") ||
-                    EF.Functions.ILike(p.Barcode, $"%{search}%") ||
-                    EF.Functions.ILike(p.Sku, $"%{search}%"));
+                productsQuery =
+                    productsQuery.Where(p =>
+
+                        EF.Functions.ILike(
+                            p.Name,
+                            $"%{search}%") ||
+
+                        (p.Barcode != null &&
+                         EF.Functions.ILike(
+                             p.Barcode,
+                             $"%{search}%")) ||
+
+                        (p.Brand != null &&
+                         EF.Functions.ILike(
+                             p.Brand,
+                             $"%{search}%")) ||
+
+                        (p.Sku != null &&
+                         EF.Functions.ILike(
+                             p.Sku,
+                             $"%{search}%"))
+                    );
             }
 
-            var sortBy = query.SortBy?.ToLower();
+            var sortBy =
+                query.SortBy?
+                    .Trim()
+                    .ToLowerInvariant()
+                ?? "createdat";
 
-            productsQuery = sortBy switch
-            {
-                "name" => query.Desc
-                    ? productsQuery.OrderByDescending(p => p.CatalogProduct.Name)
-                    : productsQuery.OrderBy(p => p.CatalogProduct.Name),
+            productsQuery =
+                sortBy switch
+                {
+                    "name" =>
+                        query.Desc
+                            ? productsQuery.OrderByDescending(
+                                p => p.Name)
+                            : productsQuery.OrderBy(
+                                p => p.Name),
 
-                "barcode" => query.Desc
-                    ? productsQuery.OrderByDescending(p => p.CatalogProduct.Barcode)
-                    : productsQuery.OrderBy(p => p.CatalogProduct.Barcode),
+                    "barcode" =>
+                        query.Desc
+                            ? productsQuery.OrderByDescending(
+                                p => p.Barcode)
+                            : productsQuery.OrderBy(
+                                p => p.Barcode),
 
-                "saleprice" => query.Desc
-                    ? productsQuery.OrderByDescending(p => p.SalePrice)
-                    : productsQuery.OrderBy(p => p.SalePrice),
+                    "saleprice" =>
+                        query.Desc
+                            ? productsQuery.OrderByDescending(
+                                p => p.SalePrice)
+                            : productsQuery.OrderBy(
+                                p => p.SalePrice),
 
-                _ => query.Desc
-                    ? productsQuery.OrderByDescending(p => p.CreatedAt)
-                    : productsQuery.OrderBy(p => p.CreatedAt)
-            };
+                    _ =>
+                        query.Desc
+                            ? productsQuery.OrderByDescending(
+                                p => p.CreatedAt)
+                            : productsQuery.OrderBy(
+                                p => p.CreatedAt)
+                };
 
-            var total = await productsQuery.CountAsync();
+            var total =
+                await productsQuery.CountAsync();
 
-            var items = await productsQuery
-                .Skip((query.Page - 1) * query.PageSize)
-                .Take(query.PageSize)
-                .ProjectTo<ProductResult>(_mapper.ConfigurationProvider)
-                .ToListAsync();
+            var items =
+                await productsQuery
+                    .Skip(
+                        (query.Page - 1) *
+                        query.PageSize)
+                    .Take(query.PageSize)
+                    .ProjectTo<ProductResult>(
+                        _mapper.ConfigurationProvider)
+                    .ToListAsync();
 
             return new PagedResult<ProductResult>
             {

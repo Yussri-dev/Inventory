@@ -18,4 +18,6 @@ public interface ILocalProductSyncService
 
     Task<bool> HasInitialSyncCompletedAsync(
         CancellationToken cancellationToken = default);
+
+    Task ForceFullSyncAsync(CancellationToken cancellationToken = default);
 }

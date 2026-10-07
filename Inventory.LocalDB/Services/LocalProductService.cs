@@ -27,116 +27,258 @@ public sealed class LocalProductService : ILocalProductService
     }
 
     public async Task<ProductResult> CreateAsync(
-        CreateProductRequest request,
-        CancellationToken cancellationToken = default)
+     CreateProductRequest request,
+     CancellationToken cancellationToken = default)
     {
-        if (request.CatalogProductId == Guid.Empty)
-        {
-            throw new InvalidOperationException(
-                "Catalog product is required.");
-        }
+        ArgumentNullException.ThrowIfNull(request);
 
         var tenantId =
             _tenantContext.GetRequiredTenantId();
 
-        var catalog = await _db.ProductCatalogs
-            .AsNoTracking()
-            .Include(x => x.PackComponents)
-            .FirstOrDefaultAsync(
-                x =>
-                    x.Id == request.CatalogProductId &&
-                    !x.IsDeleted,
-                cancellationToken);
+        LocalProductCatalog? catalog = null;
 
-        if (catalog == null)
+        var hasCatalog =
+            request.CatalogProductId.HasValue &&
+            request.CatalogProductId.Value != Guid.Empty;
+
+        if (hasCatalog)
         {
-            throw new InvalidOperationException(
-                "The selected product catalog does not exist locally.");
+            catalog =
+                await _db.ProductCatalogs
+                    .AsNoTracking()
+                    .Include(x => x.PackComponents)
+                    .FirstOrDefaultAsync(
+                        x =>
+                            x.Id ==
+                                request.CatalogProductId!.Value &&
+                            !x.IsDeleted,
+                        cancellationToken);
+
+            if (catalog == null)
+            {
+                throw new InvalidOperationException(
+                    "The selected product catalog does not exist locally.");
+            }
+
+            var alreadyExists =
+                await _db.Products
+                    .AsNoTracking()
+                    .AnyAsync(
+                        x =>
+                            x.TenantId == tenantId &&
+                            x.CatalogProductId ==
+                                request.CatalogProductId.Value &&
+                            !x.IsDeletedLocally,
+                        cancellationToken);
+
+            if (alreadyExists)
+            {
+                throw new InvalidOperationException(
+                    $"'{catalog.Name}' is already activated for this tenant.");
+            }
+        }
+        else
+        {
+            if (string.IsNullOrWhiteSpace(request.Name))
+            {
+                throw new InvalidOperationException(
+                    "Product name is required when no catalog product is selected.");
+            }
+
+            if (!string.IsNullOrWhiteSpace(request.Barcode))
+            {
+                var normalizedBarcode =
+                    request.Barcode.Trim();
+
+                var barcodeExists =
+                    await _db.Products
+                        .AsNoTracking()
+                        .AnyAsync(
+                            x =>
+                                x.TenantId == tenantId &&
+                                x.Barcode == normalizedBarcode &&
+                                !x.IsDeletedLocally,
+                            cancellationToken);
+
+                if (barcodeExists)
+                {
+                    throw new InvalidOperationException(
+                        $"Barcode '{normalizedBarcode}' already exists for this tenant.");
+                }
+            }
         }
 
-        var alreadyExists = await _db.Products
-            .AsNoTracking()
-            .AnyAsync(
-                x =>
-                    x.TenantId == tenantId &&
-                    x.CatalogProductId == request.CatalogProductId &&
-                    !x.IsDeletedLocally,
-                cancellationToken);
-
-        if (alreadyExists)
+        if (request.PurchasePrice < 0 ||
+            request.SalePrice < 0 ||
+            request.SalePrice2 < 0 ||
+            request.SalePrice3 < 0)
         {
             throw new InvalidOperationException(
-                $"'{catalog.Name}' is already activated for this tenant.");
+                "Product prices cannot be negative.");
+        }
+
+        if (request.VatRate < 0 ||
+            request.VatRate > 100)
+        {
+            throw new InvalidOperationException(
+                "VAT rate must be between 0 and 100.");
+        }
+
+        if (request.MinStockLevel < 0 ||
+            request.MaxStockLevel < 0 ||
+            request.MinStockLevel > request.MaxStockLevel)
+        {
+            throw new InvalidOperationException(
+                "Invalid minimum or maximum stock level.");
         }
 
         var packComponent =
-            catalog.PackComponents?
+            catalog?.PackComponents?
                 .FirstOrDefault();
 
-        var now = DateTime.UtcNow;
+        var now =
+            DateTime.UtcNow;
 
-        var product = new LocalProduct
+        var product =
+            new LocalProduct
+            {
+                Id = Guid.NewGuid(),
+
+                ServerId = null,
+
+                TenantId = tenantId,
+
+                CatalogProductId =
+                    hasCatalog
+                        ? request.CatalogProductId
+                        : null,
+
+                SalePrice =
+                    request.SalePrice,
+
+                SalePrice2 =
+                    request.SalePrice2,
+
+                SalePrice3 =
+                    request.SalePrice3,
+
+                PurchasePrice =
+                    request.PurchasePrice,
+
+                VatRate =
+                    request.VatRate,
+
+                MinStockLevel =
+                    request.MinStockLevel,
+
+                MaxStockLevel =
+                    request.MaxStockLevel,
+
+                IsTracked =
+                    request.IsTracked,
+
+                Status =
+                    request.IsActive,
+
+                IsActive =
+                    request.IsActive ==
+                    ProductStatus.Active,
+
+                LocalStockQuantity = 0,
+
+                IsDeletedLocally = false,
+
+                SyncStatus =
+                    SyncQueueStatus.Pending,
+
+                CreatedAtUtc =
+                    now
+            };
+
+        if (catalog != null)
         {
-            Id = Guid.NewGuid(),
-            ServerId = null,
+            product.Name =
+                string.IsNullOrWhiteSpace(
+                    catalog.Name)
+                    ? "Unnamed product"
+                    : catalog.Name.Trim();
 
-            TenantId = tenantId,
+            product.Sku =
+                string.IsNullOrWhiteSpace(
+                    catalog.InternalCode)
+                    ? null
+                    : catalog.InternalCode.Trim();
 
-            CatalogProductId =
-                request.CatalogProductId,
+            product.Barcode =
+                string.IsNullOrWhiteSpace(
+                    catalog.Barcode)
+                    ? null
+                    : catalog.Barcode.Trim();
 
-            Name = string.IsNullOrWhiteSpace(catalog.Name)
-                ? "Unnamed product"
-                : catalog.Name.Trim(),
+            product.Brand =
+                string.IsNullOrWhiteSpace(
+                    catalog.Brand)
+                    ? null
+                    : catalog.Brand.Trim();
 
-            Sku = string.IsNullOrWhiteSpace(catalog.InternalCode)
-                ? null
-                : catalog.InternalCode.Trim(),
+            product.Unit =
+                string.IsNullOrWhiteSpace(
+                    catalog.UnitOfMeasure)
+                    ? null
+                    : catalog.UnitOfMeasure.Trim();
 
-            Barcode = string.IsNullOrWhiteSpace(catalog.Barcode)
-                ? null
-                : catalog.Barcode.Trim(),
+            product.IsPack =
+                catalog.IsPack;
 
-            Brand = string.IsNullOrWhiteSpace(catalog.Brand)
-                ? null
-                : catalog.Brand.Trim(),
-
-            Unit = string.IsNullOrWhiteSpace(catalog.UnitOfMeasure)
-                ? null
-                : catalog.UnitOfMeasure.Trim(),
-
-            SalePrice = request.SalePrice,
-            SalePrice2 = request.SalePrice2,
-            SalePrice3 = request.SalePrice3,
-            PurchasePrice = request.PurchasePrice,
-            VatRate = request.VatRate,
-
-            MinStockLevel = request.MinStockLevel,
-            MaxStockLevel = request.MaxStockLevel,
-
-            IsTracked = request.IsTracked,
-
-            Status = request.IsActive,
-
-            IsActive =
-                request.IsActive == ProductStatus.Active,
-
-            IsPack = catalog.IsPack,
-
-            UnitsPerPack =
+            product.UnitsPerPack =
                 catalog.IsPack
-                    ? packComponent?.Quantity ?? 1
-                    : 1,
+                    ? packComponent?.Quantity ?? 1m
+                    : 1m;
+        }
+        else
+        {
+            product.Name =
+                request.Name!.Trim();
 
-            LocalStockQuantity = 0,
+            product.Sku =
+                string.IsNullOrWhiteSpace(
+                    request.Sku)
+                    ? null
+                    : request.Sku.Trim();
 
-            IsDeletedLocally = false,
+            product.Barcode =
+                string.IsNullOrWhiteSpace(
+                    request.Barcode)
+                    ? null
+                    : request.Barcode.Trim();
 
-            SyncStatus =
-                SyncQueueStatus.Pending,
+            product.Description =
+                string.IsNullOrWhiteSpace(
+                    request.Description)
+                    ? null
+                    : request.Description.Trim();
 
-            CreatedAtUtc = now
-        };
+            product.Brand =
+                string.IsNullOrWhiteSpace(
+                    request.Brand)
+                    ? null
+                    : request.Brand.Trim();
+
+            product.Category =
+                string.IsNullOrWhiteSpace(
+                    request.Category)
+                    ? null
+                    : request.Category.Trim();
+
+            product.Unit =
+                string.IsNullOrWhiteSpace(
+                    request.Unit)
+                    ? "pcs"
+                    : request.Unit.Trim();
+
+            product.IsPack = false;
+            product.UnitsPerPack = 1m;
+        }
 
         await _db.Products.AddAsync(
             product,
@@ -356,7 +498,7 @@ public sealed class LocalProductService : ILocalProductService
              .ThenBy(x => x.Barcode)
              .Skip((page - 1) * pageSize)
              .Take(pageSize)
-             .ToListAsync(cancellationToken);          
+             .ToListAsync(cancellationToken);
 
         var items = entities.Select(ToResult).ToList();
 
@@ -746,23 +888,36 @@ public sealed class LocalProductService : ILocalProductService
     }
 
     private static string BuildSyncPayloadJson(
-        LocalProduct product,
-        string operation)
+     LocalProduct product,
+     string operation)
     {
         if (operation == SyncOperation.Create)
         {
-            if (!product.CatalogProductId.HasValue ||
-                product.CatalogProductId.Value == Guid.Empty)
-            {
-                throw new InvalidOperationException(
-                    "CatalogProductId is required for Product Create.");
-            }
-
             return JsonSerializer.Serialize(
                 new CreateProductRequest
                 {
                     CatalogProductId =
-                        product.CatalogProductId.Value,
+                        product.CatalogProductId,
+
+                    Name =
+                        product.Name,
+
+                    Sku =
+                        product.Sku,
+
+                    Barcode =
+                        product.Barcode,
+
+                    Description = product.Description,
+
+                    Brand =
+                        product.Brand,
+
+                    Category =
+                        product.Category,
+
+                    Unit =
+                        product.Unit,
 
                     SalePrice =
                         product.SalePrice,
@@ -894,11 +1049,17 @@ public sealed class LocalProductService : ILocalProductService
         destination.Barcode =
             source.Barcode;
 
+        destination.Description =
+            source.Description;
+
         destination.Category =
             source.Category;
 
         destination.Brand =
             source.Brand;
+
+        destination.Unit =
+            source.Unit;
 
         destination.SalePrice =
             source.SalePrice;
@@ -920,9 +1081,6 @@ public sealed class LocalProductService : ILocalProductService
 
         destination.MaxStockLevel =
             source.MaxStockLevel;
-
-        destination.Unit =
-            source.Unit;
 
         destination.Status =
             source.Status;
@@ -962,27 +1120,36 @@ public sealed class LocalProductService : ILocalProductService
     }
 
     private static ProductResult ToResult(
-        LocalProduct product)
+    LocalProduct product)
     {
         return new ProductResult
         {
-            /*
-             * L'écran local continue à recevoir l'ID SQLite.
-             * ServerId sera utilisé explicitement par les services réseau.
-             */
-            Id = product.Id,
+            Id =
+                product.Id,
 
             CatalogProductId =
-                product.CatalogProductId ?? Guid.Empty,
+                product.CatalogProductId,
 
-            CatalogName =
+            Name =
                 product.Name,
 
-            CatalogBrand =
+            Sku =
+                product.Sku,
+
+            Barcode =
+                product.Barcode,
+
+            Description =
+                product.Description,
+
+            Category =
+                product.Category,
+
+            Brand =
                 product.Brand,
 
-            CatalogBarcode =
-                product.Barcode,
+            Unit =
+                product.Unit,
 
             SalePrice =
                 product.SalePrice,

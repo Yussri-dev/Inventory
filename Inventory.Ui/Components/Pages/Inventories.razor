@@ -5,8 +5,9 @@
 @using Inventory.LocalDB.Services.Interfaces
 @using Microsoft.EntityFrameworkCore
 @using Microsoft.Extensions.Logging
+@using Microsoft.JSInterop
 
-@implements IDisposable
+@implements IAsyncDisposable
 
 @inject PosLocalDbContext LocalDb
 @inject ILocalTenantContext LocalTenantContext
@@ -239,8 +240,10 @@
                             <div class="scan-row">
                                 <label class="scan-input-wrap">
                                     <span>Barcode</span>
+
                                     <input @ref="barcodeInputRef"
                                            type="text"
+                                           class="barcode-input"
                                            inputmode="numeric"
                                            autocomplete="off"
                                            placeholder="Scan or enter barcode, then press Enter"
@@ -456,7 +459,7 @@
                                 </label>
 
                                 @if (string.IsNullOrWhiteSpace(productSearch) ||
-                                     productSearch.Trim().Length < 2)
+                                                    productSearch.Trim().Length < 2)
                                 {
                                     <div class="catalogue-prompt">
                                         <strong>Search the local catalogue</strong>
@@ -596,6 +599,12 @@
     private decimal scanQuantity = 1m;
     private string productSearch = string.Empty;
     private ElementReference barcodeInputRef;
+    private IJSObjectReference? barcodeScannerModule;
+
+    private DotNetObjectReference<Inventories>?
+        barcodeScannerReference;
+
+    private readonly SemaphoreSlim barcodeScanGate = new(1, 1);
 
     private string newSessionNumber = string.Empty;
     private string? newSessionNotes;
@@ -678,9 +687,38 @@
         }
     }
 
-    protected override async Task OnAfterRenderAsync(bool firstRender)
+    protected override async Task OnAfterRenderAsync(
+     bool firstRender)
     {
-        if (!focusBarcodeRequested || !CanEditSelectedSession)
+        if (firstRender)
+        {
+            try
+            {
+                barcodeScannerReference =
+                    DotNetObjectReference.Create(this);
+
+                barcodeScannerModule =
+                    await JS.InvokeAsync<IJSObjectReference>(
+                        "import",
+                        "./js/barcodeScanner.js");
+
+                await barcodeScannerModule.InvokeVoidAsync(
+                    "initialize",
+                    barcodeScannerReference);
+            }
+            catch (Exception exception)
+            {
+                Logger.LogError(
+                    exception,
+                    "Failed to initialize the barcode scanner.");
+
+                ShowError(
+                    "The barcode scanner could not be initialized.");
+            }
+        }
+
+        if (!focusBarcodeRequested ||
+            !CanEditSelectedSession)
         {
             return;
         }
@@ -689,11 +727,15 @@
 
         try
         {
-            await JS.InvokeVoidAsync("focusElement", barcodeInputRef);
+            await JS.InvokeVoidAsync(
+                "focusElement",
+                barcodeInputRef);
         }
         catch (Exception exception)
         {
-            Logger.LogDebug(exception, "The barcode input could not receive focus.");
+            Logger.LogDebug(
+                exception,
+                "The barcode input could not receive focus.");
         }
     }
 
@@ -901,7 +943,8 @@
         }
     }
 
-    private async Task HandleBarcodeKeyDown(KeyboardEventArgs eventArgs)
+    private async Task HandleBarcodeKeyDown(
+    KeyboardEventArgs eventArgs)
     {
         if (eventArgs.Key == "Enter")
         {
@@ -911,15 +954,36 @@
 
     private async Task ProcessBarcodeAsync()
     {
-        if (isBusy || !CanEditSelectedSession)
+        var barcode =
+            barcodeInput.Trim();
+
+        barcodeInput =
+            string.Empty;
+
+        await ProcessBarcodeAsync(
+            barcode,
+            fromHardwareScanner: false);
+    }
+
+    private async Task ProcessBarcodeAsync(
+     string barcode,
+     bool fromHardwareScanner)
+    {
+        if (isBusy ||
+            !CanEditSelectedSession)
         {
             return;
         }
 
-        var barcode = barcodeInput.Trim();
-        barcodeInput = string.Empty;
+        barcode =
+            NormalizeBarcode(
+                barcode);
 
-        if (string.IsNullOrWhiteSpace(barcode))
+        barcodeInput =
+            string.Empty;
+
+        if (string.IsNullOrWhiteSpace(
+                barcode))
         {
             RequestBarcodeFocus();
             return;
@@ -927,52 +991,145 @@
 
         if (scanQuantity <= 0m)
         {
-            ShowError("Quantity per scan must be greater than zero.");
+            ShowError(
+                "Quantity per scan must be greater than zero.");
+
             RequestBarcodeFocus();
             return;
         }
 
-        var normalizedBarcode = NormalizeBarcode(barcode);
-
-        var matchingProducts = products
-            .Where(item => string.Equals(
-                NormalizeBarcode(item.Barcode),
-                normalizedBarcode,
-                StringComparison.OrdinalIgnoreCase))
-            .Take(2)
-            .ToList();
+        var matchingProducts =
+            products
+                .Where(item =>
+                    string.Equals(
+                        NormalizeBarcode(
+                            item.Barcode),
+                        barcode,
+                        StringComparison.OrdinalIgnoreCase))
+                .Take(2)
+                .ToList();
 
         if (matchingProducts.Count == 0)
         {
-            ShowError($"No local product matches barcode '{barcode}'.");
-            lastActionMessage = "Unknown barcode";
+            ShowError(
+                $"No local product matches barcode '{barcode}'.");
+
+            lastActionMessage =
+                $"Unknown barcode: {barcode}";
+
             RequestBarcodeFocus();
             return;
         }
 
         if (matchingProducts.Count > 1)
         {
-            ShowError($"Barcode '{barcode}' is assigned to more than one local product.");
-            lastActionMessage = "Duplicate barcode";
+            ShowError(
+                $"Barcode '{barcode}' is assigned to more than one local product.");
+
+            lastActionMessage =
+                $"Duplicate barcode: {barcode}";
+
             RequestBarcodeFocus();
             return;
         }
 
-        var product = matchingProducts[0];
+        var product =
+            matchingProducts[0];
 
-        var existingLine = lines.FirstOrDefault(line =>
-            line.ProductLocalId == product.Id);
+        var existingLine =
+            lines.FirstOrDefault(line =>
+                line.ProductLocalId ==
+                product.Id);
 
         if (existingLine is null)
         {
-            await AddProductAsync(product, scanQuantity, fromScanner: true);
+            await AddProductAsync(
+                product,
+                scanQuantity,
+                fromScanner: true);
         }
         else
         {
             await SetLineQuantityAsync(
                 existingLine,
-                existingLine.CountedQuantity + scanQuantity,
+                existingLine.CountedQuantity +
+                scanQuantity,
                 fromScanner: true);
+        }
+    }
+
+    [JSInvokable]
+    public async Task OnHardwareScan(
+    string? rawBarcode)
+    {
+        if (string.IsNullOrWhiteSpace(
+                rawBarcode))
+        {
+            return;
+        }
+
+        var barcode =
+            NormalizeBarcode(
+                rawBarcode);
+
+        await barcodeScanGate.WaitAsync();
+
+        try
+        {
+            barcodeInput =
+                string.Empty;
+
+            if (isInitialLoading ||
+                isLoadingLines)
+            {
+                ShowError(
+                    "Inventory data is still loading.");
+
+                return;
+            }
+
+            if (isBusy)
+            {
+                return;
+            }
+
+            if (showCreateSessionModal)
+            {
+                return;
+            }
+
+            if (!CanEditSelectedSession)
+            {
+                ShowError(
+                    "Select an inventory session in progress before scanning.");
+
+                return;
+            }
+
+            Logger.LogDebug(
+                "Inventory barcode scanned: {Barcode}",
+                barcode);
+
+            await ProcessBarcodeAsync(
+                barcode,
+                fromHardwareScanner: true);
+
+            await InvokeAsync(
+                StateHasChanged);
+        }
+        catch (Exception exception)
+        {
+            Logger.LogError(
+                exception,
+                "Failed to process inventory barcode {Barcode}.",
+                barcode);
+
+            ShowError(
+                "The barcode could not be processed.");
+        }
+        finally
+        {
+            barcodeScanGate.Release();
         }
     }
 
@@ -1542,9 +1699,47 @@
         };
     }
 
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
         StopToastTimer();
+
+        if (barcodeScannerModule != null)
+        {
+            try
+            {
+                await barcodeScannerModule
+                    .InvokeVoidAsync(
+                        "dispose");
+            }
+            catch (JSDisconnectedException)
+            {
+            }
+            catch (ObjectDisposedException)
+            {
+            }
+
+            try
+            {
+                await barcodeScannerModule
+                    .DisposeAsync();
+            }
+            catch (JSDisconnectedException)
+            {
+            }
+            catch (ObjectDisposedException)
+            {
+            }
+        }
+
+        barcodeScannerReference?.Dispose();
+
+        barcodeScannerReference =
+            null;
+
+        barcodeScannerModule =
+            null;
+
+        barcodeScanGate.Dispose();
     }
 
     private enum LineFilter

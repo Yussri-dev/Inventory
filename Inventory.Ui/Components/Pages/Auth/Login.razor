@@ -442,8 +442,7 @@
                     result,
                     Model.Password);
 
-            LocalTenantContext.SetTenant(
-                tenantId);
+            LocalTenantContext.SetTenant(tenantId);
 
             /*
              * Bloquant uniquement lors de la première connexion
@@ -531,7 +530,7 @@
             // LocalDataBootstrap.NotifyAuthenticatedTenantReady();
             hasCriticalData = await HasCriticalOfflineDataAsync();
 
-            
+
             if (!hasCriticalData)
             {
                 throw new InvalidOperationException(

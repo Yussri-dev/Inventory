@@ -6,6 +6,41 @@ namespace Inventory.Dto.Products.Requests;
 
 public sealed class UpdateProductRequest
 {
+    [StringLength(
+        200,
+        ErrorMessage = "Name cannot exceed 200 characters.")]
+    public string? Name { get; set; }
+
+    [StringLength(
+        100,
+        ErrorMessage = "SKU cannot exceed 100 characters.")]
+    public string? Sku { get; set; }
+
+    [StringLength(
+        100,
+        ErrorMessage = "Barcode cannot exceed 100 characters.")]
+    public string? Barcode { get; set; }
+
+    [StringLength(
+        1000,
+        ErrorMessage = "Description cannot exceed 1000 characters.")]
+    public string? Description { get; set; }
+
+    [StringLength(
+        100,
+        ErrorMessage = "Category cannot exceed 100 characters.")]
+    public string? Category { get; set; }
+
+    [StringLength(
+        100,
+        ErrorMessage = "Brand cannot exceed 100 characters.")]
+    public string? Brand { get; set; }
+
+    [StringLength(
+        50,
+        ErrorMessage = "Unit cannot exceed 50 characters.")]
+    public string? Unit { get; set; }
+
     [Range(
         0,
         double.MaxValue,

@@ -1,4 +1,4 @@
-@page "/local-sync-status"
+﻿@page "/local-sync-status"
 
 @using Inventory.LocalDB.Context
 @using Inventory.LocalDB.Models
@@ -41,17 +41,17 @@
 
         <div style="padding:16px;border-radius:10px;background:#ecfdf5;">
             <strong>Local Sales</strong>
-            <div style="font-size:26px;">@Sales.Count</div>
+            <div style="font-size:26px;">@TotalSalesCount</div>
         </div>
 
         <div style="padding:16px;border-radius:10px;background:#fff7ed;">
             <strong>Stock Movements</strong>
-            <div style="font-size:26px;">@StockMovements.Count</div>
+            <div style="font-size:26px;">@TotalStockMovementCount</div>
         </div>
 
         <div style="padding:16px;border-radius:10px;background:#fef2f2;">
             <strong>Cash Movements</strong>
-            <div style="font-size:26px;">@CashMovements.Count</div>
+            <div style="font-size:26px;">@TotalCashMovementCount</div>
         </div>
     </div>
 
@@ -223,7 +223,7 @@
     private string? SyncError;
     private bool IsSyncing;
 
-    private int PendingQueueCount;
+    private int PendingQueueCount, TotalSalesCount, TotalStockMovementCount, TotalCashMovementCount;
 
     protected override async Task OnInitializedAsync()
     {
@@ -232,6 +232,9 @@
 
     private async Task LoadData()
     {
+        TotalSalesCount = await Db.Sales.CountAsync(x => x.TenantId == Tenant.TenantId);
+        TotalStockMovementCount = await Db.StockMovements.CountAsync(x => x.TenantId == Tenant.TenantId);
+        TotalCashMovementCount = await Db.CashMovements.CountAsync(x => x.TenantId == Tenant.TenantId);
         PendingQueueCount = await Db.SyncQueueItems.CountAsync(x => x.TenantId == Tenant.TenantId && x.Status != SyncQueueStatus.Done && x.Status != SyncQueueStatus.Draft);
         SyncQueueItems = await Db.SyncQueueItems
             .AsNoTracking().Where(x => x.TenantId == Tenant.TenantId)

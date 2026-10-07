@@ -111,17 +111,16 @@ namespace Inventory.Services.Handlers
             }
 
             var requestedCatalogIds =
-                parsedOperations
-                    .Where(parsed =>
-                        parsed.Kind ==
-                        ProductOperationKind.Create)
-                    .Select(parsed =>
-                        parsed.CreateRequest!
-                            .CatalogProductId)
-                    .Where(id =>
-                        id != Guid.Empty)
-                    .Distinct()
-                    .ToArray();
+                 parsedOperations
+                     .Where(parsed =>
+                         parsed.Kind ==
+                         ProductOperationKind.Create &&
+                         parsed.CreateRequest!.CatalogProductId.HasValue &&
+                         parsed.CreateRequest.CatalogProductId.Value != Guid.Empty)
+                     .Select(parsed =>
+                         parsed.CreateRequest!.CatalogProductId!.Value)
+                     .Distinct()
+                     .ToArray();
 
             var catalogsById =
                 requestedCatalogIds.Length == 0
@@ -171,8 +170,9 @@ namespace Inventory.Services.Handlers
                         .Where(product =>
                             product.TenantId == tenantId &&
                             !product.IsDeleted &&
+                            product.CatalogProductId.HasValue &&
                             requestedCatalogIds.Contains(
-                                product.CatalogProductId))
+                                product.CatalogProductId.Value))
                         .Select(product =>
                             new ProductCatalogOwner
                             {
@@ -180,7 +180,7 @@ namespace Inventory.Services.Handlers
                                     product.Id,
 
                                 CatalogProductId =
-                                    product.CatalogProductId
+                                    product.CatalogProductId!.Value
                             })
                         .ToListAsync(
                             cancellationToken);
@@ -197,10 +197,12 @@ namespace Inventory.Services.Handlers
 
             foreach (var product in productsById.Values)
             {
-                if (!product.IsDeleted)
+                if (!product.IsDeleted &&
+                    product.CatalogProductId.HasValue &&
+                    product.CatalogProductId.Value != Guid.Empty)
                 {
                     catalogOwners[
-                        product.CatalogProductId] =
+                        product.CatalogProductId.Value] =
                             product.Id;
                 }
             }
@@ -268,12 +270,12 @@ namespace Inventory.Services.Handlers
         }
 
         private SyncBatchItemResult ProcessCreate(
-            ParsedProductOperation parsedOperation,
-            Guid tenantId,
-            Guid userId,
-            IReadOnlyDictionary<Guid, ProductCatalog> catalogsById,
-            IDictionary<Guid, Guid> catalogOwners,
-            IDictionary<Guid, Product> productsById)
+     ParsedProductOperation parsedOperation,
+     Guid tenantId,
+     Guid userId,
+     IReadOnlyDictionary<Guid, ProductCatalog> catalogsById,
+     IDictionary<Guid, Guid> catalogOwners,
+     IDictionary<Guid, Product> productsById)
         {
             var operation =
                 parsedOperation.Operation;
@@ -292,24 +294,59 @@ namespace Inventory.Services.Handlers
                     validationError);
             }
 
-            if (!catalogsById.TryGetValue(
-                    request.CatalogProductId,
-                    out var catalog) ||
-                catalog.IsDeleted)
+            ProductCatalog? catalog = null;
+
+            var hasCatalog =
+                request.CatalogProductId.HasValue &&
+                request.CatalogProductId.Value != Guid.Empty;
+
+            if (hasCatalog)
             {
-                return Conflict(
-                    operation,
-                    $"Product Catalog " +
-                    $"'{request.CatalogProductId}' was not found.");
+                if (!catalogsById.TryGetValue(
+                        request.CatalogProductId!.Value,
+                        out catalog) ||
+                    catalog.IsDeleted)
+                {
+                    return Conflict(
+                        operation,
+                        $"Product Catalog " +
+                        $"'{request.CatalogProductId.Value}' was not found.");
+                }
+
+                if (catalogOwners.ContainsKey(
+                        request.CatalogProductId.Value))
+                {
+                    return Conflict(
+                        operation,
+                        $"Product '{catalog.Name}' already exists " +
+                        "for this store.");
+                }
             }
 
-            if (catalogOwners.ContainsKey(
-                    request.CatalogProductId))
+            /*
+             * Custom product barcode uniqueness
+             * is scoped to the tenant.
+             */
+            if (!hasCatalog &&
+                !string.IsNullOrWhiteSpace(request.Barcode))
             {
-                return Conflict(
-                    operation,
-                    $"Product '{catalog.Name}' already exists " +
-                    "for this store.");
+                var normalizedBarcode =
+                    request.Barcode.Trim();
+
+                var barcodeExists =
+                    _db.Products
+                        .Any(product =>
+                            product.TenantId == tenantId &&
+                            !product.IsDeleted &&
+                            product.Barcode == normalizedBarcode);
+
+                if (barcodeExists)
+                {
+                    return Conflict(
+                        operation,
+                        $"Barcode '{normalizedBarcode}' already exists " +
+                        "for this store.");
+                }
             }
 
             var now =
@@ -326,19 +363,65 @@ namespace Inventory.Services.Handlers
                 tenantId;
 
             product.CatalogProductId =
-                request.CatalogProductId;
+                hasCatalog
+                    ? request.CatalogProductId
+                    : null;
 
-            product.Name =
-                catalog.Name;
+            if (catalog != null)
+            {
+                product.Name =
+                    catalog.Name;
 
-            product.Barcode =
-                catalog.Barcode;
+                product.Sku =
+                    catalog.InternalCode;
 
-            product.Brand =
-                catalog.Brand;
+                product.Barcode =
+                    catalog.Barcode;
 
-            product.Description =
-                catalog.Description;
+                product.Brand =
+                    catalog.Brand;
+
+                product.Description =
+                    catalog.Description;
+
+                product.Unit =
+                    catalog.UnitOfMeasure;
+            }
+            else
+            {
+                product.Name =
+                    request.Name!.Trim();
+
+                product.Sku =
+                    string.IsNullOrWhiteSpace(request.Sku)
+                        ? null
+                        : request.Sku.Trim();
+
+                product.Barcode =
+                    string.IsNullOrWhiteSpace(request.Barcode)
+                        ? null
+                        : request.Barcode.Trim();
+
+                product.Description =
+                    string.IsNullOrWhiteSpace(request.Description)
+                        ? null
+                        : request.Description.Trim();
+
+                product.Category =
+                    string.IsNullOrWhiteSpace(request.Category)
+                        ? null
+                        : request.Category.Trim();
+
+                product.Brand =
+                    string.IsNullOrWhiteSpace(request.Brand)
+                        ? null
+                        : request.Brand.Trim();
+
+                product.Unit =
+                    string.IsNullOrWhiteSpace(request.Unit)
+                        ? "pcs"
+                        : request.Unit.Trim();
+            }
 
             product.CreatedAt =
                 now;
@@ -358,8 +441,13 @@ namespace Inventory.Services.Handlers
             productsById[product.Id] =
                 product;
 
-            catalogOwners[product.CatalogProductId] =
-                product.Id;
+            if (product.CatalogProductId.HasValue &&
+                product.CatalogProductId.Value != Guid.Empty)
+            {
+                catalogOwners[
+                    product.CatalogProductId.Value] =
+                        product.Id;
+            }
 
             return Done(
                 operation,
@@ -447,13 +535,13 @@ namespace Inventory.Services.Handlers
             product.DeletedByUserId =
                 userId;
 
-            if (catalogOwners.TryGetValue(
-                    product.CatalogProductId,
-                    out var ownerId) &&
-                ownerId == product.Id)
+            if (product.CatalogProductId.HasValue &&
+                 product.CatalogProductId.Value != Guid.Empty &&
+                 catalogOwners.TryGetValue(
+                     product.CatalogProductId.Value, out var ownerId) && ownerId == product.Id)
             {
                 catalogOwners.Remove(
-                    product.CatalogProductId);
+                    product.CatalogProductId.Value);
             }
 
             return Done(
@@ -561,11 +649,58 @@ namespace Inventory.Services.Handlers
         }
 
         private static string? ValidateCreateRequest(
-            CreateProductRequest request)
+    CreateProductRequest request)
         {
-            if (request.CatalogProductId == Guid.Empty)
+            var hasCatalog =
+                request.CatalogProductId.HasValue &&
+                request.CatalogProductId.Value != Guid.Empty;
+
+            if (!hasCatalog &&
+                string.IsNullOrWhiteSpace(request.Name))
             {
-                return "CatalogProductId is required for Product Create.";
+                return "Product name is required when no catalog product is selected.";
+            }
+
+            if (!string.IsNullOrWhiteSpace(request.Name) &&
+                request.Name.Length > 200)
+            {
+                return "Product name cannot exceed 200 characters.";
+            }
+
+            if (!string.IsNullOrWhiteSpace(request.Sku) &&
+                request.Sku.Length > 100)
+            {
+                return "SKU cannot exceed 100 characters.";
+            }
+
+            if (!string.IsNullOrWhiteSpace(request.Barcode) &&
+                request.Barcode.Length > 100)
+            {
+                return "Barcode cannot exceed 100 characters.";
+            }
+
+            if (!string.IsNullOrWhiteSpace(request.Description) &&
+                request.Description.Length > 1000)
+            {
+                return "Description cannot exceed 1000 characters.";
+            }
+
+            if (!string.IsNullOrWhiteSpace(request.Category) &&
+                request.Category.Length > 100)
+            {
+                return "Category cannot exceed 100 characters.";
+            }
+
+            if (!string.IsNullOrWhiteSpace(request.Brand) &&
+                request.Brand.Length > 100)
+            {
+                return "Brand cannot exceed 100 characters.";
+            }
+
+            if (!string.IsNullOrWhiteSpace(request.Unit) &&
+                request.Unit.Length > 50)
+            {
+                return "Unit cannot exceed 50 characters.";
             }
 
             return ValidateValues(

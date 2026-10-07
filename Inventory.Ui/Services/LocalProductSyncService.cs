@@ -14,11 +14,10 @@ namespace Inventory.Ui.Services;
 public sealed class LocalProductSyncService
     : ILocalProductSyncService
 {
+    private HashSet<Guid> _deletedServerIds = new();
     private const string ProductEntityName = "Product";
     private const string FullSyncMode = "Full";
 
-    private const int PageSize = 100;
-    private const int MaximumPages = 10_000;
 
     private readonly PosLocalDbContext _db;
     private readonly IProductApi _productApi;
@@ -54,6 +53,9 @@ public sealed class LocalProductSyncService
                     cancellationToken);
 
             cancellationToken.ThrowIfCancellationRequested();
+
+            if (_tenantContext.GetRequiredTenantId() != tenantId)
+                throw new InvalidOperationException("Le magasin a changé pendant le téléchargement.");
 
             await using var transaction =
                 await _db.Database.BeginTransactionAsync(
@@ -102,30 +104,24 @@ public sealed class LocalProductSyncService
                         .Where(x => x.TenantId == tenantId)
                         .ToListAsync(cancellationToken);
 
-                var localById =
-                    localProducts.ToDictionary(
-                        x => x.Id);
+                ValidateLocalProductIdentity(localProducts);
 
                 var localByServerId =
                     localProducts
                         .Where(x =>
                             x.ServerId.HasValue &&
                             x.ServerId.Value != Guid.Empty)
-                        .GroupBy(x => x.ServerId!.Value)
                         .ToDictionary(
-                            x => x.Key,
-                            x => x.First());
+                            x => x.ServerId!.Value);
 
                 var localByCatalogId =
-                    localProducts
-                        .Where(x =>
-                            x.CatalogProductId.HasValue &&
-                            x.CatalogProductId.Value != Guid.Empty &&
-                            !x.IsDeletedLocally)
-                        .GroupBy(x => x.CatalogProductId!.Value)
-                        .ToDictionary(
-                            x => x.Key,
-                            x => x.First());
+                     localProducts
+                         .Where(x =>
+                             x.CatalogProductId.HasValue &&
+                             x.CatalogProductId.Value != Guid.Empty &&
+                             !x.IsDeletedLocally)
+                         .ToDictionary(
+                             x => x.CatalogProductId!.Value);
 
                 foreach (var serverProduct in serverProducts)
                 {
@@ -134,16 +130,21 @@ public sealed class LocalProductSyncService
 
                     ValidateServerProduct(
                         serverProduct);
+                    LocalProductCatalog? catalog = null;
 
-                    if (!catalogs.TryGetValue(
-                            serverProduct.CatalogProductId,
-                            out var catalog))
+                    if (serverProduct.CatalogProductId.HasValue &&
+                        serverProduct.CatalogProductId.Value != Guid.Empty)
                     {
-                        throw new InvalidOperationException(
-                            $"Catalog product " +
-                            $"'{serverProduct.CatalogProductId}' " +
-                            $"does not exist in SQLite. " +
-                            $"Synchronize ProductCatalog before Product.");
+                        if (!catalogs.TryGetValue(
+                                serverProduct.CatalogProductId.Value,
+                                out catalog))
+                        {
+                            throw new InvalidOperationException(
+                                $"Catalog product " +
+                                $"'{serverProduct.CatalogProductId.Value}' " +
+                                $"does not exist in SQLite. " +
+                                $"Synchronize ProductCatalog before Product.");
+                        }
                     }
 
                     LocalProduct? localProduct = null;
@@ -166,9 +167,11 @@ public sealed class LocalProductSyncService
                      * ancienne ligne locale n'ayant pas encore
                      * reçu son ServerId.
                      */
-                    else if (localByCatalogId.TryGetValue(
-                                 serverProduct.CatalogProductId,
-                                 out var byCatalog))
+                    else if (
+                serverProduct.CatalogProductId.HasValue &&
+                serverProduct.CatalogProductId.Value != Guid.Empty &&
+                localByCatalogId.TryGetValue(
+                    serverProduct.CatalogProductId.Value, out var byCatalog))
                     {
                         localProduct = byCatalog;
                     }
@@ -199,9 +202,6 @@ public sealed class LocalProductSyncService
 
                         _db.Products.Add(localProduct);
                         localProducts.Add(localProduct);
-
-                        localById[localProduct.Id] =
-                            localProduct;
                     }
 
                     /*
@@ -221,9 +221,15 @@ public sealed class LocalProductSyncService
                             $"same catalog '{serverProduct.CatalogProductId}'.");
                     }
 
-                    categories.TryGetValue(
-                        catalog.CategoryId,
-                        out var categoryName);
+                    string? categoryName = null;
+
+                    if (catalog != null &&
+                        catalog.CategoryId != Guid.Empty)
+                    {
+                        categories.TryGetValue(
+                            catalog.CategoryId,
+                            out categoryName);
+                    }
 
                     ApplyServerProduct(
                         localProduct,
@@ -236,9 +242,12 @@ public sealed class LocalProductSyncService
                     localByServerId[serverProduct.Id] =
                         localProduct;
 
-                    localByCatalogId[
-                        serverProduct.CatalogProductId] =
-                        localProduct;
+                    if (serverProduct.CatalogProductId.HasValue && serverProduct.CatalogProductId.Value != Guid.Empty)
+                    {
+                        localByCatalogId[
+                            serverProduct.CatalogProductId.Value] =
+                            localProduct;
+                    }
                 }
 
                 /*
@@ -249,13 +258,23 @@ public sealed class LocalProductSyncService
                 ResolvePackLocalProductIds(
                     localProducts);
 
+                var protectedStockIds = await Inventory.LocalDB.Services.PendingStockProtection.GetProductIdsAsync(_db, tenantId, cancellationToken);
+                // Explicit tombstones only; never infer deletion from an incomplete/failed response.
+                foreach (var row in localProducts.Where(x => x.ServerId.HasValue && _deletedServerIds.Contains(x.ServerId.Value)))
+                {
+                    if (pendingLocalIds.Contains(row.Id) || protectedStockIds.Contains(row.Id)) continue;
+                    row.IsDeletedLocally = true;
+                    row.IsActive = false;
+                    row.DeletedAtUtc = now;
+                    row.LastSyncedAtUtc = now;
+                }
+
                 await MarkSyncSucceededAsync(
                     tenantId,
                     now,
                     cancellationToken);
 
-                await _db.SaveChangesAsync(
-                    cancellationToken);
+                await _db.SaveChangesAsync(cancellationToken);
 
                 await transaction.CommitAsync(
                     cancellationToken);
@@ -294,9 +313,9 @@ public sealed class LocalProductSyncService
     }
 
     public async Task UpsertFromServerAsync(
-        ProductResult serverProduct,
-        Guid? originatingLocalId = null,
-        CancellationToken cancellationToken = default)
+     ProductResult serverProduct,
+     Guid? originatingLocalId = null,
+     CancellationToken cancellationToken = default)
     {
         ValidateServerProduct(
             serverProduct);
@@ -313,26 +332,34 @@ public sealed class LocalProductSyncService
             var now =
                 DateTime.UtcNow;
 
-            var catalog =
-                await _db.ProductCatalogs
-                    .AsNoTracking()
-                    .FirstOrDefaultAsync(
-                        x =>
-                            x.Id == serverProduct.CatalogProductId &&
-                            !x.IsDeleted,
-                        cancellationToken);
+            LocalProductCatalog? catalog = null;
 
-            if (catalog == null)
+            if (serverProduct.CatalogProductId.HasValue &&
+                serverProduct.CatalogProductId.Value != Guid.Empty)
             {
-                throw new InvalidOperationException(
-                    $"Catalog product " +
-                    $"'{serverProduct.CatalogProductId}' " +
-                    $"was not found locally.");
+                catalog =
+                    await _db.ProductCatalogs
+                        .AsNoTracking()
+                        .FirstOrDefaultAsync(
+                            x =>
+                                x.Id ==
+                                    serverProduct.CatalogProductId.Value &&
+                                !x.IsDeleted,
+                            cancellationToken);
+
+                if (catalog == null)
+                {
+                    throw new InvalidOperationException(
+                        $"Catalog product " +
+                        $"'{serverProduct.CatalogProductId.Value}' " +
+                        $"was not found locally.");
+                }
             }
 
             string? categoryName = null;
 
-            if (catalog.CategoryId != Guid.Empty)
+            if (catalog != null &&
+                catalog.CategoryId != Guid.Empty)
             {
                 categoryName =
                     await _db.ProductCategories
@@ -348,8 +375,9 @@ public sealed class LocalProductSyncService
             LocalProduct? localProduct = null;
 
             /*
-             * Pour une création offline envoyée au serveur,
-             * originatingLocalId permet de conserver le même Id local.
+             * 1. Best reconciliation case:
+             * the server response comes from an offline-created
+             * local product that was just uploaded.
              */
             if (originatingLocalId.HasValue &&
                 originatingLocalId.Value != Guid.Empty)
@@ -363,6 +391,9 @@ public sealed class LocalProductSyncService
                             cancellationToken);
             }
 
+            /*
+             * 2. Normal server identity reconciliation.
+             */
             localProduct ??=
                 await _db.Products
                     .FirstOrDefaultAsync(
@@ -371,22 +402,33 @@ public sealed class LocalProductSyncService
                             x.ServerId == serverProduct.Id,
                         cancellationToken);
 
-            localProduct ??=
-                await _db.Products
-                    .FirstOrDefaultAsync(
-                        x =>
-                            x.TenantId == tenantId &&
-                            x.CatalogProductId ==
-                                serverProduct.CatalogProductId &&
-                            !x.IsDeletedLocally,
-                        cancellationToken);
+            /*
+             * 3. Catalog reconciliation is only valid
+             * when a real CatalogProductId exists.
+             *
+             * Never match custom products using null == null.
+             */
+            if (localProduct == null &&
+                serverProduct.CatalogProductId.HasValue &&
+                serverProduct.CatalogProductId.Value != Guid.Empty)
+            {
+                localProduct =
+                    await _db.Products
+                        .FirstOrDefaultAsync(
+                            x =>
+                                x.TenantId == tenantId &&
+                                x.CatalogProductId ==
+                                    serverProduct.CatalogProductId.Value &&
+                                !x.IsDeletedLocally,
+                            cancellationToken);
+            }
 
             /*
-             * Un pull normal ne doit pas écraser une modification
-             * locale en attente.
+             * A normal server pull must not overwrite
+             * pending local changes.
              *
-             * Lorsqu'originatingLocalId existe, la réponse vient
-             * justement de l'envoi de cette modification.
+             * When originatingLocalId exists, this response
+             * is the confirmation of the local upload itself.
              */
             if (localProduct != null &&
                 !originatingLocalId.HasValue)
@@ -420,6 +462,9 @@ public sealed class LocalProductSyncService
                 }
             }
 
+            /*
+             * No matching local product exists.
+             */
             if (localProduct == null)
             {
                 localProduct = new LocalProduct
@@ -433,6 +478,10 @@ public sealed class LocalProductSyncService
                     localProduct);
             }
 
+            /*
+             * Prevent accidental relinking of one local product
+             * to another server product.
+             */
             if (localProduct.ServerId.HasValue &&
                 localProduct.ServerId.Value != Guid.Empty &&
                 localProduct.ServerId.Value != serverProduct.Id)
@@ -442,6 +491,17 @@ public sealed class LocalProductSyncService
                     $"another server Product.");
             }
 
+            /*
+             * Works for both:
+             *
+             * Catalog product:
+             * CatalogProductId != null
+             * catalog != null
+             *
+             * Custom product:
+             * CatalogProductId == null
+             * catalog == null
+             */
             ApplyServerProduct(
                 localProduct,
                 serverProduct,
@@ -456,8 +516,8 @@ public sealed class LocalProductSyncService
                 cancellationToken);
 
             /*
-             * La réponse serveur confirme que l'opération locale
-             * a été enregistrée.
+             * The server response confirms that the
+             * originating offline operation was accepted.
              */
             if (originatingLocalId.HasValue)
             {
@@ -518,11 +578,11 @@ public sealed class LocalProductSyncService
         localProduct.LastSyncedAtUtc = now;
         localProduct.SyncStatus = SyncQueueStatus.Done;
 
-        await CompleteQueueItemsAsync(
-            tenantId,
-            localProduct.Id,
-            now,
-            cancellationToken);
+        //await CompleteQueueItemsAsync(
+        //    tenantId,
+        //    localProduct.Id,
+        //    now,
+        //    cancellationToken);
 
         await _db.SaveChangesAsync(
             cancellationToken);
@@ -545,68 +605,51 @@ public sealed class LocalProductSyncService
     }
 
     private async Task<List<ProductResult>> DownloadAllServerProductsAsync(
-            CancellationToken cancellationToken)
+        CancellationToken cancellationToken)
     {
-        var products =
-            new List<ProductResult>();
+        var snapshot =
+            await _productApi.DownloadSnapshot(
+                cancellationToken);
 
-        for (var page = 1;
-             page <= MaximumPages;
-             page++)
+        ArgumentNullException.ThrowIfNull(snapshot);
+
+        if (snapshot.Items == null ||
+            snapshot.DeletedIds == null)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            var query =
-                new ProductQuery
-                {
-                    Page = page,
-                    PageSize = PageSize,
-                    SortBy = "name",
-                    Desc = false
-                };
-
-            var response =
-                await _productApi.Search(
-                    query,
-                    cancellationToken);
-
-            cancellationToken.ThrowIfCancellationRequested();
-
-            var pageItems =
-                response.Items?.ToList()
-                ?? new List<ProductResult>();
-
-            if (pageItems.Count == 0)
-            {
-                break;
-            }
-
-            products.AddRange(pageItems);
-
-            if (response.TotalCount > 0 &&
-                products.Count >= response.TotalCount)
-            {
-                break;
-            }
-
-            if (pageItems.Count < PageSize)
-            {
-                break;
-            }
-
-            if (page == MaximumPages)
-            {
-                throw new InvalidOperationException(
-                    "Product synchronization exceeded the maximum " +
-                    "number of pages.");
-            }
+            throw new InvalidOperationException(
+                "Incomplete synchronization snapshot.");
         }
 
-        return products
-            .Where(x => x.Id != Guid.Empty)
-            .GroupBy(x => x.Id)
-            .Select(group => group.Last())
-            .ToList();
+        _deletedServerIds =
+            snapshot.DeletedIds.ToHashSet();
+
+        // =========================================
+        // TEMP DEBUG PRICES
+        // =========================================
+
+        var poms = snapshot.Items
+            .FirstOrDefault(x =>
+                x.Barcode == "5449000318411");
+
+        if (poms != null)
+        {
+            _logger.LogWarning(
+                "SYNC DEBUG POMS -> " +
+                "Id={Id}, Purchase={Purchase}, " +
+                "Sale={Sale}, Sale2={Sale2}, Sale3={Sale3}",
+                poms.Id,
+                poms.PurchasePrice,
+                poms.SalePrice,
+                poms.SalePrice2,
+                poms.SalePrice3);
+        }
+        else
+        {
+            _logger.LogWarning(
+                "SYNC DEBUG POMS -> NOT FOUND IN SERVER SNAPSHOT");
+        }
+
+        return snapshot.Items;
     }
 
     private async Task<HashSet<Guid>>
@@ -629,13 +672,17 @@ public sealed class LocalProductSyncService
     }
 
     private static void ApplyServerProduct(
-        LocalProduct localProduct,
-        ProductResult serverProduct,
-        LocalProductCatalog catalog,
-        string? categoryName,
-        Guid tenantId,
-        DateTime now)
+    LocalProduct localProduct,
+    ProductResult serverProduct,
+    LocalProductCatalog? catalog,
+    string? categoryName,
+    Guid tenantId,
+    DateTime now)
     {
+        // ============================================================
+        // IDENTITY
+        // ============================================================
+
         localProduct.TenantId =
             tenantId;
 
@@ -643,37 +690,117 @@ public sealed class LocalProductSyncService
             serverProduct.Id;
 
         localProduct.CatalogProductId =
-            serverProduct.CatalogProductId;
+            NormalizeGuid(
+                serverProduct.CatalogProductId);
+
+        var isCatalogProduct =
+            catalog != null;
+
+        // ============================================================
+        // NAME
+        // ============================================================
 
         localProduct.Name =
-            FirstNotEmpty(
-                serverProduct.CatalogName,
-                catalog.Name,
-                $"Product {serverProduct.CatalogProductId}");
+            isCatalogProduct
+                ? FirstNotEmpty(
+                    catalog!.Name,
+                    serverProduct.Name,
+                    $"Product {serverProduct.Id}")
+                : FirstNotEmpty(
+                    serverProduct.Name,
+                    null,
+                    $"Product {serverProduct.Id}");
+
+        // ============================================================
+        // SKU
+        // ============================================================
 
         localProduct.Sku =
-            NullIfWhiteSpace(
-                catalog.InternalCode);
+            isCatalogProduct
+                ? NullIfWhiteSpace(
+                    catalog!.InternalCode)
+                : NullIfWhiteSpace(
+                    serverProduct.Sku);
 
-        localProduct.Barcode =
-            FirstNotEmptyOrNull(
-                serverProduct.CatalogBarcode,
-                catalog.Barcode);
+        // ============================================================
+        // BARCODE
+        // ============================================================
+
+        /*
+         * Very important after the barcode repair:
+         *
+         * linked Product:
+         * ProductCatalog is canonical.
+         *
+         * custom Product:
+         * server Product is canonical.
+         */
+        localProduct.Barcode = isCatalogProduct
+         ? NullIfWhiteSpace(catalog!.Barcode)
+         : NullIfWhiteSpace(serverProduct.Barcode);
+
+        // ============================================================
+        // DESCRIPTION
+        // ============================================================
+
+        localProduct.Description =
+            isCatalogProduct
+                ? FirstNotEmptyOrNull(
+                    catalog!.Description,
+                    serverProduct.Description)
+                : NullIfWhiteSpace(
+                    serverProduct.Description);
+
+        // ============================================================
+        // BRAND
+        // ============================================================
 
         localProduct.Brand =
-            FirstNotEmptyOrNull(
-                serverProduct.CatalogBrand,
-                catalog.Brand);
+            isCatalogProduct
+                ? FirstNotEmptyOrNull(
+                    catalog!.Brand,
+                    serverProduct.Brand)
+                : NullIfWhiteSpace(
+                    serverProduct.Brand);
+
+        // ============================================================
+        // CATEGORY
+        // ============================================================
 
         localProduct.Category =
-            NullIfWhiteSpace(
-                categoryName);
+            isCatalogProduct
+                ? NullIfWhiteSpace(
+                    categoryName)
+                : NullIfWhiteSpace(
+                    serverProduct.Category);
 
-        localProduct.Unit =
-            string.IsNullOrWhiteSpace(
-                catalog.UnitOfMeasure)
-                ? "pcs"
-                : catalog.UnitOfMeasure.Trim();
+        // ============================================================
+        // UNIT
+        // ============================================================
+
+        if (isCatalogProduct)
+        {
+            localProduct.Unit =
+                !string.IsNullOrWhiteSpace(
+                    catalog!.UnitOfMeasure)
+                    ? catalog.UnitOfMeasure.Trim()
+                    : !string.IsNullOrWhiteSpace(
+                        serverProduct.Unit)
+                        ? serverProduct.Unit.Trim()
+                        : "pcs";
+        }
+        else
+        {
+            localProduct.Unit =
+                !string.IsNullOrWhiteSpace(
+                    serverProduct.Unit)
+                    ? serverProduct.Unit.Trim()
+                    : "pcs";
+        }
+
+        // ============================================================
+        // TENANT PRICING
+        // ============================================================
 
         localProduct.SalePrice =
             serverProduct.SalePrice;
@@ -690,11 +817,19 @@ public sealed class LocalProductSyncService
         localProduct.VatRate =
             serverProduct.VatRate;
 
+        // ============================================================
+        // STOCK CONFIGURATION
+        // ============================================================
+
         localProduct.MinStockLevel =
             serverProduct.MinStockLevel;
 
         localProduct.MaxStockLevel =
             serverProduct.MaxStockLevel;
+
+        // ============================================================
+        // STATUS
+        // ============================================================
 
         localProduct.Status =
             serverProduct.Status;
@@ -706,18 +841,26 @@ public sealed class LocalProductSyncService
         localProduct.IsTracked =
             serverProduct.IsTracked;
 
+        // ============================================================
+        // PACK
+        // ============================================================
+
         localProduct.IsPack =
             serverProduct.IsPack ||
-            catalog.IsPack;
+            (catalog?.IsPack ?? false);
 
         localProduct.UnitProductServerId =
             NormalizeGuid(
                 serverProduct.ComponentProductId);
 
         localProduct.UnitsPerPack =
-            serverProduct.PackSize > 0
+            serverProduct.PackSize > 0m
                 ? serverProduct.PackSize
                 : 1m;
+
+        // ============================================================
+        // SYNC STATE
+        // ============================================================
 
         localProduct.IsDeletedLocally =
             false;
@@ -742,27 +885,43 @@ public sealed class LocalProductSyncService
     }
 
     private static void ResolvePackLocalProductIds(
-        IEnumerable<LocalProduct> products)
+    IEnumerable<LocalProduct> products)
     {
-        var productsByServerId =
-            products
+        var productList =
+            products.ToList();
+
+        var duplicateServerIds =
+            productList
                 .Where(x =>
                     x.ServerId.HasValue &&
                     x.ServerId.Value != Guid.Empty)
                 .GroupBy(x => x.ServerId!.Value)
-                .ToDictionary(
-                    x => x.Key,
-                    x => x.First());
+                .Where(x => x.Count() > 1)
+                .Select(x => x.Key)
+                .ToList();
 
-        foreach (var product in products)
+        if (duplicateServerIds.Count > 0)
+        {
+            throw new InvalidOperationException(
+                "Cannot resolve pack products because duplicate " +
+                "ServerIds exist in SQLite: " +
+                string.Join(", ", duplicateServerIds));
+        }
+
+        var productsByServerId =
+            productList
+                .Where(x =>
+                    x.ServerId.HasValue &&
+                    x.ServerId.Value != Guid.Empty)
+                .ToDictionary(
+                    x => x.ServerId!.Value);
+
+        foreach (var product in productList)
         {
             if (!product.UnitProductServerId.HasValue ||
-                product.UnitProductServerId.Value ==
-                Guid.Empty)
+                product.UnitProductServerId.Value == Guid.Empty)
             {
-                product.UnitProductLocalId =
-                    null;
-
+                product.UnitProductLocalId = null;
                 continue;
             }
 
@@ -776,29 +935,39 @@ public sealed class LocalProductSyncService
     }
 
     private async Task ResolveSinglePackLocalProductIdAsync(
-        LocalProduct product,
-        Guid tenantId,
-        CancellationToken cancellationToken)
+     LocalProduct product,
+     Guid tenantId,
+     CancellationToken cancellationToken)
     {
         if (!product.UnitProductServerId.HasValue ||
             product.UnitProductServerId.Value == Guid.Empty)
         {
-            product.UnitProductLocalId =
-                null;
-
+            product.UnitProductLocalId = null;
             return;
         }
 
-        product.UnitProductLocalId =
+        var matches =
             await _db.Products
                 .AsNoTracking()
                 .Where(x =>
                     x.TenantId == tenantId &&
                     x.ServerId ==
                         product.UnitProductServerId.Value)
-                .Select(x => (Guid?)x.Id)
-                .FirstOrDefaultAsync(
-                    cancellationToken);
+                .Select(x => x.Id)
+                .Take(2)
+                .ToListAsync(cancellationToken);
+
+        if (matches.Count > 1)
+        {
+            throw new InvalidOperationException(
+                $"Multiple local Products reference ServerId " +
+                $"'{product.UnitProductServerId.Value}'.");
+        }
+
+        product.UnitProductLocalId =
+            matches.Count == 1
+                ? matches[0]
+                : null;
     }
 
     private async Task CompleteQueueItemsAsync(
@@ -928,10 +1097,9 @@ public sealed class LocalProductSyncService
     }
 
     private static void ValidateServerProduct(
-        ProductResult product)
+     ProductResult product)
     {
-        ArgumentNullException.ThrowIfNull(
-            product);
+        ArgumentNullException.ThrowIfNull(product);
 
         if (product.Id == Guid.Empty)
         {
@@ -939,11 +1107,10 @@ public sealed class LocalProductSyncService
                 "The server returned a Product without an Id.");
         }
 
-        if (product.CatalogProductId == Guid.Empty)
+        if (string.IsNullOrWhiteSpace(product.Name))
         {
             throw new InvalidOperationException(
-                $"Server Product '{product.Id}' does not contain " +
-                $"a CatalogProductId.");
+                $"Server Product '{product.Id}' does not contain a name.");
         }
 
         if (product.SalePrice < 0 ||
@@ -952,16 +1119,14 @@ public sealed class LocalProductSyncService
             product.PurchasePrice < 0)
         {
             throw new InvalidOperationException(
-                $"Server Product '{product.Id}' contains " +
-                $"a negative price.");
+                $"Server Product '{product.Id}' contains a negative price.");
         }
 
         if (product.VatRate < 0 ||
             product.VatRate > 100)
         {
             throw new InvalidOperationException(
-                $"Server Product '{product.Id}' contains " +
-                $"an invalid VAT rate.");
+                $"Server Product '{product.Id}' contains an invalid VAT rate.");
         }
 
         if (product.MinStockLevel < 0 ||
@@ -970,8 +1135,7 @@ public sealed class LocalProductSyncService
             product.MaxStockLevel)
         {
             throw new InvalidOperationException(
-                $"Server Product '{product.Id}' contains " +
-                $"invalid stock limits.");
+                $"Server Product '{product.Id}' contains invalid stock limits.");
         }
     }
 
@@ -983,6 +1147,7 @@ public sealed class LocalProductSyncService
             ? value.Value
             : null;
     }
+
 
     private static string FirstNotEmpty(
         string? first,
@@ -1029,5 +1194,583 @@ public sealed class LocalProductSyncService
         return value.Length <= maximumLength
             ? value
             : value[..maximumLength];
+    }
+
+    public async Task ForceFullSyncAsync(
+     CancellationToken cancellationToken = default)
+    {
+        var tenantId =
+            _tenantContext.GetRequiredTenantId();
+
+        try
+        {
+            // ============================================================
+            // DOWNLOAD SERVER SNAPSHOT
+            // ============================================================
+
+            var serverProducts =
+                await DownloadAllServerProductsAsync(
+                    cancellationToken);
+
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (_tenantContext.GetRequiredTenantId() != tenantId)
+            {
+                throw new InvalidOperationException(
+                    "Le magasin a changé pendant le téléchargement.");
+            }
+
+            // ============================================================
+            // SQLITE TRANSACTION
+            // ============================================================
+
+            await using var transaction =
+                await _db.Database.BeginTransactionAsync(
+                    cancellationToken);
+
+            try
+            {
+                var now =
+                    DateTime.UtcNow;
+
+                // ========================================================
+                // LOCAL CATALOGS
+                // ========================================================
+
+                var catalogs =
+                    await _db.ProductCatalogs
+                        .AsNoTracking()
+                        .Where(x =>
+                            !x.IsDeleted)
+                        .ToDictionaryAsync(
+                            x => x.Id,
+                            cancellationToken);
+
+                // ========================================================
+                // LOCAL CATEGORIES
+                // ========================================================
+
+                var categories =
+                    await _db.ProductCategories
+                        .AsNoTracking()
+                        .Where(x =>
+                            !x.IsDeleted)
+                        .ToDictionaryAsync(
+                            x => x.Id,
+                            x => x.Name,
+                            cancellationToken);
+
+                // ========================================================
+                // LOCAL PRODUCTS
+                // ========================================================
+
+                var localProducts =
+                    await _db.Products
+                        .Where(x =>
+                            x.TenantId == tenantId)
+                        .ToListAsync(
+                            cancellationToken);
+
+                ValidateLocalProductIdentity(localProducts);
+
+                // ========================================================
+                // INDEX BY SERVER ID
+                // ========================================================
+
+                var localByServerId =
+                    localProducts
+                        .Where(x =>
+                            x.ServerId.HasValue &&
+                            x.ServerId.Value != Guid.Empty)
+                        .ToDictionary(
+                            x => x.ServerId!.Value);
+
+                // ========================================================
+                // INDEX BY CATALOG ID
+                // ========================================================
+
+                /*
+                 * Catalog reconciliation is only allowed when
+                 * CatalogProductId has a real value.
+                 *
+                 * Never reconcile custom products using null == null.
+                 */
+
+                var localByCatalogId =
+                    localProducts
+                        .Where(x =>
+                            x.CatalogProductId.HasValue &&
+                            x.CatalogProductId.Value != Guid.Empty &&
+                            !x.IsDeletedLocally)
+                        .ToDictionary(
+                            x => x.CatalogProductId!.Value);
+
+                // ========================================================
+                // TRACK PRODUCTS ACTUALLY FORCE-SYNCHRONIZED
+                // ========================================================
+
+                /*
+                 * Important:
+                 *
+                 * We must NOT mark every Product queue operation as Done.
+                 *
+                 * A Product created only offline may not exist in the
+                 * server snapshot yet.
+                 *
+                 * Only queue entries associated with Products actually
+                 * reconciled with the server snapshot are discarded.
+                 */
+
+                var forceSyncedLocalIds =
+                    new HashSet<Guid>();
+
+                // ========================================================
+                // APPLY SERVER PRODUCTS
+                // ========================================================
+
+                foreach (var serverProduct in serverProducts)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    ValidateServerProduct(
+                        serverProduct);
+
+                    LocalProductCatalog? catalog = null;
+
+                    // ====================================================
+                    // CATALOG
+                    // ====================================================
+
+                    if (serverProduct.CatalogProductId.HasValue &&
+                        serverProduct.CatalogProductId.Value != Guid.Empty)
+                    {
+                        if (!catalogs.TryGetValue(
+                                serverProduct.CatalogProductId.Value,
+                                out catalog))
+                        {
+                            throw new InvalidOperationException(
+                                $"Catalog product " +
+                                $"'{serverProduct.CatalogProductId.Value}' " +
+                                $"does not exist in SQLite. " +
+                                $"Synchronize ProductCatalog before Product.");
+                        }
+                    }
+
+                    // ====================================================
+                    // FIND LOCAL PRODUCT
+                    // ====================================================
+
+                    LocalProduct? localProduct = null;
+
+                    /*
+                     * Priority 1:
+                     * ServerId
+                     */
+
+                    if (localByServerId.TryGetValue(
+                            serverProduct.Id,
+                            out var byServer))
+                    {
+                        localProduct =
+                            byServer;
+                    }
+
+                    /*
+                     * Priority 2:
+                     * CatalogProductId.
+                     */
+
+                    else if (
+                        serverProduct.CatalogProductId.HasValue &&
+                        serverProduct.CatalogProductId.Value != Guid.Empty &&
+                        localByCatalogId.TryGetValue(
+                            serverProduct.CatalogProductId.Value,
+                            out var byCatalog))
+                    {
+                        localProduct =
+                            byCatalog;
+                    }
+
+                    // ====================================================
+                    // CREATE LOCAL PRODUCT IF NEEDED
+                    // ====================================================
+
+                    if (localProduct == null)
+                    {
+                        localProduct =
+                            new LocalProduct
+                            {
+                                Id = Guid.NewGuid(),
+                                TenantId = tenantId,
+                                CreatedAtUtc = now
+                            };
+
+                        _db.Products.Add(
+                            localProduct);
+
+                        localProducts.Add(
+                            localProduct);
+                    }
+
+                    // ====================================================
+                    // SAFETY
+                    // ====================================================
+
+                    /*
+                     * Never silently relink an existing local Product
+                     * to a different server Product.
+                     */
+
+                    if (localProduct.ServerId.HasValue &&
+                        localProduct.ServerId.Value != Guid.Empty &&
+                        localProduct.ServerId.Value != serverProduct.Id)
+                    {
+                        throw new InvalidOperationException(
+                            $"Local Product '{localProduct.Id}' is already " +
+                            $"linked to server Product " +
+                            $"'{localProduct.ServerId.Value}', but the server " +
+                            $"returned Product '{serverProduct.Id}'.");
+                    }
+
+                    // ====================================================
+                    // CATEGORY
+                    // ====================================================
+
+                    string? categoryName = null;
+
+                    if (catalog != null &&
+                        catalog.CategoryId != Guid.Empty)
+                    {
+                        categories.TryGetValue(
+                            catalog.CategoryId,
+                            out categoryName);
+                    }
+                    // ====================================================
+                    // FORCE SERVER DATA OVER LOCAL DATA
+                    // ====================================================
+
+                    ApplyServerProduct(
+                        localProduct,
+                        serverProduct,
+                        catalog,
+                        categoryName,
+                        tenantId,
+                        now);
+
+                    if (serverProduct.Barcode == "5449000318411")
+                    {
+                        _logger.LogWarning(
+                            "SYNC DEBUG POMS AFTER APPLY -> " +
+                            "LocalId={LocalId}, ServerId={ServerId}, " +
+                            "Purchase={Purchase}, Sale={Sale}, " +
+                            "Sale2={Sale2}, Sale3={Sale3}",
+                            localProduct.Id,
+                            localProduct.ServerId,
+                            localProduct.PurchasePrice,
+                            localProduct.SalePrice,
+                            localProduct.SalePrice2,
+                            localProduct.SalePrice3);
+                    }
+
+                    // ====================================================
+                    // REGISTER AS FORCE-SYNCHRONIZED
+                    // ====================================================
+
+                    forceSyncedLocalIds.Add(
+                        localProduct.Id);
+
+                    // ====================================================
+                    // UPDATE LOOKUP MAPS
+                    // ====================================================
+
+                    localByServerId[
+                        serverProduct.Id] =
+                        localProduct;
+
+                    if (serverProduct.CatalogProductId.HasValue &&
+                        serverProduct.CatalogProductId.Value != Guid.Empty)
+                    {
+                        localByCatalogId[
+                            serverProduct.CatalogProductId.Value] =
+                            localProduct;
+                    }
+                }
+
+                // ========================================================
+                // COMPLETE OBSOLETE PRODUCT QUEUE ITEMS
+                // ========================================================
+
+                /*
+                 * One query only.
+                 *
+                 * Only queue operations for products actually present in
+                 * the accepted server snapshot are marked Done.
+                 *
+                 * Purely local/offline Products remain pending.
+                 */
+
+                if (forceSyncedLocalIds.Count > 0)
+                {
+                    var productQueueItems =
+                        await _db.SyncQueueItems
+                            .Where(x =>
+                                x.TenantId == tenantId &&
+                                x.EntityName == ProductEntityName &&
+                                x.Status != SyncQueueStatus.Done &&
+                                forceSyncedLocalIds.Contains(
+                                    x.LocalEntityId))
+                            .ToListAsync(
+                                cancellationToken);
+
+                    foreach (var queueItem in productQueueItems)
+                    {
+                        queueItem.Status =
+                            SyncQueueStatus.Done;
+
+                        queueItem.ProcessedAtUtc =
+                            now;
+
+                        queueItem.ErrorMessage =
+                            null;
+                    }
+                }
+
+                // ========================================================
+                // PACK LOCAL IDS
+                // ========================================================
+
+                ResolvePackLocalProductIds(
+                    localProducts);
+
+                // ========================================================
+                // PROTECT PENDING STOCK OPERATIONS
+                // ========================================================
+
+                var protectedStockIds =
+                    await Inventory.LocalDB.Services
+                        .PendingStockProtection
+                        .GetProductIdsAsync(
+                            _db,
+                            tenantId,
+                            cancellationToken);
+
+                // ========================================================
+                // SERVER DELETIONS
+                // ========================================================
+
+                /*
+                 * Explicit tombstones only.
+                 *
+                 * Do not infer deletion because a record was absent from
+                 * an incomplete response.
+                 *
+                 * Also preserve Products referenced by pending Stock
+                 * operations.
+                 */
+
+                foreach (var localProduct in
+                         localProducts.Where(x =>
+                             x.ServerId.HasValue &&
+                             x.ServerId.Value != Guid.Empty &&
+                             _deletedServerIds.Contains(
+                                 x.ServerId.Value)))
+                {
+                    if (protectedStockIds.Contains(
+                            localProduct.Id))
+                    {
+                        _logger.LogWarning(
+                            "Skipping forced deletion of Product {LocalId} " +
+                            "because pending Stock operations reference it.",
+                            localProduct.Id);
+
+                        continue;
+                    }
+
+                    localProduct.IsDeletedLocally =
+                        true;
+
+                    localProduct.IsActive =
+                        false;
+
+                    localProduct.DeletedAtUtc =
+                        now;
+
+                    localProduct.ModifiedAtUtc =
+                        now;
+
+                    localProduct.LastSyncedAtUtc =
+                        now;
+
+                    localProduct.SyncStatus =
+                        SyncQueueStatus.Done;
+
+                    /*
+                     * No CompleteQueueItemsAsync() here.
+                     *
+                     * Relevant Product queue entries were already handled
+                     * in one batch above.
+                     */
+                }
+
+                // ========================================================
+                // SYNC STATE
+                // ========================================================
+
+                await MarkSyncSucceededAsync(
+                    tenantId,
+                    now,
+                    cancellationToken);
+
+                // ========================================================
+                // SAVE
+                // ========================================================
+
+                await _db.SaveChangesAsync(cancellationToken);
+
+                var savedPoms = await _db.Products
+    .AsNoTracking()
+    .FirstOrDefaultAsync(
+        x =>
+            x.TenantId == tenantId &&
+            x.Barcode == "5449000318411",
+        cancellationToken);
+
+                if (savedPoms != null)
+                {
+                    _logger.LogWarning(
+                        "SYNC DEBUG POMS AFTER SAVE -> " +
+                        "LocalId={LocalId}, " +
+                        "Purchase={Purchase}, Sale={Sale}, " +
+                        "Sale2={Sale2}, Sale3={Sale3}",
+                        savedPoms.Id,
+                        savedPoms.PurchasePrice,
+                        savedPoms.SalePrice,
+                        savedPoms.SalePrice2,
+                        savedPoms.SalePrice3);
+                }
+
+                // ========================================================
+                // COMMIT
+                // ========================================================
+
+                await transaction.CommitAsync(
+                    cancellationToken);
+
+                _logger.LogInformation(
+                    "FORCED Product full synchronization completed for " +
+                    "tenant {TenantId}. {Count} server products processed.",
+                    tenantId,
+                    serverProducts.Count);
+            }
+            catch
+            {
+                await transaction.RollbackAsync(CancellationToken.None);
+
+                throw;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            await RecordSyncFailureAsync(
+                tenantId,
+                exception);
+
+            _logger.LogError(
+                exception,
+                "Forced Product full synchronization failed " +
+                "for tenant {TenantId}.",
+                tenantId);
+
+            throw;
+        }
+    }
+
+    private static void ValidateLocalProductIdentity(
+      IReadOnlyCollection<LocalProduct> products)
+    {
+        // ============================================================
+        // SERVER ID
+        // ============================================================
+
+        var duplicateServerIds =
+            products
+                .Where(x =>
+                    x.ServerId.HasValue &&
+                    x.ServerId.Value != Guid.Empty)
+                .GroupBy(x => x.ServerId!.Value)
+                .Where(x => x.Count() > 1)
+                .Select(x => x.Key)
+                .ToList();
+
+        if (duplicateServerIds.Count > 0)
+        {
+            throw new InvalidOperationException(
+                "Duplicate Product ServerId detected in SQLite: " +
+                string.Join(", ", duplicateServerIds));
+        }
+
+        // ============================================================
+        // CATALOG PRODUCT ID
+        // ============================================================
+
+        var duplicateCatalogIds =
+            products
+                .Where(x =>
+                    !x.IsDeletedLocally &&
+                    x.CatalogProductId.HasValue &&
+                    x.CatalogProductId.Value != Guid.Empty)
+                .GroupBy(x => x.CatalogProductId!.Value)
+                .Where(x => x.Count() > 1)
+                .Select(x => x.Key)
+                .ToList();
+
+        if (duplicateCatalogIds.Count > 0)
+        {
+            throw new InvalidOperationException(
+                "Duplicate active Product CatalogProductId detected in SQLite: " +
+                string.Join(", ", duplicateCatalogIds));
+        }
+
+        // ============================================================
+        // BARCODE
+        // ============================================================
+
+        var duplicateBarcodes =
+            products
+                .Where(x =>
+                    !x.IsDeletedLocally &&
+                    x.IsActive &&
+                    !string.IsNullOrWhiteSpace(x.Barcode))
+                .GroupBy(
+                    x => x.Barcode!.Trim(),
+                    StringComparer.OrdinalIgnoreCase)
+                .Where(x => x.Count() > 1)
+                .Select(x => new
+                {
+                    Barcode = x.Key,
+
+                    ProductIds = x
+                        .Select(p => p.Id)
+                        .ToList()
+                })
+                .ToList();
+
+        if (duplicateBarcodes.Count > 0)
+        {
+            var details =
+                string.Join(
+                    "; ",
+                    duplicateBarcodes.Select(x =>
+                        $"{x.Barcode} => " +
+                        string.Join(", ", x.ProductIds)));
+
+            throw new InvalidOperationException(
+                "Duplicate active Product barcode detected in SQLite: " +
+                details);
+        }
     }
 }

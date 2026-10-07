@@ -8,6 +8,9 @@ namespace Inventory.Ui.Interfaces;
 
 public interface IStockApi
 {
+    [Get("/api/sync-downloads/stocks")]
+    Task<Inventory.Dto.Sync.SyncDownload<StockResult>> DownloadSnapshot(CancellationToken cancellationToken = default);
+
     [Get("/api/v1/stocks")]
     Task<List<StockResult>> GetAll(
         CancellationToken cancellationToken = default);

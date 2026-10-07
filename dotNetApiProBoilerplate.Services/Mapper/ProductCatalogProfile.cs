@@ -38,45 +38,72 @@ namespace Inventory.Services.Mapping
             // UPDATE
             // =========================
             CreateMap<UpdateProductCatalogRequest, ProductCatalog>()
-                .ForMember(dest => dest.Id, opt => opt.Ignore())
-                .ForMember(dest => dest.CreatedAt, opt => opt.Ignore())
-                .ForMember(dest => dest.ModifiedAt, opt => opt.Ignore())
-                .ForMember(dest => dest.TenantProducts, opt => opt.Ignore())
-                .ForMember(dest => dest.PackComponents, opt => opt.Ignore())
-                .ForMember(dest => dest.UsedInPacks, opt => opt.Ignore())
+    .ForMember(dest => dest.Id, opt => opt.Ignore())
+    .ForMember(dest => dest.CreatedAt, opt => opt.Ignore())
+    .ForMember(dest => dest.ModifiedAt, opt => opt.Ignore())
+    .ForMember(dest => dest.TenantProducts, opt => opt.Ignore())
+    .ForMember(dest => dest.PackComponents, opt => opt.Ignore())
+    .ForMember(dest => dest.UsedInPacks, opt => opt.Ignore())
 
-                // Barcode: allow null (clear) or trimmed value
-                .ForMember(dest => dest.Barcode,
-                    opt =>
-                    {
-                        opt.PreCondition(src => src.Barcode != null);
-                        opt.MapFrom(src =>
-                            string.IsNullOrWhiteSpace(src.Barcode)
-                                ? null
-                                : src.Barcode.Trim());
-                    })
+    .ForMember(dest => dest.DefaultSalePrice,
+        opt => opt.Condition(src => src.DefaultSalePrice.HasValue))
 
-                // InternalCode: must stay valid
-                .ForMember(dest => dest.InternalCode,
-                    opt =>
-                    {
-                        opt.PreCondition(src => src.InternalCode != null);
-                        opt.MapFrom(src => src.InternalCode.Trim());
-                    })
+    .ForMember(dest => dest.DefaultSalePrice2,
+        opt => opt.Condition(src => src.DefaultSalePrice2.HasValue))
 
-                // Safe updates
-                .ForMember(dest => dest.Name,
-                    opt => opt.Condition(src => !string.IsNullOrWhiteSpace(src.Name)))
-                .ForMember(dest => dest.Brand,
-                    opt => opt.Condition(src => src.Brand != null))
-                .ForMember(dest => dest.Manufacturer,
-                    opt => opt.Condition(src => src.Manufacturer != null))
-                .ForMember(dest => dest.Description,
-                    opt => opt.Condition(src => src.Description != null))
-                .ForMember(dest => dest.UnitOfMeasure,
-                    opt => opt.Condition(src => src.UnitOfMeasure != null))
-                .ForMember(dest => dest.SellingMode,
-                    opt => opt.Condition(src => src.SellingMode != null));
+    .ForMember(dest => dest.DefaultSalePrice3,
+        opt => opt.Condition(src => src.DefaultSalePrice3.HasValue))
+
+    .ForMember(dest => dest.DefaultPurchasePrice,
+        opt => opt.Condition(src => src.DefaultPurchasePrice.HasValue))
+
+    .ForMember(dest => dest.DefaultVatRate,
+        opt => opt.Condition(src => src.DefaultVatRate.HasValue))
+
+    .ForMember(dest => dest.CategoryId,
+        opt => opt.Condition(src => src.CategoryId.HasValue))
+
+    .ForMember(dest => dest.IsPack,
+        opt => opt.Condition(src => src.IsPack.HasValue))
+
+    .ForMember(dest => dest.Barcode, opt =>
+    {
+        opt.PreCondition(src => src.Barcode != null);
+
+        opt.MapFrom(src =>
+            string.IsNullOrWhiteSpace(src.Barcode)
+                ? null
+                : src.Barcode.Trim());
+    })
+
+    .ForMember(dest => dest.InternalCode, opt =>
+    {
+        opt.PreCondition(src =>
+            !string.IsNullOrWhiteSpace(src.InternalCode));
+
+        opt.MapFrom(src =>
+            src.InternalCode!.Trim());
+    })
+
+    .ForMember(dest => dest.Name,
+        opt => opt.Condition(src =>
+            !string.IsNullOrWhiteSpace(src.Name)))
+
+    .ForMember(dest => dest.Brand,
+        opt => opt.Condition(src => src.Brand != null))
+
+    .ForMember(dest => dest.Manufacturer,
+        opt => opt.Condition(src => src.Manufacturer != null))
+
+    .ForMember(dest => dest.Description,
+        opt => opt.Condition(src => src.Description != null))
+
+    .ForMember(dest => dest.UnitOfMeasure,
+        opt => opt.Condition(src => src.UnitOfMeasure != null))
+
+    .ForMember(dest => dest.SellingMode,
+        opt => opt.Condition(src =>
+            src.SellingMode.HasValue));
 
             // =========================
             // RESULT

@@ -166,6 +166,10 @@ namespace Inventory.Services
                     existingPurchase);
             }
 
+            // ============================================================
+            // VALIDATE PURCHASE LINES
+            // ============================================================
+
             foreach (var line in request.Lines)
             {
                 if (line.ProductId == Guid.Empty)
@@ -201,6 +205,10 @@ namespace Inventory.Services
                 }
             }
 
+            // ============================================================
+            // SUPPLIER
+            // ============================================================
+
             var supplier =
                 await _supplierRepository.GetSingleAsync(
                     supplier =>
@@ -215,9 +223,14 @@ namespace Inventory.Services
                     request.SupplierId);
             }
 
+            // ============================================================
+            // LOAD PRODUCTS
+            // ============================================================
+
             var productIds =
                 request.Lines
-                    .Select(line => line.ProductId)
+                    .Select(line =>
+                        line.ProductId)
                     .Distinct()
                     .ToList();
 
@@ -233,11 +246,14 @@ namespace Inventory.Services
 
             var productMap =
                 products.ToDictionary(
-                    product => product.Id);
+                    product =>
+                        product.Id);
 
             var missingProductId =
-                productIds.FirstOrDefault(productId =>
-                    !productMap.ContainsKey(productId));
+                productIds.FirstOrDefault(
+                    productId =>
+                        !productMap.ContainsKey(
+                            productId));
 
             if (missingProductId != Guid.Empty)
             {
@@ -245,6 +261,10 @@ namespace Inventory.Services
                     "Product",
                     missingProductId);
             }
+
+            // ============================================================
+            // NORMALIZE PURCHASE LINES
+            // ============================================================
 
             /*
              * Store the effective purchase price because PurchaseLine
@@ -264,9 +284,21 @@ namespace Inventory.Services
                                 2,
                                 MidpointRounding.AwayFromZero);
 
+                        var quantity =
+                            Math.Round(
+                                line.Quantity,
+                                3,
+                                MidpointRounding.AwayFromZero);
+
+                        var normalizedVatRate =
+                            Math.Round(
+                                line.VatRate,
+                                2,
+                                MidpointRounding.AwayFromZero);
+
                         var lineAmountExclVat =
                             Math.Round(
-                                line.Quantity *
+                                quantity *
                                 effectiveUnitPrice,
                                 2,
                                 MidpointRounding.AwayFromZero);
@@ -274,29 +306,24 @@ namespace Inventory.Services
                         var lineVatAmount =
                             Math.Round(
                                 lineAmountExclVat *
-                                line.VatRate /
+                                normalizedVatRate /
                                 100m,
                                 2,
                                 MidpointRounding.AwayFromZero);
 
                         return new
                         {
-                            Source = line,
+                            Source =
+                                line,
 
                             Quantity =
-                                Math.Round(
-                                    line.Quantity,
-                                    3,
-                                    MidpointRounding.AwayFromZero),
+                                quantity,
 
                             EffectiveUnitPrice =
                                 effectiveUnitPrice,
 
                             VatRate =
-                                Math.Round(
-                                    line.VatRate,
-                                    2,
-                                    MidpointRounding.AwayFromZero),
+                                normalizedVatRate,
 
                             AmountExclVat =
                                 lineAmountExclVat,
@@ -306,6 +333,10 @@ namespace Inventory.Services
                         };
                     })
                     .ToList();
+
+            // ============================================================
+            // CALCULATE TOTALS
+            // ============================================================
 
             var totalExclVat =
                 Math.Round(
@@ -323,12 +354,20 @@ namespace Inventory.Services
 
             var totalInclVat =
                 Math.Round(
-                    totalExclVat + totalVat,
+                    totalExclVat +
+                    totalVat,
                     2,
                     MidpointRounding.AwayFromZero);
 
-            PaymentMethod? paymentMethod = null;
-            Guid? activeCashSessionId = null;
+            // ============================================================
+            // PAYMENT VALIDATION
+            // ============================================================
+
+            PaymentMethod? paymentMethod =
+                null;
+
+            Guid? activeCashSessionId =
+                null;
 
             if (request.Payment != null)
             {
@@ -360,13 +399,18 @@ namespace Inventory.Services
                  * A cash session is required only for a cash payment.
                  * Unpaid, card or bank purchases do not need it.
                  */
-                if (paymentMethod == PaymentMethod.Cash)
+                if (paymentMethod ==
+                    PaymentMethod.Cash)
                 {
                     activeCashSessionId =
                         await _cashSessionService
                             .EnsureActiveSessionAsync();
                 }
             }
+
+            // ============================================================
+            // DATES
+            // ============================================================
 
             var purchaseDate =
                 NormalizeUtc(
@@ -376,6 +420,10 @@ namespace Inventory.Services
 
             var now =
                 DateTime.UtcNow;
+
+            // ============================================================
+            // CREATE PURCHASE HEADER
+            // ============================================================
 
             var purchase =
                 new Purchase
@@ -393,8 +441,9 @@ namespace Inventory.Services
                         request.SupplierId,
 
                     PurchaseNumber =
-                        await _documentNumberService.GenerateAsync(
-                            "PURCHASE"),
+                        await _documentNumberService
+                            .GenerateAsync(
+                                "PURCHASE"),
 
                     PurchaseDate =
                         purchaseDate,
@@ -428,6 +477,10 @@ namespace Inventory.Services
 
             await _repository.AddAsync(
                 purchase);
+
+            // ============================================================
+            // CREATE PURCHASE LINES
+            // ============================================================
 
             foreach (var normalizedLine in normalizedLines)
             {
@@ -464,52 +517,93 @@ namespace Inventory.Services
                     });
             }
 
+            // ============================================================
+            // RESOLVE STOCK PRODUCTS
+            // ============================================================
+
             /*
-             * Resolve stock products.
-             * A pack purchase may increase the stock of its unit product.
+             * Three possible cases:
+             *
+             * 1. Custom Product
+             *    CatalogProductId == null
+             *    => stock belongs directly to Product.
+             *
+             * 2. Normal catalog Product
+             *    CatalogProductId != null
+             *    IsPack == false
+             *    => stock belongs directly to Product.
+             *
+             * 3. Catalog pack
+             *    CatalogProductId != null
+             *    IsPack == true
+             *    => stock belongs to the component/unit Product.
              */
+
             var catalogIds =
                 products
+                    .Where(product =>
+                        product.CatalogProductId.HasValue &&
+                        product.CatalogProductId.Value != Guid.Empty)
                     .Select(product =>
-                        product.CatalogProductId)
+                        product.CatalogProductId!.Value)
                     .Distinct()
                     .ToList();
 
             var componentCatalogIds =
                 catalogIds
                     .Where(catalogId =>
-                        _packService.IsPack(catalogId))
+                        _packService.IsPack(
+                            catalogId))
                     .Select(catalogId =>
                         _packService.GetComponentCatalogId(
                             catalogId))
                     .Where(componentId =>
-                        componentId.HasValue)
+                        componentId.HasValue &&
+                        componentId.Value != Guid.Empty)
                     .Select(componentId =>
                         componentId!.Value)
+                    .Distinct()
                     .ToList();
 
             var allCatalogIds =
                 catalogIds
-                    .Concat(componentCatalogIds)
+                    .Concat(
+                        componentCatalogIds)
                     .Distinct()
                     .ToList();
 
-            var requiredProducts =
-                await _productRepository.Query()
-                    .Where(product =>
-                        allCatalogIds.Contains(
-                            product.CatalogProductId) &&
-                        product.TenantId == tenantId &&
-                        !product.IsDeleted)
-                    .ToListAsync();
+            List<Product> requiredProducts;
+
+            if (allCatalogIds.Count == 0)
+            {
+                requiredProducts =
+                    new List<Product>();
+            }
+            else
+            {
+                requiredProducts =
+                    await _productRepository.Query()
+                        .Where(product =>
+                            product.CatalogProductId.HasValue &&
+                            allCatalogIds.Contains(
+                                product.CatalogProductId.Value) &&
+                            product.TenantId == tenantId &&
+                            !product.IsDeleted)
+                        .ToListAsync();
+            }
 
             var productsByCatalogId =
                 requiredProducts
+                    .Where(product =>
+                        product.CatalogProductId.HasValue &&
+                        product.CatalogProductId.Value != Guid.Empty)
                     .GroupBy(product =>
-                        product.CatalogProductId)
+                        product.CatalogProductId!.Value)
                     .ToDictionary(
-                        group => group.Key,
-                        group => group.First());
+                        group =>
+                            group.Key,
+                        group =>
+                            group.First());
 
             var stockResolutions =
                 new List<PurchaseLineResolution>();
@@ -520,54 +614,12 @@ namespace Inventory.Services
                     productMap[
                         normalizedLine.Source.ProductId];
 
-                var catalogId =
-                    product.CatalogProductId;
+                // ========================================================
+                // CASE 1: CUSTOM PRODUCT
+                // ========================================================
 
-                if (_packService.IsPack(catalogId))
-                {
-                    var componentCatalogId =
-                        _packService.GetComponentCatalogId(
-                            catalogId);
-
-                    if (!componentCatalogId.HasValue)
-                    {
-                        throw new ValidationException(
-                            $"Pack configuration is invalid for " +
-                            $"Product '{product.Id}'.");
-                    }
-
-                    if (!productsByCatalogId.TryGetValue(
-                            componentCatalogId.Value,
-                            out var unitProduct))
-                    {
-                        throw new NotFoundException(
-                            "Unit product",
-                            componentCatalogId.Value);
-                    }
-
-                    stockResolutions.Add(
-                        new PurchaseLineResolution
-                        {
-                            OriginalLine =
-                                normalizedLine.Source,
-
-                            StockProductId =
-                                unitProduct.Id,
-
-                            StockQuantity =
-                                _packService.GetUnitQuantity(
-                                    catalogId,
-                                    normalizedLine.Quantity),
-
-                            IsPack =
-                                true,
-
-                            PackSize =
-                                _packService.GetPackSize(
-                                    catalogId)
-                        });
-                }
-                else
+                if (!product.CatalogProductId.HasValue ||
+                    product.CatalogProductId.Value == Guid.Empty)
                 {
                     stockResolutions.Add(
                         new PurchaseLineResolution
@@ -587,8 +639,114 @@ namespace Inventory.Services
                             PackSize =
                                 1m
                         });
+
+                    continue;
                 }
+
+                var catalogId =
+                    product.CatalogProductId.Value;
+
+                // ========================================================
+                // CASE 2: NORMAL CATALOG PRODUCT
+                // ========================================================
+
+                if (!_packService.IsPack(
+                        catalogId))
+                {
+                    stockResolutions.Add(
+                        new PurchaseLineResolution
+                        {
+                            OriginalLine =
+                                normalizedLine.Source,
+
+                            StockProductId =
+                                product.Id,
+
+                            StockQuantity =
+                                normalizedLine.Quantity,
+
+                            IsPack =
+                                false,
+
+                            PackSize =
+                                1m
+                        });
+
+                    continue;
+                }
+
+                // ========================================================
+                // CASE 3: PACK
+                // ========================================================
+
+                var componentCatalogId =
+                    _packService
+                        .GetComponentCatalogId(
+                            catalogId);
+
+                if (!componentCatalogId.HasValue ||
+                    componentCatalogId.Value == Guid.Empty)
+                {
+                    throw new ValidationException(
+                        $"Pack configuration is invalid for " +
+                        $"Product '{product.Id}'.");
+                }
+
+                if (!productsByCatalogId.TryGetValue(
+                        componentCatalogId.Value,
+                        out var unitProduct))
+                {
+                    throw new NotFoundException(
+                        "Unit product",
+                        componentCatalogId.Value);
+                }
+
+                var packSize =
+                    _packService.GetPackSize(
+                        catalogId);
+
+                if (packSize <= 0)
+                {
+                    throw new ValidationException(
+                        $"Pack size is invalid for Product " +
+                        $"'{product.Id}'.");
+                }
+
+                var unitQuantity =
+                    _packService.GetUnitQuantity(
+                        catalogId,
+                        normalizedLine.Quantity);
+
+                if (unitQuantity <= 0)
+                {
+                    throw new ValidationException(
+                        $"Calculated unit quantity is invalid for " +
+                        $"Product '{product.Id}'.");
+                }
+
+                stockResolutions.Add(
+                    new PurchaseLineResolution
+                    {
+                        OriginalLine =
+                            normalizedLine.Source,
+
+                        StockProductId =
+                            unitProduct.Id,
+
+                        StockQuantity =
+                            unitQuantity,
+
+                        IsPack =
+                            true,
+
+                        PackSize =
+                            packSize
+                    });
             }
+
+            // ============================================================
+            // UPDATE STOCK + CREATE STOCK MOVEMENTS
+            // ============================================================
 
             foreach (var group in stockResolutions
                          .GroupBy(resolution =>
@@ -692,6 +850,10 @@ namespace Inventory.Services
                 }
             }
 
+            // ============================================================
+            // PURCHASE PAYMENT
+            // ============================================================
+
             if (request.Payment != null &&
                 paymentMethod.HasValue)
             {
@@ -727,6 +889,10 @@ namespace Inventory.Services
                     });
             }
 
+            // ============================================================
+            // CASH MOVEMENT
+            // ============================================================
+
             if (request.Payment != null &&
                 paymentMethod == PaymentMethod.Cash &&
                 activeCashSessionId.HasValue)
@@ -742,11 +908,18 @@ namespace Inventory.Services
                             movement.MovementDate);
 
                 var balanceBefore =
-                    lastMovement?.BalanceAfter ?? 0m;
+                    lastMovement?.BalanceAfter ??
+                    0m;
+
+                var cashAmount =
+                    Math.Round(
+                        request.Payment.Amount,
+                        2,
+                        MidpointRounding.AwayFromZero);
 
                 var balanceAfter =
                     balanceBefore -
-                    request.Payment.Amount;
+                    cashAmount;
 
                 if (balanceAfter < 0)
                 {
@@ -770,10 +943,7 @@ namespace Inventory.Services
                             CashMovementType.Withdrawal,
 
                         Amount =
-                            Math.Round(
-                                request.Payment.Amount,
-                                2,
-                                MidpointRounding.AwayFromZero),
+                            cashAmount,
 
                         BalanceBefore =
                             balanceBefore,
@@ -792,41 +962,122 @@ namespace Inventory.Services
                     });
             }
 
-            var paidAmount = Math.Round(request.Payment?.Amount ?? 0m, 2, MidpointRounding.AwayFromZero);
-            supplier.CurrentBalance += totalInclVat - paidAmount;
-            supplier.ModifiedAt = now;
-            _supplierRepository.Update(supplier);
-            await _supplierTransactionRepository.AddAsync(new SupplierTransaction
-            {
-                Id = Guid.NewGuid(), TenantId = tenantId, SupplierId = supplier.Id,
-                PurchaseId = purchase.Id, Type = SupplierTransactionType.Purchase,
-                Amount = totalInclVat, TransactionDate = purchaseDate,
-                ReferenceNumber = purchase.PurchaseNumber, CreatedAt = now, ModifiedAt = now
-            });
+            // ============================================================
+            // SUPPLIER BALANCE
+            // ============================================================
+
+            var paidAmount =
+                Math.Round(
+                    request.Payment?.Amount ?? 0m,
+                    2,
+                    MidpointRounding.AwayFromZero);
+
+            supplier.CurrentBalance +=
+                totalInclVat -
+                paidAmount;
+
+            supplier.ModifiedAt =
+                now;
+
+            _supplierRepository.Update(
+                supplier);
+
+            // ============================================================
+            // SUPPLIER TRANSACTION - PURCHASE
+            // ============================================================
+
+            await _supplierTransactionRepository.AddAsync(
+                new SupplierTransaction
+                {
+                    Id =
+                        Guid.NewGuid(),
+
+                    TenantId =
+                        tenantId,
+
+                    SupplierId =
+                        supplier.Id,
+
+                    PurchaseId =
+                        purchase.Id,
+
+                    Type =
+                        SupplierTransactionType.Purchase,
+
+                    Amount =
+                        totalInclVat,
+
+                    TransactionDate =
+                        purchaseDate,
+
+                    ReferenceNumber =
+                        purchase.PurchaseNumber,
+
+                    CreatedAt =
+                        now,
+
+                    ModifiedAt =
+                        now
+                });
+
+            // ============================================================
+            // SUPPLIER TRANSACTION - PAYMENT
+            // ============================================================
+
             if (paidAmount > 0)
             {
-                await _supplierTransactionRepository.AddAsync(new SupplierTransaction
-                {
-                    Id = Guid.NewGuid(), TenantId = tenantId, SupplierId = supplier.Id,
-                    PurchaseId = purchase.Id, Type = SupplierTransactionType.Payment,
-                    Amount = paidAmount, TransactionDate = now,
-                    ReferenceNumber = purchase.PurchaseNumber, CreatedAt = now, ModifiedAt = now
-                });
+                await _supplierTransactionRepository.AddAsync(
+                    new SupplierTransaction
+                    {
+                        Id =
+                            Guid.NewGuid(),
+
+                        TenantId =
+                            tenantId,
+
+                        SupplierId =
+                            supplier.Id,
+
+                        PurchaseId =
+                            purchase.Id,
+
+                        Type =
+                            SupplierTransactionType.Payment,
+
+                        Amount =
+                            paidAmount,
+
+                        TransactionDate =
+                            now,
+
+                        ReferenceNumber =
+                            purchase.PurchaseNumber,
+
+                        CreatedAt =
+                            now,
+
+                        ModifiedAt =
+                            now
+                    });
             }
+
+            // ============================================================
+            // SAVE TRANSACTION
+            // ============================================================
 
             try
             {
                 /*
-                 * One SaveChanges means EF Core wraps all inserted and updated
-                 * rows in one database transaction.
+                 * One SaveChanges means EF Core wraps all inserted
+                 * and updated rows in one database transaction.
                  */
                 await _unitOfWork.SaveChangesAsync();
             }
             catch (DbUpdateException)
             {
                 /*
-                 * Final protection against two concurrent requests using the
-                 * same ClientOperationId.
+                 * Final protection against two concurrent requests
+                 * using the same ClientOperationId.
                  */
                 var concurrentExistingPurchase =
                     await _repository.Query()

@@ -15,6 +15,9 @@ namespace Inventory.Ui.Interfaces
 {
     public interface IProductCatalogApi
     {
+    [Get("/api/sync-downloads/catalogs")]
+    Task<Inventory.Dto.Sync.SyncDownload<ProductCatalogResult>> DownloadSnapshot(CancellationToken cancellationToken = default);
+
         [Post("/api/v1/productcatalogs")]
         Task<ProductCatalogResult> Create(
             [Body] CreateProductCatalogRequest request);

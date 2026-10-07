@@ -23,6 +23,17 @@ namespace Inventory.Dto.ProductCatalogs.Requests
 
         [MaxLength(1000)]
         public string? Description { get; set; }
+
+        public decimal DefaultSalePrice { get; set; }
+
+        public decimal DefaultSalePrice2 { get; set; }
+
+        public decimal DefaultSalePrice3 { get; set; }
+
+        public decimal DefaultPurchasePrice { get; set; }
+
+        public decimal DefaultVatRate { get; set; }
+
         public SellingMode SellingMode { get; set; }
 
         [MaxLength(10)]

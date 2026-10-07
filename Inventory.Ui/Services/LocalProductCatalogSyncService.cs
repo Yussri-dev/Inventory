@@ -13,7 +13,6 @@ namespace Inventory.Ui.Services
     public sealed class LocalProductCatalogSyncService
      : ILocalProductCatalogSyncService
     {
-        private const int PageSize = 250;
 
         private readonly PosLocalDbContext _db;
         private readonly IProductCatalogApi _productCatalogApi;
@@ -27,97 +26,63 @@ namespace Inventory.Ui.Services
         }
 
         public async Task FullSyncAsync(
-            CancellationToken cancellationToken = default)
+    CancellationToken cancellationToken = default)
         {
-            var page = 1;
             var totalDownloaded = 0;
             var syncStartedAtUtc = DateTime.UtcNow;
-            var completedSuccessfully = false;
 
-            var dbPath = _db.Database
-                .GetDbConnection()
-                .DataSource;
+            var dbPath =
+                _db.Database
+                    .GetDbConnection()
+                    .DataSource;
 
             Debug.WriteLine(
                 $"Product catalog sync database: {dbPath}");
 
             try
             {
-                while (true)
+                var snapshot =
+                    await _productCatalogApi
+                        .DownloadSnapshot(
+                            cancellationToken);
+
+                if (snapshot?.Items == null ||
+                    snapshot.DeletedIds == null)
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
+                    throw new InvalidOperationException(
+                        "Incomplete catalog snapshot.");
+                }
 
-                    Debug.WriteLine(
-                        $"Product catalog sync page {page} started.");
+                await using var transaction =
+                    await _db.Database
+                        .BeginTransactionAsync(
+                            cancellationToken);
 
-                    var response = await _productCatalogApi.Search(
-                        new ProductCatalogQuery
-                        {
-                            Page = page,
-                            PageSize = PageSize,
-                            Search = null,
-                            SortBy = "Name",
-                            Desc = false
-                        });
-
-                    var serverCatalogs = response.Items?.ToList()
-                        ?? new List<ProductCatalogResult>();
-
-                    Debug.WriteLine(
-                        $"Product catalog sync page {page}: " +
-                        $"{serverCatalogs.Count} received, " +
-                        $"{response.TotalCount} total.");
-
-                    if (serverCatalogs.Count == 0)
-                    {
-                        if (response.TotalCount == 0)
-                        {
-                            completedSuccessfully = true;
-                            break;
-                        }
-
-                        if (totalDownloaded >= response.TotalCount)
-                        {
-                            completedSuccessfully = true;
-                            break;
-                        }
-
-                        throw new InvalidOperationException(
-                            $"The server returned an empty page before the synchronization completed. " +
-                            $"Downloaded: {totalDownloaded}. Expected: {response.TotalCount}.");
-                    }
-
+                try
+                {
                     await SynchronizePageAsync(
-                        serverCatalogs,
+                        snapshot.Items,
                         syncStartedAtUtc,
                         cancellationToken);
 
-                    totalDownloaded += serverCatalogs.Count;
+                    totalDownloaded =
+                        snapshot.Items.Count;
 
-                    Debug.WriteLine(
-                        $"Product catalog sync page {page} saved. " +
-                        $"Downloaded: {totalDownloaded}.");
+                    await MarkMissingCatalogsAsDeletedAsync(
+                        snapshot.DeletedIds,
+                        syncStartedAtUtc,
+                        cancellationToken);
 
-                    _db.ChangeTracker.Clear();
-
-                    if (totalDownloaded >= response.TotalCount)
-                    {
-                        completedSuccessfully = true;
-                        break;
-                    }
-
-                    page++;
+                    await transaction.CommitAsync(
+                        cancellationToken);
                 }
-
-                if (!completedSuccessfully)
+                catch
                 {
-                    throw new InvalidOperationException(
-                        "The product catalog synchronization did not complete.");
-                }
+                    await transaction.RollbackAsync(
+                        CancellationToken.None);
 
-                await MarkMissingCatalogsAsDeletedAsync(
-                    syncStartedAtUtc,
-                    cancellationToken);
+                    throw;
+                }
 
                 _db.ChangeTracker.Clear();
 
@@ -235,39 +200,44 @@ namespace Inventory.Ui.Services
         }
 
         private async Task SynchronizePageAsync(
-            IReadOnlyCollection<ProductCatalogResult> serverCatalogs,
-            DateTime syncStartedAtUtc,
-            CancellationToken cancellationToken)
+      IReadOnlyCollection<ProductCatalogResult> serverCatalogs,
+      DateTime syncStartedAtUtc,
+      CancellationToken cancellationToken)
         {
-            var serverIds = serverCatalogs
-                .Select(x => x.Id)
-                .ToList();
+            var serverIds =
+                serverCatalogs
+                    .Select(x => x.Id)
+                    .ToList();
 
-            var existingCatalogs = await _db.ProductCatalogs
-                .Include(x => x.PackComponents)
-                .Where(x => serverIds.Contains(x.Id))
-                .ToDictionaryAsync(
-                    x => x.Id,
-                    cancellationToken);
+            var existingCatalogs =
+                await _db.ProductCatalogs
+                    .Include(x => x.PackComponents)
+                    .Where(x => serverIds.Contains(x.Id))
+                    .ToDictionaryAsync(
+                        x => x.Id,
+                        cancellationToken);
 
             foreach (var serverCatalog in serverCatalogs)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                ValidateCatalogBarcode(serverCatalog);
 
                 if (!existingCatalogs.TryGetValue(
                         serverCatalog.Id,
                         out var localCatalog))
                 {
-                    localCatalog = new LocalProductCatalog
-                    {
-                        Id = serverCatalog.Id
-                    };
+                    localCatalog =
+                        new LocalProductCatalog
+                        {
+                            Id = serverCatalog.Id
+                        };
 
                     await _db.ProductCatalogs.AddAsync(
                         localCatalog,
                         cancellationToken);
 
-                    existingCatalogs[serverCatalog.Id] = localCatalog;
+                    existingCatalogs[serverCatalog.Id] =
+                        localCatalog;
                 }
 
                 MapToLocal(
@@ -280,7 +250,8 @@ namespace Inventory.Ui.Services
                     localCatalog);
             }
 
-            await _db.SaveChangesAsync(cancellationToken);
+            await _db.SaveChangesAsync(
+                cancellationToken);
         }
 
         private static void SyncPackComponents(
@@ -350,13 +321,13 @@ namespace Inventory.Ui.Services
         }
 
         private async Task MarkMissingCatalogsAsDeletedAsync(
-            DateTime syncStartedAtUtc,
+            List<Guid> deletedIds, DateTime syncStartedAtUtc,
             CancellationToken cancellationToken)
         {
             await _db.ProductCatalogs
                 .Where(x =>
                     !x.IsDeleted &&
-                    x.LastSyncedAtUtc < syncStartedAtUtc)
+                    deletedIds.Contains(x.Id))
                 .ExecuteUpdateAsync(
                     setters => setters
                         .SetProperty(
@@ -366,6 +337,58 @@ namespace Inventory.Ui.Services
                             x => x.LastSyncedAtUtc,
                             syncStartedAtUtc),
                     cancellationToken);
+        }
+
+        private static void ValidateCatalogBarcode(
+    ProductCatalogResult catalog)
+        {
+            if (catalog == null)
+                throw new ArgumentNullException(nameof(catalog));
+
+            if (string.IsNullOrWhiteSpace(catalog.Barcode))
+                return;
+
+            var barcode = catalog.Barcode.Trim();
+            var internalCode = catalog.InternalCode?.Trim();
+
+            // Only validate our internally generated barcodes.
+            if (!barcode.StartsWith(
+                    "100000",
+                    StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(internalCode))
+            {
+                throw new InvalidOperationException(
+                    $"Catalog '{catalog.Id}' has internal barcode " +
+                    $"'{barcode}' but no InternalCode.");
+            }
+
+            if (internalCode.Length > 5 ||
+                !internalCode.All(char.IsDigit))
+            {
+                throw new InvalidOperationException(
+                    $"Catalog '{catalog.Id}' contains invalid " +
+                    $"InternalCode '{internalCode}'.");
+            }
+
+            var expectedBarcode =
+                $"10000000{internalCode.PadLeft(5, '0')}";
+
+            if (!string.Equals(
+                    barcode,
+                    expectedBarcode,
+                    StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    $"Catalog barcode inconsistency. " +
+                    $"CatalogId='{catalog.Id}', " +
+                    $"InternalCode='{internalCode}', " +
+                    $"Barcode='{barcode}', " +
+                    $"Expected='{expectedBarcode}'.");
+            }
         }
 
         private static void MapToLocal(

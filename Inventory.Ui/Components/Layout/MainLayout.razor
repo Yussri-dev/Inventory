@@ -28,6 +28,7 @@ else
 
         <NavMenu @ref="navMenu"
                  UserName="@UserName"
+                 UserRole="@UserRole"
                  IsAuthenticated="@IsLoggedIn"
                  OnLogout="@ConfirmLogout" />
 
@@ -62,6 +63,7 @@ else
     private string? UserName;
     private NavMenu? navMenu;
     private bool isMobileOverlayOpen ;
+    private string? UserRole;
 
     void ToggleSidebar()
     {
@@ -72,17 +74,35 @@ else
 
     protected override async Task OnInitializedAsync()
     {
-        var state = await AuthStateProvider.GetAuthenticationStateAsync();
-        var user = state.User;
+        var state =
+            await AuthStateProvider
+                .GetAuthenticationStateAsync();
+
+        var user =
+            state.User;
 
         if (user.Identity?.IsAuthenticated == true)
         {
             IsLoggedIn = true;
-            if (!user.IsInRole("SuperAdmin")) CorrectionSync.RequestSync();
-            UserName = user.FindFirst("email")?.Value
-                    ?? user.FindFirst("name")?.Value
-                    ?? user.Identity.Name
-                    ?? "User";
+
+            UserRole =
+                user.FindFirst(ClaimTypes.Role)?.Value
+                ?? user.FindFirst("role")?.Value
+                ?? user.FindFirst("Role")?.Value;
+
+            if (!string.Equals(
+                    UserRole,
+                    "SuperAdmin",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                CorrectionSync.RequestSync();
+            }
+
+            UserName =
+                user.FindFirst("email")?.Value
+                ?? user.FindFirst("name")?.Value
+                ?? user.Identity.Name
+                ?? "User";
         }
 
         IsInitialized = true;

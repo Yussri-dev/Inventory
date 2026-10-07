@@ -45,7 +45,7 @@
 
                             <!-- PRODUCT CATALOG -->
                             <div class="form-field">
-                                <label>Product Catalog *</label>
+                                <label>Product Catalog (optional)</label>
 
                                 <MudAutocomplete T="ProductCatalogResult"
                                                  Label="Search Product Catalog"
@@ -69,11 +69,96 @@
                                     </small>
                                 }
 
-                                @if (form.CatalogProductId == Guid.Empty)
-                                {
-                                    <ValidationMessage For="@(() => form.CatalogProductId)" />
-                                }
+
                             </div>
+
+                            @if (!form.CatalogProductId.HasValue)
+                            {
+                                <div class="form-row">
+
+                                    <div class="form-field">
+                                        <label>Name *</label>
+
+                                        <InputText class="inputText"
+                                                   placeholder="Product name"
+                                                   @bind-Value="form.Name"
+                                                   disabled="@isLoading" />
+
+                                        <ValidationMessage For="@(() => form.Name)" />
+                                    </div>
+
+                                    <div class="form-field">
+                                        <label>Barcode</label>
+
+                                        <InputText class="inputText"
+                                                   placeholder="Barcode"
+                                                   @bind-Value="form.Barcode"
+                                                   disabled="@isLoading" />
+
+                                        <ValidationMessage For="@(() => form.Barcode)" />
+                                    </div>
+
+                                    <div class="form-field">
+                                        <label>SKU</label>
+
+                                        <InputText class="inputText"
+                                                   placeholder="SKU"
+                                                   @bind-Value="form.Sku"
+                                                   disabled="@isLoading" />
+
+                                        <ValidationMessage For="@(() => form.Sku)" />
+                                    </div>
+
+                                </div>
+
+                                <div class="form-row">
+
+                                    <div class="form-field">
+                                        <label>Brand</label>
+
+                                        <InputText class="inputText"
+                                                   placeholder="Brand"
+                                                   @bind-Value="form.Brand"
+                                                   disabled="@isLoading" />
+
+                                        <ValidationMessage For="@(() => form.Brand)" />
+                                    </div>
+
+                                    <div class="form-field">
+                                        <label>Category</label>
+
+                                        <InputText class="inputText"
+                                                   placeholder="Category"
+                                                   @bind-Value="form.Category"
+                                                   disabled="@isLoading" />
+
+                                        <ValidationMessage For="@(() => form.Category)" />
+                                    </div>
+
+                                    <div class="form-field">
+                                        <label>Unit</label>
+
+                                        <InputText class="inputText"
+                                                   placeholder="pcs"
+                                                   @bind-Value="form.Unit"
+                                                   disabled="@isLoading" />
+
+                                        <ValidationMessage For="@(() => form.Unit)" />
+                                    </div>
+
+                                </div>
+
+                                <div class="form-field">
+                                    <label>Description</label>
+
+                                    <InputTextArea class="inputText"
+                                                   placeholder="Product description"
+                                                   @bind-Value="form.Description"
+                                                   disabled="@isLoading" />
+
+                                    <ValidationMessage For="@(() => form.Description)" />
+                                </div>
+                            }
 
                             <!-- PRICES -->
                             <div class="form-row">
@@ -367,22 +452,28 @@
                                 {
                                     <span class="badge"
                                           style="
-                                                                                                                                                                      background:#6f42c1;
-                                                                                                                                                                      color:white;
-                                                                                                                                                                      font-size:10px;
-                                                                                                                                                                      padding:2px 6px;
-                                                                                                                                                                      border-radius:4px;
-                                                                                                                                                                      margin-left:6px;">
+                                                                                                                                                                                                                                  background:#6f42c1;
+                                                                                                                                                                                                                                  color:white;
+                                                                                                                                                                                                                                  font-size:10px;
+                                                                                                                                                                                                                                  padding:2px 6px;
+                                                                                                                                                                                                                                  border-radius:4px;
+                                                                                                                                                                                                                                  margin-left:6px;">
                                         PACK
                                     </span>
                                 }
                             </div>
+                            @{
+                                var productDescription =
+                                !string.IsNullOrWhiteSpace(product.Description)
+                                ? product.Description
+                                : catalog?.Description;
+                            }
 
                             @if (!string.IsNullOrWhiteSpace(
-                                                catalog?.Description))
+                                                productDescription))
                             {
                                 <div class="product-desc">
-                                    @catalog.Description
+                                    @productDescription
                                 </div>
                             }
 
@@ -542,9 +633,13 @@
                 <p>
                     Are you sure you want to delete
                     <strong>
-                        @(deleteCatalog?.Name ?? "this product")
-                    </strong>?
-                </p>
+                        @(!string.IsNullOrWhiteSpace(
+                                            productToDelete.Name)
+                                            ? productToDelete.Name
+                                            : deleteCatalog?.Name ??
+                                            "this product"                                            )
+                </strong>?
+            </p>
 
                 <p class="text-muted">
                     This action cannot be undone.
@@ -567,7 +662,7 @@
                 </div>
             </div>
         </div>
-    }
+        }
 
 </div>
 
@@ -666,8 +761,7 @@
         {
             _selectedCatalog = value;
 
-            form.CatalogProductId =
-                value?.Id ?? Guid.Empty;
+            form.CatalogProductId = value?.Id;
 
             if (value != null)
             {
@@ -771,10 +865,13 @@
             return;
 
         var catalogIds = items
-            .Select(x => x.CatalogProductId)
-            .Where(x => x != Guid.Empty)
+            .Where(x =>
+                x.CatalogProductId.HasValue &&
+                x.CatalogProductId.Value != Guid.Empty)
+            .Select(x =>
+                x.CatalogProductId!.Value)
             .Distinct()
-            .ToList();
+    .ToList();
 
         foreach (var catalogId in catalogIds)
         {
@@ -796,10 +893,16 @@
     }
 
     private ProductCatalogResult? GetCatalog(
-        Guid catalogProductId)
+        Guid? catalogProductId)
     {
+        if (!catalogProductId.HasValue ||
+            catalogProductId.Value == Guid.Empty)
+        {
+            return null;
+        }
+
         return catalogCache.TryGetValue(
-            catalogProductId,
+            catalogProductId.Value,
             out var catalog)
                 ? catalog
                 : null;
@@ -867,12 +970,12 @@
     }
 
     private static string GetProductDisplayName(
-        ProductResult product,
-        ProductCatalogResult? catalog)
+    ProductResult product,
+    ProductCatalogResult? catalog)
     {
-        if (!string.IsNullOrWhiteSpace(product.CatalogName))
+        if (!string.IsNullOrWhiteSpace(product.Name))
         {
-            return product.CatalogName;
+            return product.Name;
         }
 
         if (!string.IsNullOrWhiteSpace(catalog?.Name))
@@ -887,10 +990,9 @@
         ProductResult product,
         ProductCatalogResult? catalog)
     {
-        if (!string.IsNullOrWhiteSpace(
-            product.CatalogBarcode))
+        if (!string.IsNullOrWhiteSpace(product.Barcode))
         {
-            return product.CatalogBarcode;
+            return product.Barcode;
         }
 
         return catalog?.Barcode;
@@ -900,10 +1002,9 @@
         ProductResult product,
         ProductCatalogResult? catalog)
     {
-        if (!string.IsNullOrWhiteSpace(
-            product.CatalogBrand))
+        if (!string.IsNullOrWhiteSpace(product.Brand))
         {
-            return product.CatalogBrand;
+            return product.Brand;
         }
 
         return catalog?.Brand;
@@ -1063,7 +1164,7 @@
                 return;
 
             if (showProduct || showDeleteConfirm)
-                return; 
+                return;
 
             searchTerm = barcode;
             isSearching = true;
@@ -1133,6 +1234,20 @@
 
     private async Task HandleSubmit()
     {
+        /*
+         * A catalog product already provides its canonical name.
+         *
+         * A custom product must provide its own name.
+         */
+        if (!form.CatalogProductId.HasValue &&
+            string.IsNullOrWhiteSpace(form.Name))
+        {
+            ShowError(
+                "Product name is required when no catalog product is selected.");
+
+            return;
+        }
+
         if (form.PurchasePrice > form.SalePrice ||
             form.PurchasePrice > form.SalePrice2 ||
             form.PurchasePrice > form.SalePrice3)
@@ -1147,14 +1262,6 @@
         {
             ShowError(
                 "Minimum stock cannot be greater than maximum stock.");
-
-            return;
-        }
-
-        if (form.CatalogProductId == Guid.Empty)
-        {
-            ShowError(
-                "Please select a product from the catalog.");
 
             return;
         }
@@ -1174,8 +1281,10 @@
         if (isLoading)
             return;
 
-        var catalogName =
-            selectedCatalog?.Name ?? "Product";
+        var productName =
+            selectedCatalog?.Name ??
+            form.Name?.Trim() ??
+            "Product";
 
         try
         {
@@ -1183,40 +1292,77 @@
 
             ClearMessages();
 
-            var request = new CreateProductRequest
-            {
-                CatalogProductId =
-                    form.CatalogProductId,
+            var request =
+                new CreateProductRequest
+                {
+                    CatalogProductId =
+                        form.CatalogProductId,
 
-                SalePrice =
-                    form.SalePrice,
+                    Name =
+                        string.IsNullOrWhiteSpace(form.Name)
+                            ? null
+                            : form.Name.Trim(),
 
-                SalePrice2 =
-                    form.SalePrice2,
+                    Sku =
+                        string.IsNullOrWhiteSpace(form.Sku)
+                            ? null
+                            : form.Sku.Trim(),
 
-                SalePrice3 =
-                    form.SalePrice3,
+                    Barcode =
+                        string.IsNullOrWhiteSpace(form.Barcode)
+                            ? null
+                            : form.Barcode.Trim(),
 
-                PurchasePrice =
-                    form.PurchasePrice,
+                    Description =
+                        string.IsNullOrWhiteSpace(form.Description)
+                            ? null
+                            : form.Description.Trim(),
 
-                VatRate =
-                    form.VatRate,
+                    Category =
+                        string.IsNullOrWhiteSpace(form.Category)
+                            ? null
+                            : form.Category.Trim(),
 
-                MinStockLevel =
-                    form.MinStockLevel,
+                    Brand =
+                        string.IsNullOrWhiteSpace(form.Brand)
+                            ? null
+                            : form.Brand.Trim(),
 
-                MaxStockLevel =
-                    form.MaxStockLevel,
+                    Unit =
+                        string.IsNullOrWhiteSpace(form.Unit)
+                            ? null
+                            : form.Unit.Trim(),
 
-                IsTracked =
-                    form.IsTracked,
+                    SalePrice =
+                        form.SalePrice,
 
-                IsActive =
-                    form.Status
-            };
+                    SalePrice2 =
+                        form.SalePrice2,
 
-            await LocalProductService.CreateAsync(request);
+                    SalePrice3 =
+                        form.SalePrice3,
+
+                    PurchasePrice =
+                        form.PurchasePrice,
+
+                    VatRate =
+                        form.VatRate,
+
+                    MinStockLevel =
+                        form.MinStockLevel,
+
+                    MaxStockLevel =
+                        form.MaxStockLevel,
+
+                    IsTracked =
+                        form.IsTracked,
+
+                    IsActive =
+                        form.Status
+                };
+
+            await LocalProductService.CreateAsync(
+                request);
 
             SyncCoordinator.RequestSync();
 
@@ -1227,7 +1373,7 @@
             await LoadData();
 
             ShowSuccess(
-                $"'{catalogName}' created locally.");
+                $"'{productName}' created locally.");
         }
         catch (Exception exception)
         {
@@ -1235,7 +1381,8 @@
                 $"Failed to create local product: " +
                 $"{exception.GetBaseException().Message}");
 
-            System.Diagnostics.Debug.WriteLine(exception);
+            System.Diagnostics.Debug.WriteLine(
+                exception);
         }
         finally
         {
@@ -1245,61 +1392,114 @@
 
     private async Task Update()
     {
-        if (editingId == null || isLoading)
+        if (editingId == null ||
+            isLoading)
+        {
             return;
+        }
 
         var productId =
             editingId.Value;
 
-        var catalogName =
-            selectedCatalog?.Name ?? "Product";
+        var productName =
+            selectedCatalog?.Name ??
+            form.Name?.Trim() ??
+            "Product";
 
         try
         {
-            isLoading = true;
+            isLoading =
+                true;
 
             ClearMessages();
 
-            var request = new UpdateProductRequest
-            {
-                SalePrice =
-                    form.SalePrice,
+            var request =
+                new UpdateProductRequest
+                {
+                    Name =
+                        string.IsNullOrWhiteSpace(
+                            form.Name)
+                            ? null
+                            : form.Name.Trim(),
 
-                SalePrice2 =
-                    form.SalePrice2,
+                    Sku =
+                        string.IsNullOrWhiteSpace(
+                            form.Sku)
+                            ? null
+                            : form.Sku.Trim(),
 
-                SalePrice3 =
-                    form.SalePrice3,
+                    Barcode =
+                        string.IsNullOrWhiteSpace(
+                            form.Barcode)
+                            ? null
+                            : form.Barcode.Trim(),
 
-                PurchasePrice =
-                    form.PurchasePrice,
+                    Description =
+                        string.IsNullOrWhiteSpace(
+                            form.Description)
+                            ? null
+                            : form.Description.Trim(),
 
-                VatRate =
-                    form.VatRate,
+                    Category =
+                        string.IsNullOrWhiteSpace(
+                            form.Category)
+                            ? null
+                            : form.Category.Trim(),
 
-                MinStockLevel =
-                    form.MinStockLevel,
+                    Brand =
+                        string.IsNullOrWhiteSpace(
+                            form.Brand)
+                            ? null
+                            : form.Brand.Trim(),
 
-                MaxStockLevel =
-                    form.MaxStockLevel,
+                    Unit =
+                        string.IsNullOrWhiteSpace(
+                            form.Unit)
+                            ? null
+                            : form.Unit.Trim(),
 
-                IsActive =
-                    form.Status,
+                    SalePrice =
+                        form.SalePrice,
 
-                IsTracked =
-                    form.IsTracked
-            };
+                    SalePrice2 =
+                        form.SalePrice2,
 
-            await LocalProductService.UpdateAsync(productId, request);
+                    SalePrice3 =
+                        form.SalePrice3,
 
-            SyncCoordinator.RequestSync();
+                    PurchasePrice =
+                        form.PurchasePrice,
+
+                    VatRate =
+                        form.VatRate,
+
+                    MinStockLevel =
+                        form.MinStockLevel,
+
+                    MaxStockLevel =
+                        form.MaxStockLevel,
+
+                    IsActive =
+                        form.Status,
+
+                    IsTracked =
+                        form.IsTracked
+                };
+
+            await LocalProductService
+                .UpdateAsync(
+                    productId,
+                    request);
+
+            SyncCoordinator
+                .RequestSync();
 
             ResetForm();
 
             await LoadData();
 
             ShowSuccess(
-                $"'{catalogName}' updated locally.");
+                $"'{productName}' updated locally.");
         }
         catch (Exception exception)
         {
@@ -1307,16 +1507,19 @@
                 $"Failed to update local product: " +
                 $"{exception.GetBaseException().Message}");
 
-            System.Diagnostics.Debug.WriteLine(exception);
+            System.Diagnostics.Debug
+                .WriteLine(
+                    exception);
         }
         finally
         {
-            isLoading = false;
+            isLoading =
+                false;
         }
     }
 
     private async Task StartEditAsync(
-        ProductResult product)
+     ProductResult product)
     {
         if (isLoading)
             return;
@@ -1325,60 +1528,92 @@
         {
             isLoading = true;
 
-            editingId = product.Id;
+            editingId =
+                product.Id;
 
-            form = new ProductForm
-            {
-                CatalogProductId =
-                    product.CatalogProductId,
+            form =
+                new ProductForm
+                {
+                    CatalogProductId =
+                        product.CatalogProductId,
 
-                SalePrice =
-                    product.SalePrice,
+                    Name =
+                        product.Name,
 
-                SalePrice2 =
-                    product.SalePrice2,
+                    Sku =
+                        product.Sku,
 
-                SalePrice3 =
-                    product.SalePrice3,
+                    Barcode =
+                        product.Barcode,
 
-                PurchasePrice =
-                    product.PurchasePrice,
+                    Description =
+                        product.Description,
 
-                VatRate =
-                    product.VatRate,
+                    Category =
+                        product.Category,
 
-                MinStockLevel =
-                    product.MinStockLevel,
+                    Brand =
+                        product.Brand,
 
-                MaxStockLevel =
-                    product.MaxStockLevel,
+                    Unit =
+                        string.IsNullOrWhiteSpace(
+                            product.Unit)
+                            ? "pcs"
+                            : product.Unit,
 
-                Status =
-                    product.Status,
+                    SalePrice =
+                        product.SalePrice,
 
-                IsTracked =
-                    product.IsTracked
-            };
+                    SalePrice2 =
+                        product.SalePrice2,
+
+                    SalePrice3 =
+                        product.SalePrice3,
+
+                    PurchasePrice =
+                        product.PurchasePrice,
+
+                    VatRate =
+                        product.VatRate,
+
+                    MinStockLevel =
+                        product.MinStockLevel,
+
+                    MaxStockLevel =
+                        product.MaxStockLevel,
+
+                    Status =
+                        product.Status,
+
+                    IsTracked =
+                        product.IsTracked
+                };
 
             selectedCatalog =
-                GetCatalog(product.CatalogProductId);
+                GetCatalog(
+                    product.CatalogProductId);
 
-            if (selectedCatalog == null)
+            if (selectedCatalog == null &&
+                product.CatalogProductId.HasValue &&
+                product.CatalogProductId.Value != Guid.Empty)
             {
                 selectedCatalog =
-                    await LocalCatalogQuery.GetByIdAsync(
-                        product.CatalogProductId);
+                    await LocalCatalogQuery
+                        .GetByIdAsync(
+                            product.CatalogProductId.Value);
 
                 if (selectedCatalog != null)
                 {
-                    catalogCache[selectedCatalog.Id] =
-                        selectedCatalog;
+                    catalogCache[
+                        selectedCatalog.Id] =
+                            selectedCatalog;
                 }
             }
 
             ClearMessages();
 
-            showProduct = true;
+            showProduct =
+                true;
         }
         catch (Exception exception)
         {
@@ -1388,11 +1623,14 @@
                 $"Failed to load local product: " +
                 $"{exception.GetBaseException().Message}");
 
-            System.Diagnostics.Debug.WriteLine(exception);
+            System.Diagnostics.Debug
+                .WriteLine(
+                    exception);
         }
         finally
         {
-            isLoading = false;
+            isLoading =
+                false;
         }
     }
 
@@ -1426,7 +1664,12 @@
         var catalog =
             GetCatalog(productToDelete.CatalogProductId);
 
-        var catalogName = catalog?.Name ?? "Unknown product";
+        var productName =
+    !string.IsNullOrWhiteSpace(
+        productToDelete.Name)
+        ? productToDelete.Name
+        : catalog?.Name ??
+          "Unknown product";
 
         try
         {
@@ -1448,7 +1691,7 @@
 
             await LoadData();
 
-            ShowSuccess($"'{catalogName}' deleted locally.");
+            ShowSuccess($"'{productName}' deleted locally.");
         }
         catch (Exception exception)
         {
@@ -1487,9 +1730,32 @@
     {
         return new ProductForm
         {
-            CatalogProductId = Guid.Empty,
-            Status = ProductStatus.Active,
-            IsTracked = true
+            CatalogProductId = null,
+
+            Name = null,
+            Sku = null,
+            Barcode = null,
+            Description = null,
+            Category = null,
+            Brand = null,
+
+            Unit = "pcs",
+
+            SalePrice = 0m,
+            SalePrice2 = 0m,
+            SalePrice3 = 0m,
+            PurchasePrice = 0m,
+
+            VatRate = 0m,
+
+            MinStockLevel = 0m,
+            MaxStockLevel = 0m,
+
+            Status =
+                ProductStatus.Active,
+
+            IsTracked =
+                true
         };
     }
 
@@ -1610,51 +1876,83 @@
 
     private sealed class ProductForm
     {
-        [Required(
-            ErrorMessage = "Product catalog is required")]
-        public Guid CatalogProductId { get; set; } =
-            Guid.Empty;
+        public Guid? CatalogProductId { get; set; }
+
+        [StringLength(
+            200,
+            ErrorMessage = "Name cannot exceed 200 characters.")]
+        public string? Name { get; set; }
+
+        [StringLength(
+            100,
+            ErrorMessage = "SKU cannot exceed 100 characters.")]
+        public string? Sku { get; set; }
+
+        [StringLength(
+            100,
+            ErrorMessage = "Barcode cannot exceed 100 characters.")]
+        public string? Barcode { get; set; }
+
+        [StringLength(
+            1000,
+            ErrorMessage = "Description cannot exceed 1000 characters.")]
+        public string? Description { get; set; }
+
+        [StringLength(
+            100,
+            ErrorMessage = "Category cannot exceed 100 characters.")]
+        public string? Category { get; set; }
+
+        [StringLength(
+            100,
+            ErrorMessage = "Brand cannot exceed 100 characters.")]
+        public string? Brand { get; set; }
+
+        [StringLength(
+            50,
+            ErrorMessage = "Unit cannot exceed 50 characters.")]
+        public string? Unit { get; set; }
 
         [Range(
             0,
             double.MaxValue,
-            ErrorMessage = "Sale price must be positive")]
+            ErrorMessage = "Sale price cannot be negative.")]
         public decimal SalePrice { get; set; }
 
         [Range(
             0,
             double.MaxValue,
-            ErrorMessage = "Sale price 2 must be positive")]
+            ErrorMessage = "Sale price 2 cannot be negative.")]
         public decimal SalePrice2 { get; set; }
 
         [Range(
             0,
             double.MaxValue,
-            ErrorMessage = "Sale price 3 must be positive")]
+            ErrorMessage = "Sale price 3 cannot be negative.")]
         public decimal SalePrice3 { get; set; }
 
         [Range(
             0,
             double.MaxValue,
-            ErrorMessage = "Purchase price must be positive")]
+            ErrorMessage = "Purchase price cannot be negative.")]
         public decimal PurchasePrice { get; set; }
 
         [Range(
             0,
             100,
-            ErrorMessage = "VAT rate must be between 0 and 100")]
+            ErrorMessage = "VAT rate must be between 0 and 100.")]
         public decimal VatRate { get; set; }
 
         [Range(
             0,
             double.MaxValue,
-            ErrorMessage = "Minimum stock must be positive")]
+            ErrorMessage = "Minimum stock cannot be negative.")]
         public decimal MinStockLevel { get; set; }
 
         [Range(
             0,
             double.MaxValue,
-            ErrorMessage = "Maximum stock must be positive")]
+            ErrorMessage = "Maximum stock cannot be negative.")]
         public decimal MaxStockLevel { get; set; }
 
         public bool IsTracked { get; set; } = true;

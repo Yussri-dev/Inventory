@@ -149,8 +149,21 @@ namespace Inventory.Infrastructure.Data
             //builder.Entity<PackComponent>().HasIndex(e => e.TenantId);
 
             // Additional useful indexes
-            builder.Entity<Product>().HasIndex(e => e.Barcode);
+            builder.Entity<Product>()
+         .HasIndex(product => new
+         {
+             product.TenantId,
+             product.Barcode
+         })
+         .IsUnique()
+         .HasFilter(
+             "\"CatalogProductId\" IS NULL " +
+             "AND \"Barcode\" IS NOT NULL " +
+             "AND BTRIM(\"Barcode\") <> '' " +
+             "AND \"IsDeleted\" = FALSE");
+
             builder.Entity<Product>().HasIndex(e => e.Sku);
+            
             builder.Entity<Product>()
             .HasIndex(product => new
             {
@@ -160,6 +173,7 @@ namespace Inventory.Infrastructure.Data
             .IsUnique()
             .HasFilter(
                 "\"CatalogProductId\" IS NOT NULL AND \"IsDeleted\" = FALSE");
+
             builder.Entity<Sale>().HasIndex(e => e.SaleDate);
             builder.Entity<Purchase>().HasIndex(e => e.PurchaseDate);
             builder.Entity<Customer>().HasIndex(e => e.Email);
@@ -170,6 +184,23 @@ namespace Inventory.Infrastructure.Data
             builder.Entity<ProductCatalog>().HasIndex(e => e.InternalCode);
             builder.Entity<ProductCategory>().HasIndex(e => e.Name);
 
+            builder.Entity<ProductCatalog>(entity =>
+            {
+                entity.Property(x => x.DefaultSalePrice)
+                    .HasPrecision(18, 2);
+
+                entity.Property(x => x.DefaultSalePrice2)
+                    .HasPrecision(18, 2);
+
+                entity.Property(x => x.DefaultSalePrice3)
+                    .HasPrecision(18, 2);
+
+                entity.Property(x => x.DefaultPurchasePrice)
+                    .HasPrecision(18, 2);
+
+                entity.Property(x => x.DefaultVatRate)
+                    .HasPrecision(5, 2);
+            });
             // ============================
             // PRODUCT RELATIONSHIPS
             // ============================
@@ -186,6 +217,7 @@ namespace Inventory.Infrastructure.Data
                 .HasOne(p => p.CatalogProduct)
                 .WithMany(pc => pc.TenantProducts)
                 .HasForeignKey(p => p.CatalogProductId)
+                .IsRequired(false)
                 .OnDelete(DeleteBehavior.SetNull);
 
             builder.Entity<PackComponent>()
@@ -504,76 +536,76 @@ namespace Inventory.Infrastructure.Data
     });
 
             builder.Entity<CustomerTransaction>(
-    entity =>
-    {
-        entity.HasKey(transaction =>
-            transaction.Id);
-
-        entity.Property(transaction =>
-                transaction.ClientOperationId)
-            .IsRequired();
-
-        entity.HasIndex(transaction =>
-                new
+                entity =>
                 {
-                    transaction.TenantId,
-                    transaction.ClientOperationId
-                })
-            .IsUnique();
+                    entity.HasKey(transaction =>
+                        transaction.Id);
 
-        entity.HasIndex(transaction =>
-            new
-            {
-                transaction.TenantId,
-                transaction.CustomerId,
-                transaction.TransactionDate
-            });
+                    entity.Property(transaction =>
+                            transaction.ClientOperationId)
+                        .IsRequired();
 
-        entity.HasIndex(transaction =>
-            new
-            {
-                transaction.TenantId,
-                transaction.CashSessionId
-            });
+                    entity.HasIndex(transaction =>
+                            new
+                            {
+                                transaction.TenantId,
+                                transaction.ClientOperationId
+                            })
+                        .IsUnique();
 
-        entity.Property(transaction =>
-                transaction.Amount)
-            .HasPrecision(
-                18,
-                2);
+                    entity.HasIndex(transaction =>
+                        new
+                        {
+                            transaction.TenantId,
+                            transaction.CustomerId,
+                            transaction.TransactionDate
+                        });
 
-        entity.Property(transaction =>
-                transaction.BalanceBefore)
-            .HasPrecision(
-                18,
-                2);
+                    entity.HasIndex(transaction =>
+                        new
+                        {
+                            transaction.TenantId,
+                            transaction.CashSessionId
+                        });
 
-        entity.Property(transaction =>
-                transaction.BalanceAfter)
-            .HasPrecision(
-                18,
-                2);
+                    entity.Property(transaction =>
+                            transaction.Amount)
+                        .HasPrecision(
+                            18,
+                            2);
 
-        entity.Property(transaction =>
-                transaction.Type)
-            .HasMaxLength(
-                50)
-            .IsRequired();
+                    entity.Property(transaction =>
+                            transaction.BalanceBefore)
+                        .HasPrecision(
+                            18,
+                            2);
 
-        entity.Property(transaction =>
-                transaction.Description)
-            .HasMaxLength(
-                500);
+                    entity.Property(transaction =>
+                            transaction.BalanceAfter)
+                        .HasPrecision(
+                            18,
+                            2);
 
-        entity.HasOne(transaction =>
-                transaction.CashSession)
-            .WithMany()
-            .HasForeignKey(transaction =>
-                transaction.CashSessionId)
-            .OnDelete(
-                DeleteBehavior.Restrict);
-    });
-        }
+                    entity.Property(transaction =>
+                            transaction.Type)
+                        .HasMaxLength(
+                            50)
+                        .IsRequired();
+
+                    entity.Property(transaction =>
+                            transaction.Description)
+                        .HasMaxLength(
+                            500);
+
+                    entity.HasOne(transaction =>
+                            transaction.CashSession)
+                        .WithMany()
+                        .HasForeignKey(transaction =>
+                            transaction.CashSessionId)
+                        .OnDelete(
+                            DeleteBehavior.Restrict);
+                });
+            }
 
 
 

@@ -1,4 +1,4 @@
-using Inventory.Dto.Analytics.Results;
+﻿using Inventory.Dto.Analytics.Results;
 using Inventory.Dto.Enums;
 using Inventory.LocalDB.Context;
 using Inventory.LocalDB.Models;
@@ -38,6 +38,11 @@ public class LocalAnalyticsService(PosLocalDbContext db, ILocalTenantContext ten
         var revenue = sales.Sum(x => x.TotalAmount);
         var refunds = returns.Sum(x => x.TotalAmount);
         var cost = sales.SelectMany(x => x.Lines).Sum(x => x.UnitCostPrice * (x.UnitQuantity > 0 ? x.UnitQuantity : x.Quantity));
+        var restocked = await db.ReturnLines.AsNoTracking().Where(x => x.TenantId == id &&
+            x.RestockItem && x.LocalReturn.TenantId == id && x.LocalReturn.IsProcessed &&
+            x.LocalReturn.ReturnDateUtc >= start && x.LocalReturn.ReturnDateUtc < end)
+            .Select(x => new { x.UnitCostPrice, x.UnitQuantity, x.Quantity }).ToListAsync(cancellationToken);
+        cost -= restocked.Sum(x => x.UnitCostPrice * (x.UnitQuantity > 0 ? x.UnitQuantity : x.Quantity));
         var damage = damages.Sum(x => Math.Abs(x.QuantityChange) * x.UnitCost);
         var profit = revenue - refunds - cost - damage;
         var payments = sales.SelectMany(x => x.Payments).ToList();

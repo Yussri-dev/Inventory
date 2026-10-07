@@ -39,6 +39,9 @@ namespace Inventory.LocalDB.Models
         [MaxLength(100)]
         public string? Barcode { get; set; }
 
+        [MaxLength(1000)]
+        public string? Description { get; set; }
+
         [MaxLength(100)]
         public string? Category { get; set; }
 

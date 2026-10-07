@@ -52,151 +52,346 @@ namespace Inventory.Services.Features.Pos.Bootstrap
         }
 
         public async Task<PosBootstrapResult> Handle(
-            PosBootstrapQuery request,
-            CancellationToken ct)
+    PosBootstrapQuery request,
+    CancellationToken ct)
         {
-            var tenantId = _tenant.TenantId;
+            var tenantId =
+                _tenant.TenantId;
 
-            var products = await _products
-            .Query()
-            .Where(p =>
-                !p.IsDeleted &&
-                p.TenantId == tenantId)
-            .ToListAsync(ct);
+            // ============================================================
+            // PRODUCTS
+            // ============================================================
 
-            var catalogIds = products
-                .Select(p => p.CatalogProductId)
-                .Distinct()
-                .ToList();
+            var products =
+                await _products
+                    .Query()
+                    .Where(p =>
+                        !p.IsDeleted &&
+                        p.TenantId == tenantId)
+                    .ToListAsync(ct);
 
-            var productCatalogs = await _productCatalogs
-                .Query()
-                .Where(pc =>
-                    !pc.IsDeleted &&
-                    catalogIds.Contains(pc.Id))
-                .Include(pc => pc.PackComponents)
-                    .ThenInclude(comp => comp.ComponentCatalog)
-                .ToListAsync(ct);
+            // Seulement les vrais CatalogProductId.
+            // Les produits custom ont CatalogProductId = null.
+            var catalogIds =
+                products
+                    .Where(p =>
+                        p.CatalogProductId.HasValue &&
+                        p.CatalogProductId.Value != Guid.Empty)
+                    .Select(p =>
+                        p.CatalogProductId!.Value)
+                    .Distinct()
+                    .ToList();
 
-            // ── Charger les produits categorie ─────────────────────────────────────────
-            var productCategories = await _productCategory
-                .Query()
-                .Where(p => !p.IsDeleted )
-                .ToListAsync(ct);
+            // ============================================================
+            // PRODUCT CATALOGS
+            // ============================================================
 
-            // ── Charger les stocks ───────────────────────────────────────────
-            var stocks = await _stocks.GetAsync(
-                s => !s.IsDeleted && s.TenantId == tenantId);
+            var productCatalogs =
+                await _productCatalogs
+                    .Query()
+                    .Where(pc =>
+                        !pc.IsDeleted &&
+                        catalogIds.Contains(pc.Id))
+                    .Include(pc => pc.PackComponents)
+                        .ThenInclude(comp =>
+                            comp.ComponentCatalog)
+                    .ToListAsync(ct);
 
-            // ── Charger customers / suppliers ────────────────────────────────
-            var customers = await _customers.GetAsync(
-                c => !c.IsDeleted && c.TenantId == tenantId);
+            // ============================================================
+            // PRODUCT CATEGORIES
+            // ============================================================
 
-            var suppliers = await _suppliers.GetAsync(
-                s => !s.IsDeleted && s.TenantId == tenantId);
+            var productCategories =
+                await _productCategory
+                    .Query()
+                    .Where(p =>
+                        !p.IsDeleted)
+                    .ToListAsync(ct);
 
-            var activeSession = await _cashSession.GetActiveAsync();
+            // ============================================================
+            // STOCKS
+            // ============================================================
 
-            // ── Construire les dictionnaires pour les lookups ────────────────
-            var catalogMap = productCatalogs.ToDictionary(c => c.Id);
-            var stockMap = stocks.ToDictionary(s => s.ProductId);
+            var stocks =
+                await _stocks.GetAsync(
+                    s =>
+                        !s.IsDeleted &&
+                        s.TenantId == tenantId);
 
-            // Map catalogId → productId (pour trouver le Product de l'unité)
-            var catalogToProductMap = products
-                .GroupBy(p => p.CatalogProductId)
-                .ToDictionary(g => g.Key, g => g.First().Id);
+            // ============================================================
+            // CUSTOMERS
+            // ============================================================
 
-            // ── Construire les ProductResult enrichis ────────────────────────
-            var productResults = products.Select(p =>
-            {
-                catalogMap.TryGetValue(p.CatalogProductId, out var catalog);
+            var customers =
+                await _customers.GetAsync(
+                    c =>
+                        !c.IsDeleted &&
+                        c.TenantId == tenantId);
 
-                var isPack = catalog?.IsPack ?? false;
-                var packSize = 1m;
-                Guid? componentProductId = null;
+            // ============================================================
+            // SUPPLIERS
+            // ============================================================
 
-                if (isPack && catalog!.PackComponents.Any())
-                {
-                    var component = catalog.PackComponents.First();
-                    packSize = component.Quantity;
+            var suppliers =
+                await _suppliers.GetAsync(
+                    s =>
+                        !s.IsDeleted &&
+                        s.TenantId == tenantId);
 
-                    if (catalogToProductMap.TryGetValue(
-                            component.ComponentCatalogId,
-                            out var unitProductId))
+            // ============================================================
+            // CASH SESSION
+            // ============================================================
+
+            var activeSession =
+                await _cashSession.GetActiveAsync();
+
+            // ============================================================
+            // LOOKUP MAPS
+            // ============================================================
+
+            var catalogMap =
+                productCatalogs
+                    .ToDictionary(
+                        c => c.Id);
+
+            var stockMap =
+                stocks
+                    .ToDictionary(
+                        s => s.ProductId);
+
+            /*
+             * CatalogProductId -> ProductId
+             *
+             * Important :
+             * les produits custom ne participent jamais à cette map,
+             * car CatalogProductId == null.
+             */
+            var catalogToProductMap =
+                products
+                    .Where(p =>
+                        p.CatalogProductId.HasValue &&
+                        p.CatalogProductId.Value != Guid.Empty)
+                    .GroupBy(p =>
+                        p.CatalogProductId!.Value)
+                    .ToDictionary(
+                        g => g.Key,
+                        g => g.First().Id);
+
+            // ============================================================
+            // PRODUCT RESULTS
+            // ============================================================
+
+            var productResults =
+      products
+          .Select(p =>
+          {
+              ProductCatalog? catalog = null;
+
+              if (p.CatalogProductId.HasValue &&
+                  p.CatalogProductId.Value != Guid.Empty)
+              {
+                  catalogMap.TryGetValue(
+                      p.CatalogProductId.Value,
+                      out catalog);
+              }
+
+              var isPack =
+                  catalog?.IsPack ?? false;
+
+              var packSize =
+                  1m;
+
+              Guid? componentProductId =
+                  null;
+
+              if (catalog?.IsPack == true &&
+                  catalog.PackComponents.Any())
+              {
+                  var component =
+                      catalog.PackComponents.First();
+
+                  packSize =
+                      component.Quantity > 0
+                          ? component.Quantity
+                          : 1m;
+
+                  if (catalogToProductMap.TryGetValue(
+                          component.ComponentCatalogId,
+                          out var unitProductId))
+                  {
+                      componentProductId =
+                          unitProductId;
+                  }
+              }
+
+              return new ProductResult
+              {
+                  Id =
+                      p.Id,
+
+                  CatalogProductId =
+                      p.CatalogProductId,
+
+                  Name =
+                      !string.IsNullOrWhiteSpace(p.Name)
+                          ? p.Name
+                          : catalog?.Name ??
+                            "Unknown Product",
+
+                  Sku =
+                      !string.IsNullOrWhiteSpace(p.Sku)
+                          ? p.Sku
+                          : catalog?.InternalCode,
+
+                  Barcode =
+                      !string.IsNullOrWhiteSpace(p.Barcode)
+                          ? p.Barcode
+                          : catalog?.Barcode,
+
+                  Description =
+                      !string.IsNullOrWhiteSpace(p.Description)
+                          ? p.Description
+                          : catalog?.Description,
+
+                  Category =
+                      p.Category,
+
+                  Brand =
+                      !string.IsNullOrWhiteSpace(p.Brand)
+                          ? p.Brand
+                          : catalog?.Brand,
+
+                  Unit =
+                      !string.IsNullOrWhiteSpace(p.Unit)
+                          ? p.Unit
+                          : catalog?.UnitOfMeasure,
+
+                  SalePrice =
+                      p.SalePrice,
+
+                  SalePrice2 =
+                      p.SalePrice2,
+
+                  SalePrice3 =
+                      p.SalePrice3,
+
+                  PurchasePrice =
+                      p.PurchasePrice,
+
+                  VatRate =
+                      p.VatRate,
+
+                  MinStockLevel =
+                      p.MinStockLevel,
+
+                  MaxStockLevel =
+                      p.MaxStockLevel,
+
+                  IsTracked =
+                      p.IsTracked,
+
+                  Status =
+                      (Dto.Enums.ProductStatus)p.IsActive,
+
+                  IsPack =
+                      isPack,
+
+                  PackSize =
+                      packSize,
+
+                  ComponentProductId =
+                      componentProductId
+              };
+          })
+          .ToList();
+
+            // ============================================================
+            // PRODUCT CATALOG RESULTS
+            // ============================================================
+
+            var catalogResults =
+                productCatalogs
+                    .Select(c =>
                     {
-                        componentProductId = unitProductId;
-                    }
-                }
+                        var result =
+                            _mapper.Map<ProductCatalogResult>(c);
 
-                return new ProductResult
-                {
-                    Id = p.Id,
-                    CatalogProductId = p.CatalogProductId,
+                        result.IsPack =
+                            c.IsPack;
 
-                    CatalogName =
-                        !string.IsNullOrWhiteSpace(p.Name)
-                            ? p.Name
-                            : catalog?.Name ?? "Unknown Product",
+                        result.PackComponents =
+                            c.PackComponents
+                                .Select(pc =>
+                                    new PackComponentResult
+                                    {
+                                        Id =
+                                            pc.Id,
 
-                    CatalogBrand =
-                        !string.IsNullOrWhiteSpace(p.Brand)
-                            ? p.Brand
-                            : catalog?.Brand,
+                                        ComponentCatalogId =
+                                            pc.ComponentCatalogId,
 
-                    CatalogBarcode =
-                        !string.IsNullOrWhiteSpace(p.Barcode)
-                            ? p.Barcode
-                            : catalog?.Barcode,
+                                        ComponentName =
+                                            pc.ComponentCatalog?.Name ??
+                                            string.Empty,
 
-                    SalePrice = p.SalePrice,
-                    SalePrice2 = p.SalePrice2,
-                    SalePrice3 = p.SalePrice3,
-                    PurchasePrice = p.PurchasePrice,
-                    VatRate = p.VatRate,
-                    MinStockLevel = p.MinStockLevel,
-                    MaxStockLevel = p.MaxStockLevel,
-                    IsTracked = p.IsTracked,
-                    Status = (Dto.Enums.ProductStatus)p.IsActive,
-                    IsPack = isPack,
-                    PackSize = packSize,
-                    ComponentProductId = componentProductId
-                };
-            }).ToList();
+                                        ComponentBarCode =
+                                            pc.ComponentCatalog?.Barcode,
 
-            // ── Construire les ProductCatalogResult ──────────────────────────
-            var catalogResults = productCatalogs.Select(c =>
-            {
-                var result = _mapper.Map<ProductCatalogResult>(c);
+                                        Quantity =
+                                            pc.Quantity
+                                    })
+                                .ToList();
 
-                result.IsPack = c.IsPack;
-                result.PackComponents = c.PackComponents.Select(pc => new PackComponentResult
-                {
-                    Id = pc.Id,
-                    ComponentCatalogId = pc.ComponentCatalogId,
-                    ComponentName = pc.ComponentCatalog?.Name ?? "",
-                    ComponentBarCode = pc.ComponentCatalog?.Barcode,
-                    Quantity = pc.Quantity
-                }).ToList();
+                        return result;
+                    })
+                    .ToList();
 
-                return result;
-            }).ToList();
+            // ============================================================
+            // RESULT
+            // ============================================================
 
             return new PosBootstrapResult
             {
-                ServerTime = DateTime.UtcNow,
-                Products = productResults,
-                ProductCatalogs = catalogResults,
-                Stocks = _mapper.Map<List<StockResult>>(stocks),
-                Customers = _mapper.Map<List<CustomerResult>>(customers),
-                Suppliers = _mapper.Map<List<SupplierResult>>(suppliers),
-                ProductCategories = _mapper.Map<List<ProductCategoryResult>>(productCategories),
-                ActiveCashSession = activeSession,
-                Config = new PosConfigResult
-                {
-                    Currency = "EUR",
-                    DefaultVatRate = 21,
-                    AllowNegativeStock = false
-                }
+                ServerTime =
+                    DateTime.UtcNow,
+
+                Products =
+                    productResults,
+
+                ProductCatalogs =
+                    catalogResults,
+
+                Stocks =
+                    _mapper.Map<List<StockResult>>(
+                        stocks),
+
+                Customers =
+                    _mapper.Map<List<CustomerResult>>(
+                        customers),
+
+                Suppliers =
+                    _mapper.Map<List<SupplierResult>>(
+                        suppliers),
+
+                ProductCategories =
+                    _mapper.Map<List<ProductCategoryResult>>(
+                        productCategories),
+
+                ActiveCashSession =
+                    activeSession,
+
+                Config =
+                    new PosConfigResult
+                    {
+                        Currency =
+                            "EUR",
+
+                        DefaultVatRate =
+                            21,
+
+                        AllowNegativeStock =
+                            false
+                    }
             };
         }
     }

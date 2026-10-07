@@ -13,14 +13,13 @@ namespace Inventory.Ui.Services;
 public sealed class LocalSupplierSyncService
     : ILocalSupplierSyncService
 {
+    private HashSet<Guid> _deletedServerIds = new();
     private const string SupplierEntityName =
         "Supplier";
 
     private const string FullSyncMode =
         "Full";
 
-    private const int PageSize = 100;
-    private const int MaximumPages = 10_000;
 
     private readonly PosLocalDbContext _db;
     private readonly ISupplierApi _supplierApi;
@@ -53,6 +52,9 @@ public sealed class LocalSupplierSyncService
 
             cancellationToken.ThrowIfCancellationRequested();
 
+            if (_tenantContext.GetRequiredTenantId() != tenantId)
+                throw new InvalidOperationException("Le magasin a changé pendant le téléchargement.");
+
             await using var transaction =
                 await _db.Database.BeginTransactionAsync(
                     cancellationToken);
@@ -78,6 +80,11 @@ public sealed class LocalSupplierSyncService
 
                 var pendingSet =
                     pendingIds.ToHashSet();
+
+                // Pending purchases own the local supplier balance until upload succeeds.
+                pendingSet.UnionWith(await _db.Purchases.AsNoTracking().Where(x => x.TenantId == tenantId &&
+                    x.SyncStatus != SyncQueueStatus.Done && x.SyncStatus != SyncQueueStatus.Draft)
+                    .Select(x => x.SupplierLocalId).ToListAsync(cancellationToken));
 
                 var localSuppliers =
                     await _db.Suppliers
@@ -145,6 +152,16 @@ public sealed class LocalSupplierSyncService
 
                     byServerId[serverSupplier.Id] =
                         localSupplier;
+                }
+
+                // Explicit tombstones only; never infer deletion from an incomplete/failed response.
+                foreach (var row in localSuppliers.Where(x => x.ServerId.HasValue && _deletedServerIds.Contains(x.ServerId.Value)))
+                {
+                    if (pendingSet.Contains(row.Id)) continue;
+                    row.IsDeleted = true;
+                    row.IsActive = false;
+                    row.DeletedAtUtc = now;
+                    row.LastSyncedAtUtc = now;
                 }
 
                 await MarkSyncSucceededAsync(
@@ -330,60 +347,11 @@ public sealed class LocalSupplierSyncService
         DownloadAllSuppliersAsync(
             CancellationToken cancellationToken)
     {
-        var suppliers =
-            new List<SupplierResult>();
-
-        for (var page = 1;
-             page <= MaximumPages;
-             page++)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            var response =
-                await _supplierApi.Search(
-                    new SupplierQuery
-                    {
-                        Page = page,
-                        PageSize = PageSize,
-                        SortBy = "name",
-                        Desc = false
-                    },
-                    cancellationToken);
-
-            var pageItems =
-                response.Items?.ToList()
-                ?? new List<SupplierResult>();
-
-            if (pageItems.Count == 0)
-                break;
-
-            suppliers.AddRange(pageItems);
-
-            if (response.TotalCount > 0 &&
-                suppliers.Count >= response.TotalCount)
-            {
-                break;
-            }
-
-            if (pageItems.Count < PageSize)
-                break;
-
-            if (page == MaximumPages)
-            {
-                throw new InvalidOperationException(
-                    "Supplier synchronization exceeded " +
-                    "the maximum number of pages.");
-            }
-        }
-
-        return suppliers
-            .Where(supplier =>
-                supplier.Id != Guid.Empty)
-            .GroupBy(supplier =>
-                supplier.Id)
-            .Select(group =>
-                group.Last())
-            .ToList();
+        var snapshot = await _supplierApi.DownloadSnapshot(cancellationToken);
+        ArgumentNullException.ThrowIfNull(snapshot);
+        if (snapshot.Items == null || snapshot.DeletedIds == null) throw new InvalidOperationException("Incomplete synchronization snapshot.");
+        _deletedServerIds = snapshot.DeletedIds.ToHashSet();
+        return snapshot.Items;
     }
 
     private static void ApplyServerSupplier(

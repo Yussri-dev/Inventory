@@ -10,6 +10,34 @@ namespace Inventory.Api.Tests;
 
 public class LocalAnalyticsTests
 {
+    [Theory]
+    [InlineData(true, 2, 0)]
+    [InlineData(false, 2, -60)]
+    [InlineData(true, 1, 20)]
+    public async Task Returns_reverse_cost_only_when_restocked(bool restock, int returnedQuantity, int expectedProfit)
+    {
+        using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        await using var db = new PosLocalDbContext(new DbContextOptionsBuilder<PosLocalDbContext>().UseSqlite(connection).Options);
+        await db.Database.EnsureCreatedAsync();
+        var tenant = new LocalTenantContext(); tenant.SetTenant(Guid.NewGuid()); var id = tenant.GetRequiredTenantId();
+        var day = new DateOnly(2026, 10, 5);
+        var at = TimeZoneInfo.ConvertTimeToUtc(day.ToDateTime(new TimeOnly(12, 0)), TimeZoneInfo.Local);
+        var product = new LocalProduct { TenantId = id, Name = "Returned item" };
+        var sale = new LocalSale { TenantId = id, LocalInvoiceNumber = "S", SaleDateUtc = at, TotalAmount = 100 };
+        var line = new LocalSaleLine { TenantId = id, LocalSaleId = sale.Id, ProductLocalId = product.Id,
+            UnitProductLocalId = product.Id, Quantity = 2, UnitQuantity = 2, UnitCostPrice = 30, UnitPrice = 50 };
+        var returned = new LocalReturn { TenantId = id, LocalSaleId = sale.Id, LocalReturnNumber = "R",
+            ReturnDateUtc = at, IsProcessed = true, TotalAmount = 50 * returnedQuantity };
+        db.AddRange(product, sale, line, returned, new LocalReturnLine { TenantId = id, LocalReturnId = returned.Id,
+            LocalSaleLineId = line.Id, ProductLocalId = product.Id, UnitProductLocalId = product.Id,
+            Quantity = returnedQuantity, UnitQuantity = returnedQuantity, UnitCostPrice = 30, RestockItem = restock });
+        await db.SaveChangesAsync();
+        var summary = await new LocalAnalyticsService(db, tenant).GetDashboardSummaryAsync(day, day);
+        Assert.Equal(expectedProfit, summary.Profit);
+        Assert.Equal(restock ? 60 - returnedQuantity * 30 : 60, summary.Cost);
+    }
+
     [Fact]
     public async Task Dashboard_uses_unsynced_local_sales_and_isolates_store_and_period()
     {

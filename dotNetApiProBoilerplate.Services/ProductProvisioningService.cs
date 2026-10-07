@@ -91,52 +91,53 @@ namespace Inventory.Services
             var now = DateTime.UtcNow;
 
             var products = catalogProducts
-                .Where(x => !existingCatalogIds.Contains(x.Id))
-                .Select(x => new Product
-                {
-                    Id = Guid.NewGuid(),
-                    CatalogProductId = x.Id,
+    .Where(x => !existingCatalogIds.Contains(x.Id))
+    .Select(x => new Product
+    {
+        Id = Guid.NewGuid(),
+        CatalogProductId = x.Id,
 
-                    Name = x.Name.Trim(),
-                    Sku = ResolveSku(x),
+        Name = x.Name.Trim(),
+        Sku = ResolveSku(x),
 
-                    Barcode = NormalizeNullable(x.Barcode),
-                    Brand = NormalizeNullable(x.Brand),
-                    Description = NormalizeNullable(x.Description),
+        Barcode = NormalizeNullable(x.Barcode),
+        Brand = NormalizeNullable(x.Brand),
+        Description = NormalizeNullable(x.Description),
 
-                    Category = null,
+        Category = null,
 
-                    SalePrice = 0m,
-                    SalePrice2 = 0m,
-                    SalePrice3 = 0m,
-                    PurchasePrice = 0m,
+        SalePrice = x.DefaultSalePrice,
+        SalePrice2 = x.DefaultSalePrice2,
+        SalePrice3 = x.DefaultSalePrice3,
+        PurchasePrice = x.DefaultPurchasePrice,
 
-                    VatRate = 0m,
-                    MinStockLevel = 0m,
-                    MaxStockLevel = 0m,
+        VatRate = x.DefaultVatRate,
 
-                    Unit = string.IsNullOrWhiteSpace(x.UnitOfMeasure)
-                        ? "pcs"
-                        : x.UnitOfMeasure.Trim(),
+        MinStockLevel = 0m,
+        MaxStockLevel = 0m,
 
-                    IsActive = ProductStatus.Active,
-                    IsTracked = true,
+        Unit = string.IsNullOrWhiteSpace(x.UnitOfMeasure)
+            ? "pcs"
+            : x.UnitOfMeasure.Trim(),
 
-                    ImageUrl = null,
+        IsActive = ProductStatus.Active,
+        IsTracked = true,
 
-                    TenantId = tenantId,
+        ImageUrl = null,
 
-                    CreatedAt = now,
-                    CreatedByUserId = createdByUserId,
+        TenantId = tenantId,
 
-                    ModifiedAt = null,
-                    ModifiedByUserId = null,
+        CreatedAt = now,
+        CreatedByUserId = createdByUserId,
 
-                    IsDeleted = false,
-                    DeletedAt = null,
-                    DeletedByUserId = null
-                })
-                .ToList();
+        ModifiedAt = null,
+        ModifiedByUserId = null,
+
+        IsDeleted = false,
+        DeletedAt = null,
+        DeletedByUserId = null
+    })
+    .ToList();
 
             _logger.LogInformation(
                 "{ProductCount} products prepared for insertion",
@@ -233,52 +234,52 @@ namespace Inventory.Services
             var now = DateTime.UtcNow;
 
             var products = tenants
-                .Where(tenant => !existingTenantIdSet.Contains(tenant.Id))
-                .Select(tenant => new Product
-                {
-                    Id = Guid.NewGuid(),
+    .Where(tenant => !existingTenantIdSet.Contains(tenant.Id))
+    .Select(tenant => new Product
+    {
+        Id = Guid.NewGuid(),
 
-                    CatalogProductId = catalog.Id,
+        CatalogProductId = catalog.Id,
 
-                    Name = catalog.Name.Trim(),
-                    Sku = ResolveSku(catalog),
-                    Barcode = NormalizeNullable(catalog.Barcode),
-                    Brand = NormalizeNullable(catalog.Brand),
-                    Description = NormalizeNullable(catalog.Description),
+        Name = catalog.Name.Trim(),
+        Sku = ResolveSku(catalog),
+        Barcode = NormalizeNullable(catalog.Barcode),
+        Brand = NormalizeNullable(catalog.Brand),
+        Description = NormalizeNullable(catalog.Description),
 
-                    Category = null,
+        Category = null,
 
-                    SalePrice = 0m,
-                    SalePrice2 = 0m,
-                    SalePrice3 = 0m,
-                    PurchasePrice = 0m,
-                    VatRate = 0m,
+        SalePrice = catalog.DefaultSalePrice,
+        SalePrice2 = catalog.DefaultSalePrice2,
+        SalePrice3 = catalog.DefaultSalePrice3,
+        PurchasePrice = catalog.DefaultPurchasePrice,
+        VatRate = catalog.DefaultVatRate,
 
-                    MinStockLevel = 0m,
-                    MaxStockLevel = 0m,
+        MinStockLevel = 0m,
+        MaxStockLevel = 0m,
 
-                    Unit = string.IsNullOrWhiteSpace(catalog.UnitOfMeasure)
-                        ? "pcs"
-                        : catalog.UnitOfMeasure.Trim(),
+        Unit = string.IsNullOrWhiteSpace(catalog.UnitOfMeasure)
+            ? "pcs"
+            : catalog.UnitOfMeasure.Trim(),
 
-                    IsActive = ProductStatus.Active,
-                    IsTracked = true,
+        IsActive = ProductStatus.Active,
+        IsTracked = true,
 
-                    ImageUrl = null,
+        ImageUrl = null,
 
-                    TenantId = tenant.Id,
+        TenantId = tenant.Id,
 
-                    CreatedAt = now,
-                    CreatedByUserId = createdByUserId,
+        CreatedAt = now,
+        CreatedByUserId = createdByUserId,
 
-                    ModifiedAt = null,
-                    ModifiedByUserId = null,
+        ModifiedAt = null,
+        ModifiedByUserId = null,
 
-                    IsDeleted = false,
-                    DeletedAt = null,
-                    DeletedByUserId = null
-                })
-                .ToList();
+        IsDeleted = false,
+        DeletedAt = null,
+        DeletedByUserId = null
+    })
+    .ToList();
 
             if (products.Count == 0)
                 return 0;

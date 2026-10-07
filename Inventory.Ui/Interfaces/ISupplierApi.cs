@@ -8,6 +8,9 @@ namespace Inventory.Ui.Interfaces;
 
 public interface ISupplierApi
 {
+    [Get("/api/sync-downloads/suppliers")]
+    Task<Inventory.Dto.Sync.SyncDownload<SupplierResult>> DownloadSnapshot(CancellationToken cancellationToken = default);
+
     [Post("/api/v1/suppliers")]
     Task<SupplierResult> Create(
         [Body] CreateSupplierRequest request,

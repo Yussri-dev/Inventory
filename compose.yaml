@@ -1,9 +1,9 @@
-name: inventory
+name: ventepilote
 
 services:
   postgres:
     image: postgres:17-alpine
-    container_name: inventory-postgres
+    container_name: ventepilote-postgres
     restart: unless-stopped
 
     environment:
@@ -11,11 +11,8 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
 
-    ports:
-      - "55432:5432"
-
     volumes:
-      - inventory-postgres17-data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
 
     healthcheck:
       test:
@@ -28,13 +25,16 @@ services:
       retries: 10
       start_period: 10s
 
+    networks:
+      - ventepilote-network
+
   api:
     build:
       context: .
       dockerfile: Dockerfile
 
-    image: inventory-api:dev
-    container_name: inventory-api
+    image: ventepilote-api:prod
+    container_name: ventepilote-api
     restart: unless-stopped
 
     depends_on:
@@ -42,26 +42,30 @@ services:
         condition: service_healthy
 
     environment:
-      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_ENVIRONMENT: Production
       ASPNETCORE_HTTP_PORTS: 8080
       UseHttpsRedirection: "false"
 
       ConnectionStrings__DefaultConnection: >-
-        Host=postgres; Port=5432; Database=${POSTGRES_DB}; Username=${POSTGRES_USER}; Password=${POSTGRES_PASSWORD}; Timeout=10; SslMode=Disable
+        Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD};Timeout=10;SslMode=Disable
 
       Jwt__Issuer: ${JWT_ISSUER}
       Jwt__Audience: ${JWT_AUDIENCE}
       Jwt__Key: ${JWT_KEY}
 
     ports:
-      - "8080:8080"
+      - "127.0.0.1:5000:8080"
 
     volumes:
-      - inventory-dataprotection:/root/.aspnet/DataProtection-Keys
+      - dataprotection:/root/.aspnet/DataProtection-Keys
+
+    networks:
+      - ventepilote-network
 
 volumes:
-  inventory-postgres17-data:
-    name: inventory-postgres17-data
+  postgres_data:
 
-  inventory-dataprotection:
-    name: inventory-dataprotection
+  dataprotection:
+
+networks:
+  ventepilote-network:

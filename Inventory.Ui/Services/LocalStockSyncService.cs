@@ -13,11 +13,10 @@ namespace Inventory.Ui.Services;
 public sealed class LocalStockSyncService
     : ILocalStockSyncService
 {
+    private HashSet<Guid> _deletedServerIds = new();
     private const string StockEntityName = "Stock";
     private const string FullSyncMode = "Full";
 
-    private const int PageSize = 100;
-    private const int MaximumPages = 10_000;
 
     private readonly PosLocalDbContext _db;
     private readonly IStockApi _stockApi;
@@ -54,6 +53,9 @@ public sealed class LocalStockSyncService
                     cancellationToken);
 
             cancellationToken.ThrowIfCancellationRequested();
+
+            if (_tenantContext.GetRequiredTenantId() != tenantId)
+                throw new InvalidOperationException("Le magasin a changé pendant le téléchargement.");
 
             await using var transaction =
                 await _db.Database.BeginTransactionAsync(
@@ -423,58 +425,11 @@ public sealed class LocalStockSyncService
         DownloadAllStocksAsync(
             CancellationToken cancellationToken)
     {
-        var stocks =
-            new List<StockResult>();
-
-        for (var page = 1;
-             page <= MaximumPages;
-             page++)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            var response =
-                await _stockApi.Search(
-                    new StockQuery
-                    {
-                        Page = page,
-                        PageSize = PageSize
-                    },
-                    cancellationToken);
-
-            var pageItems =
-                response.Items?.ToList()
-                ?? new List<StockResult>();
-
-            if (pageItems.Count == 0)
-                break;
-
-            stocks.AddRange(pageItems);
-
-            if (response.TotalCount > 0 &&
-                stocks.Count >= response.TotalCount)
-            {
-                break;
-            }
-
-            if (pageItems.Count < PageSize)
-                break;
-
-            if (page == MaximumPages)
-            {
-                throw new InvalidOperationException(
-                    "Stock synchronization exceeded the maximum " +
-                    "number of pages.");
-            }
-        }
-
-        return stocks
-            .Where(stock =>
-                stock.Id != Guid.Empty)
-            .GroupBy(stock =>
-                stock.Id)
-            .Select(group =>
-                group.Last())
-            .ToList();
+        var snapshot = await _stockApi.DownloadSnapshot(cancellationToken);
+        ArgumentNullException.ThrowIfNull(snapshot);
+        if (snapshot.Items == null || snapshot.DeletedIds == null) throw new InvalidOperationException("Incomplete synchronization snapshot.");
+        _deletedServerIds = snapshot.DeletedIds.ToHashSet();
+        return snapshot.Items;
     }
 
     private static void ApplyServerStock(
@@ -626,6 +581,8 @@ public sealed class LocalStockSyncService
                 damageProductIds);
         }
 
+        // Sale/purchase/return movements are uploaded through their parent operation.
+        protectedProductIds.UnionWith(await Inventory.LocalDB.Services.PendingStockProtection.GetProductIdsAsync(_db, tenantId, cancellationToken));
         return protectedProductIds;
     }
 

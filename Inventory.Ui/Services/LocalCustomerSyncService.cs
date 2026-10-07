@@ -13,6 +13,7 @@ namespace Inventory.Ui.Services;
 public sealed class LocalCustomerSyncService
     : ILocalCustomerSyncService
 {
+    private HashSet<Guid> _deletedServerIds = new();
     private const string CustomerEntityName =
         "Customer";
 
@@ -22,11 +23,7 @@ public sealed class LocalCustomerSyncService
     private const string FullSyncMode =
         "Full";
 
-    private const int PageSize =
-        100;
 
-    private const int MaximumPages =
-        10_000;
 
     private readonly PosLocalDbContext _db;
     private readonly ICustomerApi _customerApi;
@@ -56,6 +53,9 @@ public sealed class LocalCustomerSyncService
             var serverCustomers =
                 await DownloadAllCustomersAsync(
                     cancellationToken);
+
+            if (_tenantContext.GetRequiredTenantId() != tenantId)
+                throw new InvalidOperationException("Le magasin a changé pendant le téléchargement.");
 
             await using var transaction =
                 await _db.Database.BeginTransactionAsync(
@@ -93,7 +93,6 @@ public sealed class LocalCustomerSyncService
                         .AsNoTracking()
                         .Where(transaction =>
                             transaction.TenantId == tenantId &&
-                            transaction.UploadRequired &&
                             transaction.SyncStatus !=
                                 SyncQueueStatus.Done)
                         .Select(transaction =>
@@ -168,6 +167,16 @@ public sealed class LocalCustomerSyncService
 
                     byServerId[serverCustomer.Id] =
                         localCustomer;
+                }
+
+                // Explicit tombstones only; never infer deletion from an incomplete/failed response.
+                foreach (var row in localCustomers.Where(x => x.ServerId.HasValue && _deletedServerIds.Contains(x.ServerId.Value)))
+                {
+                    if (pendingProfileSet.Contains(row.Id) || pendingBalanceSet.Contains(row.Id)) continue;
+                    row.IsDeleted = true;
+                    row.IsActive = false;
+                    row.DeletedAtUtc = now;
+                    row.LastSyncedAtUtc = now;
                 }
 
                 await MarkSyncSucceededAsync(
@@ -349,51 +358,11 @@ public sealed class LocalCustomerSyncService
         DownloadAllCustomersAsync(
             CancellationToken cancellationToken)
     {
-        var customers =
-            new List<CustomerResult>();
-
-        for (var page = 1;
-             page <= MaximumPages;
-             page++)
-        {
-            var response =
-                await _customerApi.Search(
-                    new CustomerQuery
-                    {
-                        Page = page,
-                        PageSize = PageSize,
-                        SortBy = "name",
-                        Desc = false
-                    },
-                    cancellationToken);
-
-            var pageItems =
-                response.Items?.ToList()
-                ?? new List<CustomerResult>();
-
-            if (pageItems.Count == 0)
-                break;
-
-            customers.AddRange(pageItems);
-
-            if (response.TotalCount > 0 &&
-                customers.Count >= response.TotalCount)
-            {
-                break;
-            }
-
-            if (pageItems.Count < PageSize)
-                break;
-        }
-
-        return customers
-            .Where(customer =>
-                customer.Id != Guid.Empty)
-            .GroupBy(customer =>
-                customer.Id)
-            .Select(group =>
-                group.Last())
-            .ToList();
+        var snapshot = await _customerApi.DownloadSnapshot(cancellationToken);
+        ArgumentNullException.ThrowIfNull(snapshot);
+        if (snapshot.Items == null || snapshot.DeletedIds == null) throw new InvalidOperationException("Incomplete synchronization snapshot.");
+        _deletedServerIds = snapshot.DeletedIds.ToHashSet();
+        return snapshot.Items;
     }
 
     private static void ApplyServerCustomer(

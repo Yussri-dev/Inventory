@@ -57,27 +57,11 @@ var app =
     builder.Build();
 
 /*
- * Global exception handler.
- */
-app.UseMiddleware<ExceptionHandlingMiddleware>();
-
-/*
  * Request metrics.
  */
-app.Use(
-    async (context, next) =>
-    {
-        var route =
-            context.Request.Path.ToString();
+app.UseMiddleware<RequestMetricsMiddleware>();
 
-        RequestMetrics.PerRoute.AddOrUpdate(
-            route,
-            1,
-            (_, count) =>
-                count + 1);
-
-        await next();
-    });
+app.UseMiddleware<ExceptionHandlingMiddleware>();
 
 /*
  * Swagger remains enabled in Development.
@@ -141,7 +125,7 @@ app.MapGet(
             new
             {
                 total =
-                    RequestMetrics.PerRoute
-            }));
+                    RequestMetrics.Snapshot()
+            })).RequireAuthorization(policy => policy.RequireRole("Admin", "SuperAdmin"));
 
 app.Run();

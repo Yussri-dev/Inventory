@@ -316,15 +316,15 @@
                             @onclick="() => SelectAndAddProduct(product)">
 
                             <strong>
-                                @(string.IsNullOrWhiteSpace(product.CatalogName)
+                                @(string.IsNullOrWhiteSpace(product.Name)
                                                         ? "Unknown product"
-                                                        : product.CatalogName)
+                                                        : product.Name)
                     </strong>
 
-                    @if (!string.IsNullOrWhiteSpace(product.CatalogBarcode))
+                    @if (!string.IsNullOrWhiteSpace(product.Barcode))
                             {
                                 <span class="muted">
-                                    @product.CatalogBarcode
+                                    @product.Barcode
                                 </span>
                             }
 
@@ -787,7 +787,7 @@
                         product.Status ==
                             ProductStatus.Active)
                     .OrderBy(product =>
-                        product.CatalogName)
+                        product.Name)
                     .ToList();
 
             Suppliers =
@@ -909,12 +909,12 @@ StringComparer.OrdinalIgnoreCase);
 
                         ProductName =
                             string.IsNullOrWhiteSpace(
-                                product?.CatalogName)
+                                product?.Name)
                                 ? "Unavailable local product"
-                                : product.CatalogName,
+                                : product.Name,
 
                         ProductBarcode =
-                            product?.CatalogBarcode,
+                            product?.Barcode,
 
                         Quantity =
                             RoundQuantity(
@@ -1238,40 +1238,40 @@ StringComparer.OrdinalIgnoreCase);
     private void BuildBarcodeMap()
     {
         BarcodeMap =
-        Products
-        .Where(product =>
-        !string.IsNullOrWhiteSpace(
-        product.CatalogBarcode))
-        .GroupBy(
-        product =>
-        product.CatalogBarcode!.Trim(),
-        StringComparer.OrdinalIgnoreCase)
-        .ToDictionary(
-        group => group.Key,
-        group => group.First(),
-        StringComparer.OrdinalIgnoreCase);
+            Products
+                .Where(product =>
+                    !string.IsNullOrWhiteSpace(
+                        product.Barcode))
+                .GroupBy(
+                    product =>
+                        product.Barcode!.Trim(),
+                    StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(
+                    group => group.Key,
+                    group => group.First(),
+                    StringComparer.OrdinalIgnoreCase);
     }
 
     private void UpdateFilter()
     {
         var search =
-        SearchText.Trim();
+            SearchText.Trim();
 
         FilteredProducts =
-        string.IsNullOrWhiteSpace(search)
-        ? Products.ToList()
-        : Products
-        .Where(product =>
-        Contains(
-        product.CatalogName,
-        search) ||
-        Contains(
-        product.CatalogBarcode,
-        search) ||
-        Contains(
-        product.CatalogBrand,
-        search))
-        .ToList();
+            string.IsNullOrWhiteSpace(search)
+                ? Products.ToList()
+                : Products
+                    .Where(product =>
+                        Contains(
+                            product.Name,
+                            search) ||
+                        Contains(
+                            product.Barcode,
+                            search) ||
+                        Contains(
+                            product.Brand,
+                            search))
+                    .ToList();
     }
 
     private void OpenSupplierModal()
@@ -1447,8 +1447,7 @@ StringComparer.OrdinalIgnoreCase);
         if (product.PurchasePrice <= 0m)
         {
             await ShowErrorAsync(
-            $"Product '{product.CatalogName}' has no valid " +
-            "purchase price.");
+            $"Product '{product.Name}' has no valid purchase price.");
 
             return;
         }
@@ -1476,12 +1475,12 @@ StringComparer.OrdinalIgnoreCase);
 
                     ProductName =
                         string.IsNullOrWhiteSpace(
-                            product.CatalogName)
+                            product.Name)
                             ? "Unknown product"
-                            : product.CatalogName,
+                            : product.Name,
 
                     ProductBarcode =
-                        product.CatalogBarcode,
+                        product.Barcode,
 
                     BasePurchasePrice =
                         product.PurchasePrice,

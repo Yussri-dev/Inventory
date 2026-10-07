@@ -21,7 +21,9 @@ using QuestPDF.Infrastructure;
 using System.Text;
 
 #if DEBUG
+#if DEBUG
 using Inventory.Ui.Services.Sync.Testing;
+#endif
 #endif
 
 #if WINDOWS

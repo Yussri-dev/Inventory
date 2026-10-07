@@ -90,7 +90,9 @@ namespace Inventory.Services
             // PACK VALIDATION (FIXED)
             // =========================
 
-            if (request.IsPack && request.PackComponents != null && request.PackComponents.Any(x => x.Quantity <= 0))
+            if (request.IsPack == true &&
+                 request.PackComponents != null &&
+                 request.PackComponents.Any(x => x.Quantity <= 0))
             {
                 throw new ValidationException("Pack component quantity must be > 0");
             }
@@ -207,11 +209,18 @@ namespace Inventory.Services
         // =========================
         // UPDATE (SuperAdmin only)
         // =========================
-        public async Task<ProductCatalogResult> UpdateAsync(Guid id, UpdateProductCatalogRequest request)
+        public async Task<ProductCatalogResult> UpdateAsync(
+            Guid id,
+            UpdateProductCatalogRequest request)
         {
             var userId = _tenantContext.UserId;
 
-            var catalog = await _repository.Query()
+            // =========================
+            // GET EXISTING CATALOG
+            // =========================
+
+            var catalog = await _repository
+                .Query()
                 .FirstOrDefaultAsync(c =>
                     c.Id == id &&
                     !c.IsDeleted);
@@ -219,114 +228,262 @@ namespace Inventory.Services
             if (catalog == null)
                 throw new NotFoundException("ProductCatalog", id);
 
+
+            // =========================
+            // EFFECTIVE VALUES
+            // Partial update support
+            // =========================
+
+            var effectiveIsPack =
+                request.IsPack ?? catalog.IsPack;
+
+            var effectiveSellingMode =
+                request.SellingMode ?? catalog.SellingMode;
+
+            var effectiveUnitOfMeasure =
+                request.UnitOfMeasure ?? catalog.UnitOfMeasure;
+
+
             // =========================
             // PACK VALIDATION
             // =========================
 
-            if (request.IsPack && request.PackComponents != null && request.PackComponents.Any(x => x.Quantity <= 0))
-                throw new ValidationException("Pack component quantity must be > 0");
-
-            // =========================
-            // INTERNAL CODE UNIQUENESS
-            // =========================
-
-            if (!string.IsNullOrWhiteSpace(request.InternalCode) &&
-                request.InternalCode != catalog.InternalCode)
+            if (effectiveIsPack &&
+                request.PackComponents != null &&
+                request.PackComponents.Any(x => x.Quantity <= 0))
             {
-                request.InternalCode = request.InternalCode.Trim();
-
-                var exists = await _repository.ExistsAsync(c =>
-                    c.InternalCode == request.InternalCode &&
-                    c.Id != id &&
-                    !c.IsDeleted);
-
-                if (exists)
-                    throw new ConflictException("InternalCode already used.");
+                throw new ValidationException(
+                    "Pack component quantity must be > 0");
             }
 
-            if (request.SellingMode == SellingMode.Weight && request.UnitOfMeasure == "pcs")
-                throw new ValidationException("Weight products cannot use pcs");
 
-            if (request.SellingMode == SellingMode.Unit && request.UnitOfMeasure != "pcs")
-                throw new ValidationException("Unit products must use pcs");
             // =========================
-            // BARCODE LOGIC (FIXED)
+            // SELLING MODE VALIDATION
             // =========================
 
-            if (!string.IsNullOrWhiteSpace(request.Barcode))
+            if (effectiveSellingMode == SellingMode.Weight &&
+                effectiveUnitOfMeasure == "pcs")
             {
-                request.Barcode = new string(
-                    request.Barcode.Trim().Where(char.IsLetterOrDigit).ToArray());
+                throw new ValidationException(
+                    "Weight products cannot use pcs");
+            }
 
-                request.Barcode = EanTools.Normalize(request.Barcode);
+            if (effectiveSellingMode == SellingMode.Unit &&
+                effectiveUnitOfMeasure != "pcs")
+            {
+                throw new ValidationException(
+                    "Unit products must use pcs");
+            }
 
-                if (request.Barcode != catalog.Barcode)
+
+            // =========================
+            // INTERNAL CODE
+            // =========================
+
+            if (!string.IsNullOrWhiteSpace(request.InternalCode))
+            {
+                request.InternalCode =
+                    request.InternalCode.Trim();
+
+                if (request.InternalCode != catalog.InternalCode)
                 {
-                    var type = BarcodeDetector.Detect(request.Barcode);
-
-                    if (!BarcodeValidator.IsValid(request.Barcode, type))
-                        throw new ValidationException("Invalid barcode");
-
                     var exists = await _repository.ExistsAsync(c =>
-                        c.Barcode == request.Barcode &&
                         c.InternalCode == request.InternalCode &&
                         c.Id != id &&
                         !c.IsDeleted);
 
                     if (exists)
-                        throw new ConflictException("Barcode already used.");
-
-                    catalog.BarcodeType = type;
+                    {
+                        throw new ConflictException(
+                            "InternalCode already used.");
+                    }
                 }
             }
-            else
-            {
-                request.Barcode = null;
-                catalog.BarcodeType = BarcodeType.Internal;
-            }
+
 
             // =========================
-            // MAPPING
+            // BARCODE
+            // null = do not modify
+            // =========================
+
+            if (request.Barcode != null)
+            {
+                if (!string.IsNullOrWhiteSpace(request.Barcode))
+                {
+                    request.Barcode = new string(
+                        request.Barcode
+                            .Trim()
+                            .Where(char.IsLetterOrDigit)
+                            .ToArray());
+
+                    request.Barcode =
+                        EanTools.Normalize(request.Barcode);
+
+                    if (request.Barcode != catalog.Barcode)
+                    {
+                        var type =
+                            BarcodeDetector.Detect(request.Barcode);
+
+                        if (!BarcodeValidator.IsValid(
+                                request.Barcode,
+                                type))
+                        {
+                            throw new ValidationException(
+                                "Invalid barcode");
+                        }
+
+                        // Barcode must be unique globally
+                        // among active ProductCatalog rows.
+                        var barcodeExists =
+                            await _repository.ExistsAsync(c =>
+                                c.Barcode == request.Barcode &&
+                                c.Id != id &&
+                                !c.IsDeleted);
+
+                        if (barcodeExists)
+                        {
+                            throw new ConflictException(
+                                "Barcode already used.");
+                        }
+
+                        catalog.BarcodeType = type;
+                    }
+                }
+                else
+                {
+                    // Empty string is treated as:
+                    // no barcode value supplied to mapping.
+                    //
+                    // If later you want explicit barcode removal,
+                    // use a dedicated flag/action.
+                    request.Barcode = null;
+                }
+            }
+
+
+            // =========================
+            // MAP PARTIAL UPDATE
             // =========================
 
             _mapper.Map(request, catalog);
 
-            catalog.ModifiedAt = DateTime.UtcNow;
-            catalog.ModifiedByUserId = userId;
-            catalog.IsPack = request.IsPack;
-            catalog.InternalCode = request.InternalCode;
+
+            // =========================
+            // MANUAL FIELDS
+            // =========================
+
+            if (request.IsPack.HasValue)
+            {
+                catalog.IsPack =
+                    request.IsPack.Value;
+            }
+
+            catalog.ModifiedAt =
+                DateTime.UtcNow;
+
+            catalog.ModifiedByUserId =
+                userId;
+
+
             // =========================
             // PACK COMPONENTS
             // =========================
+            //
+            // Rules:
+            //
+            // PackComponents == null
+            //      => do not modify existing components
+            //
+            // PackComponents supplied
+            //      => replace existing components
+            //
+            // IsPack == false
+            //      => remove existing components
+            // =========================
 
-            var existingComponents = await _packComponentRepository
-                .Query()
-                .Where(pc => pc.PackCatalaogId == id)
-                .ToListAsync();
 
-            _packComponentRepository.DeleteRange(existingComponents);
-
-            if (request.IsPack && request.PackComponents != null && request.PackComponents.Any())
+            // Product explicitly converted
+            // from Pack -> normal Product.
+            if (request.IsPack == false)
             {
-                foreach (var comp in request.PackComponents)
+                var existingComponents =
+                    await _packComponentRepository
+                        .Query()
+                        .Where(pc =>
+                            pc.PackCatalaogId == id)
+                        .ToListAsync();
+
+                if (existingComponents.Any())
                 {
-                    await _packComponentRepository.AddAsync(new PackComponent
+                    _packComponentRepository
+                        .DeleteRange(existingComponents);
+                }
+            }
+            // Components were explicitly supplied.
+            else if (request.PackComponents != null)
+            {
+                var existingComponents =
+                    await _packComponentRepository
+                        .Query()
+                        .Where(pc =>
+                            pc.PackCatalaogId == id)
+                        .ToListAsync();
+
+                if (existingComponents.Any())
+                {
+                    _packComponentRepository
+                        .DeleteRange(existingComponents);
+                }
+
+                // Only recreate components
+                // when the resulting product is a Pack.
+                if (effectiveIsPack &&
+                    request.PackComponents.Any())
+                {
+                    foreach (var comp
+                             in request.PackComponents)
                     {
-                        Id = Guid.NewGuid(),
-                        PackCatalaogId = id,
-                        ComponentCatalogId = comp.ComponentCatalogId,
-                        Quantity = comp.Quantity,
-                        //TenantId = catalog.TenantId,
-                        CreatedAt = DateTime.UtcNow
-                    });
+                        await _packComponentRepository
+                            .AddAsync(
+                                new PackComponent
+                                {
+                                    Id = Guid.NewGuid(),
+
+                                    PackCatalaogId =
+                                        id,
+
+                                    ComponentCatalogId =
+                                        comp.ComponentCatalogId,
+
+                                    Quantity =
+                                        comp.Quantity,
+
+                                    CreatedAt =
+                                        DateTime.UtcNow
+                                });
+                    }
                 }
             }
 
-            _repository.Update(catalog);
-            await _unitOfWork.SaveChangesAsync();
 
-            return _mapper.Map<ProductCatalogResult>(catalog);
+            // =========================
+            // SAVE
+            // =========================
+
+            _repository.Update(catalog);
+
+            await _unitOfWork
+                .SaveChangesAsync();
+
+
+            // =========================
+            // RESULT
+            // =========================
+
+            return _mapper.Map<ProductCatalogResult>(
+                catalog);
         }
+
         // =========================
         // DELETE (SuperAdmin only)
         // =========================

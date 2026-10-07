@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Inventory.LocalDB.Services.Interfaces;
 using Inventory.Ui.Interfaces;
 using Microsoft.Extensions.Logging;
@@ -78,16 +78,21 @@ namespace Inventory.Ui.Services.Sync
                             enabled = today;
                             Preferences.Default.Set(key + "-enabled", enabled.ToString("yyyy-MM-dd"));
                         }
-                        DateOnly? last = DateOnly.TryParseExact(Preferences.Default.Get(key, ""), "yyyy-MM-dd", out var parsed) ? parsed : null;
+                        DateOnly? last = DateOnly.TryParseExact(Preferences.Default.Get(key + "-success", ""), "yyyy-MM-dd", out var parsed) ? parsed : null;
                         var due = Inventory.LocalDB.Services.DailySyncSchedule.GetDueDate(now, enabled, last);
                         if (due == null || Connectivity.Current.NetworkAccess != NetworkAccess.Internet) continue;
+                        var retryText = Preferences.Default.Get(key + "-retry", "");
+                        if (!Inventory.LocalDB.Services.DailySyncSchedule.CanRetry(DateTimeOffset.UtcNow,
+                            DateTimeOffset.TryParse(retryText, out var retryAt) ? retryAt : null)) continue;
                         if (!await _syncLock.WaitAsync(0, ct)) continue;
                         try
                         {
                             if (tenant.TenantId != tenantId) continue;
-                            // Persist the attempt to avoid repeated uploads/conflicts throughout the evening.
-                            Preferences.Default.Set(key, due.Value.ToString("yyyy-MM-dd"));
+                            // Persist a bounded retry delay, not a successful daily run.
+                            Preferences.Default.Set(key + "-retry", DateTimeOffset.UtcNow.AddMinutes(5).ToString("O"));
                             await SynchronizeCoreAsync(ct);
+                            Preferences.Default.Set(key + "-success", due.Value.ToString("yyyy-MM-dd"));
+                            Preferences.Default.Remove(key + "-retry");
                         }
                         finally { _syncLock.Release(); }
                     }
@@ -115,20 +120,29 @@ namespace Inventory.Ui.Services.Sync
             Interlocked.Exchange(ref _isSynchronizing, 1);
             try
             {
-                await ExecuteSynchronizationAsync(ct);
+                var errors = new List<string>();
+                try { await ExecuteSynchronizationAsync(ct); }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception ex) { errors.Add("Envoi/corrections : " + ex.Message); }
                 var db = scope.ServiceProvider.GetRequiredService<Inventory.LocalDB.Context.PosLocalDbContext>();
-                var remaining = await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.CountAsync(
-                    db.SyncQueueItems.Where(x => x.TenantId == tenantId && x.Status != Inventory.LocalDB.Models.SyncQueueStatus.Done && x.Status != Inventory.LocalDB.Models.SyncQueueStatus.Draft), ct);
-                if (remaining > 0)
-                    throw new InvalidOperationException($"Synchronisation partielle : {remaining} opération(s) restent en attente ou en conflit. Consultez la file ci-dessous.");
-                await scope.ServiceProvider.GetRequiredService<LocalDataBootstrapService>().RefreshAllInBackgroundAsync(ct);
-                await scope.ServiceProvider.GetRequiredService<ILocalStockSyncService>().FullSyncAsync(ct);
+                var remaining = await db.SyncQueueItems.CountAsync(x => x.TenantId == tenantId &&
+                    x.Status != "Done" && x.Status != "Draft", ct);
+                if (remaining > 0) errors.Add($"{remaining} opération(s) restent en attente ou en conflit.");
+                try { await scope.ServiceProvider.GetRequiredService<LocalDataBootstrapService>().RefreshAllInBackgroundAsync(ct); }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception ex) { errors.Add("Réception : " + ex.Message); }
+                // The stock pull protects every product with an unfinished local operation.
+                try { await scope.ServiceProvider.GetRequiredService<ILocalStockSyncService>().FullSyncAsync(ct); }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception ex) { errors.Add("Stocks : " + ex.Message); }
+                if (errors.Count > 0) throw new InvalidOperationException("Synchronisation partielle : " + string.Join(" | ", errors));
             }
             finally { Interlocked.Exchange(ref _isSynchronizing, 0); }
         }
         private async Task ExecuteSynchronizationAsync(
     CancellationToken cancellationToken)
         {
+            Exception? uploadError = null;
             try
             {
                 await using (var repairScope = _scopeFactory.CreateAsyncScope())
@@ -150,6 +164,8 @@ namespace Inventory.Ui.Services.Sync
                     previous = remaining;
                 }
             }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception error) { uploadError = error; }
             finally
             {
                 // A fresh context prevents failed uploads from leaking tracked writes into
@@ -169,10 +185,12 @@ namespace Inventory.Ui.Services.Sync
                     catch (Exception error)
                     {
                         _logger.LogError(error, "Server-to-SQLite correction download failed; it will be retried on the next synchronization.");
+                        if (uploadError != null) throw new AggregateException(uploadError.Message + " | " + error.Message, uploadError, error);
                         throw;
                     }
                 }
             }
+            if (uploadError != null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(uploadError).Throw();
         }
 
         private async Task<string?> UploadAndReconcileAsync(CancellationToken cancellationToken)

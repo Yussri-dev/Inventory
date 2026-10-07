@@ -13,11 +13,10 @@ namespace Inventory.Ui.Services;
 public sealed class LocalDamageSyncService
     : ILocalDamageSyncService
 {
+    private HashSet<Guid> _deletedServerIds = new();
     private const string DamageEntityName = "Damage";
     private const string FullSyncMode = "Full";
 
-    private const int PageSize = 100;
-    private const int MaximumPages = 10_000;
 
     private readonly PosLocalDbContext _db;
     private readonly IDamageApi _damageApi;
@@ -54,6 +53,9 @@ public sealed class LocalDamageSyncService
                     cancellationToken);
 
             cancellationToken.ThrowIfCancellationRequested();
+
+            if (_tenantContext.GetRequiredTenantId() != tenantId)
+                throw new InvalidOperationException("Le magasin a changé pendant le téléchargement.");
 
             await using var transaction =
                 await _db.Database.BeginTransactionAsync(
@@ -388,66 +390,11 @@ public sealed class LocalDamageSyncService
         DownloadAllDamagesAsync(
             CancellationToken cancellationToken)
     {
-        var damages =
-            new List<DamageResult>();
-
-        for (var page = 1;
-             page <= MaximumPages;
-             page++)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            var response =
-                await _damageApi.Search(
-                    new DamageQuery
-                    {
-                        Page = page,
-                        PageSize = PageSize
-                    },
-                    cancellationToken);
-
-            var pageItems =
-                response.Items?.ToList()
-                ?? new List<DamageResult>();
-
-            if (pageItems.Count == 0)
-            {
-                break;
-            }
-
-            damages.AddRange(pageItems);
-
-            if (response.TotalCount > 0 &&
-                damages.Count >= response.TotalCount)
-            {
-                break;
-            }
-
-            if (pageItems.Count < PageSize)
-            {
-                break;
-            }
-
-            if (page == MaximumPages)
-            {
-                throw new InvalidOperationException(
-                    "Damage synchronization exceeded the maximum " +
-                    $"number of pages ({MaximumPages}).");
-            }
-        }
-
-        /*
-         * Protect against duplicate rows returned by a badly paginated
-         * endpoint.
-         */
-        return damages
-            .Where(damage =>
-                damage.Id != Guid.Empty)
-            .GroupBy(damage =>
-                damage.Id)
-            .Select(group =>
-                group.Last())
-            .ToList();
+        var snapshot = await _damageApi.DownloadSnapshot(cancellationToken);
+        ArgumentNullException.ThrowIfNull(snapshot);
+        if (snapshot.Items == null || snapshot.DeletedIds == null) throw new InvalidOperationException("Incomplete synchronization snapshot.");
+        _deletedServerIds = snapshot.DeletedIds.ToHashSet();
+        return snapshot.Items;
     }
 
     private static void ApplyServerDamage(

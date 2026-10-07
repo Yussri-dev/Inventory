@@ -104,9 +104,9 @@ namespace Inventory.Services.Mapping
                 .ForMember(d => d.Id, o => o.MapFrom(s => s.Id))
                 .ForMember(d => d.CatalogProductId, o => o.MapFrom(s => s.CatalogProductId))
                 // Catalog fields (denormalized for display)
-                .ForMember(d => d.CatalogName, o => o.MapFrom(s => s.CatalogProduct != null ? s.CatalogProduct.Name : s.Name))
-                .ForMember(d => d.CatalogBrand, o => o.MapFrom(s => s.CatalogProduct != null ? s.CatalogProduct.Brand : s.Brand))
-                .ForMember(d => d.CatalogBarcode, o => o.MapFrom(s => s.CatalogProduct != null ? s.CatalogProduct.Barcode : s.Barcode))
+                .ForMember(d => d.Name, o => o.MapFrom(s => s.CatalogProduct != null ? s.CatalogProduct.Name : s.Name))
+                .ForMember(d => d.Brand, o => o.MapFrom(s => s.CatalogProduct != null ? s.CatalogProduct.Brand : s.Brand))
+                .ForMember(d => d.Barcode, o => o.MapFrom(s => s.CatalogProduct != null ? s.CatalogProduct.Barcode : s.Barcode))
                 // Tenant-specific fields
                 .ForMember(d => d.SalePrice, o => o.MapFrom(s => s.SalePrice))
                 .ForMember(d => d.SalePrice2, o => o.MapFrom(s => s.SalePrice2))

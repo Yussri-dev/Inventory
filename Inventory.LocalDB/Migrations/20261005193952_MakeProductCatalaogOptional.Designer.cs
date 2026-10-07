@@ -3,6 +3,7 @@ using System;
 using Inventory.LocalDB.Context;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Inventory.LocalDB.Migrations
 {
     [DbContext(typeof(PosLocalDbContext))]
-    partial class PosLocalDbContextModelSnapshot : ModelSnapshot
+    [Migration("20261005193952_MakeProductCatalaogOptional")]
+    partial class MakeProductCatalaogOptional
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "9.0.10");
@@ -989,6 +992,8 @@ namespace Inventory.LocalDB.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("Barcode");
+
                     b.HasIndex("CatalogProductId");
 
                     b.HasIndex("Name");
@@ -1001,22 +1006,15 @@ namespace Inventory.LocalDB.Migrations
 
                     b.HasIndex("UnitProductServerId");
 
-                    b.HasIndex("TenantId", "Barcode")
-                        .IsUnique()
-                        .HasDatabaseName("UX_Products_Tenant_Barcode")
-                        .HasFilter("\"Barcode\" IS NOT NULL AND trim(\"Barcode\") <> '' AND \"IsDeletedLocally\" = 0 AND \"IsActive\" = 1");
-
                     b.HasIndex("TenantId", "CatalogProductId")
                         .IsUnique()
-                        .HasDatabaseName("UX_Products_Tenant_CatalogProductId")
-                        .HasFilter("\"CatalogProductId\" IS NOT NULL AND \"IsDeletedLocally\" = 0");
+                        .HasFilter("CatalogProductId IS NOT NULL AND IsDeletedLocally = 0");
 
                     b.HasIndex("TenantId", "IsDeletedLocally");
 
                     b.HasIndex("TenantId", "ServerId")
                         .IsUnique()
-                        .HasDatabaseName("UX_Products_Tenant_ServerId")
-                        .HasFilter("\"ServerId\" IS NOT NULL");
+                        .HasFilter("ServerId IS NOT NULL");
 
                     b.ToTable("Products");
                 });
@@ -1081,10 +1079,7 @@ namespace Inventory.LocalDB.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("Barcode")
-                        .IsUnique()
-                        .HasDatabaseName("UX_ProductCatalogs_Active_Barcode")
-                        .HasFilter("\"Barcode\" IS NOT NULL AND trim(\"Barcode\") <> '' AND \"IsDeleted\" = 0");
+                    b.HasIndex("Barcode");
 
                     b.HasIndex("CategoryId");
 

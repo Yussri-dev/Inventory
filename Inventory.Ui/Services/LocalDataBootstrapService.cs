@@ -1,10 +1,11 @@
-using Inventory.Ui.Services.Sync;
+﻿using Inventory.Ui.Services.Sync;
 using Microsoft.Extensions.Logging;
 
 namespace Inventory.Ui.Services;
 
 public sealed class LocalDataBootstrapService
 {
+    private readonly Inventory.LocalDB.Context.PosLocalDbContext _db;
     private readonly ILocalSyncUploader _syncUploader;
 
     private readonly ILocalProductCategorySyncService _categorySync;
@@ -21,6 +22,7 @@ public sealed class LocalDataBootstrapService
     private readonly ILogger<LocalDataBootstrapService> _logger;
 
     public LocalDataBootstrapService(
+        Inventory.LocalDB.Context.PosLocalDbContext db,
         ILocalSyncUploader syncUploader,
         ILocalProductCategorySyncService categorySync,
         ILocalProductCatalogSyncService catalogSync,
@@ -33,6 +35,7 @@ public sealed class LocalDataBootstrapService
         SyncCoordinator syncCoordinator,
         ILogger<LocalDataBootstrapService> logger)
     {
+        _db = db;
         _syncUploader = syncUploader;
         _categorySync = categorySync;
         _catalogSync = catalogSync;
@@ -101,57 +104,22 @@ public sealed class LocalDataBootstrapService
         _logger.LogInformation(
             "Starting background synchronization.");
 
-        await ExecuteRequiredStepAsync(
-            "store profile",
-            () => _tenantStoreProfileSyncService
-                .SynchronizeAsync(cancellationToken),
-            cancellationToken);
-
-        await ExecuteRequiredStepAsync(
-            "product categories",
-            () => _categorySync
-                .FullSyncAsync(cancellationToken),
-            cancellationToken);
-
-        await ExecuteRequiredStepAsync(
-            "product catalogs",
-            () => _catalogSync
-                .FullSyncAsync(cancellationToken),
-            cancellationToken);
-
-        await ExecuteRequiredStepAsync(
-            "tenant products",
-            () => _productSync
-                .FullSyncAsync(cancellationToken),
-            cancellationToken);
-
-        /*
-         * Le stock est récupéré après l'upload des ventes,
-         * achats, retours et ajustements en attente.
-         */
-        //await ExecuteRequiredStepAsync(
-        //    "stocks",
-        //    () => _stockSync
-        //        .FullSyncAsync(cancellationToken),
-        //    cancellationToken);
-
-        await ExecuteRequiredStepAsync(
-            "customers",
-            () => _customerSync
-                .FullSyncAsync(cancellationToken),
-            cancellationToken);
-
-        await ExecuteRequiredStepAsync(
-            "suppliers",
-            () => _supplierSync
-                .FullSyncAsync(cancellationToken),
-            cancellationToken);
-
-        await ExecuteRequiredStepAsync(
-            "damages",
-            () => _damageSync
-                .FullSyncAsync(cancellationToken),
-            cancellationToken);
+        var failures = new List<string>();
+        async Task Pull(string name, Func<Task> action)
+        {
+            try { await ExecuteRequiredStepAsync(name, action, cancellationToken); }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex) { failures.Add(name + ": " + ex.GetBaseException().Message); }
+            finally { _db.ChangeTracker.Clear(); }
+        }
+        await Pull("store profile", () => _tenantStoreProfileSyncService.SynchronizeAsync(cancellationToken));
+        await Pull("product categories", () => _categorySync.FullSyncAsync(cancellationToken));
+        await Pull("product catalogs", () => _catalogSync.FullSyncAsync(cancellationToken));
+        await Pull("tenant products", () => _productSync.FullSyncAsync(cancellationToken));
+        await Pull("customers", () => _customerSync.FullSyncAsync(cancellationToken));
+        await Pull("suppliers", () => _supplierSync.FullSyncAsync(cancellationToken));
+        await Pull("damages", () => _damageSync.FullSyncAsync(cancellationToken));
+        if (failures.Count > 0) throw new InvalidOperationException(string.Join(" | ", failures));
 
         _logger.LogInformation(
             "Background synchronization completed.");
@@ -192,6 +160,52 @@ public sealed class LocalDataBootstrapService
                 $"The required synchronization step '{stepName}' failed.",
                 exception);
         }
+    }
+
+    public async Task ForceProductsFullSyncAsync(
+     CancellationToken cancellationToken = default)
+    {
+        _logger.LogWarning(
+            "Starting FORCED catalog/product synchronization.");
+
+        // 1. Categories
+        await ExecuteRequiredStepAsync(
+            "forced product categories",
+            () => _categorySync
+                .FullSyncAsync(cancellationToken),
+            cancellationToken);
+
+        _db.ChangeTracker.Clear();
+
+        // 2. Product catalogs
+        await ExecuteRequiredStepAsync(
+            "forced product catalogs",
+            () => _catalogSync
+                .FullSyncAsync(cancellationToken),
+            cancellationToken);
+
+        _db.ChangeTracker.Clear();
+
+        // 3. Tenant products
+        await ExecuteRequiredStepAsync(
+            "forced tenant products",
+            () => _productSync
+                .ForceFullSyncAsync(cancellationToken),
+            cancellationToken);
+
+        _db.ChangeTracker.Clear();
+
+        // 4. Stocks
+        await ExecuteRequiredStepAsync(
+            "forced stocks",
+            () => _stockSync
+                .FullSyncAsync(cancellationToken),
+            cancellationToken);
+
+        _db.ChangeTracker.Clear();
+
+        _logger.LogWarning(
+            "Forced catalog/product synchronization completed.");
     }
 
     public void NotifyAuthenticatedTenantReady()
