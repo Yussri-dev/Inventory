@@ -13,6 +13,8 @@ namespace Inventory.LocalDB.Models
         [Key]
         public Guid Id { get; set; } = Guid.NewGuid();
 
+        public CatalogApprovalStatus CatalogApprovalStatus { get; set; }
+                = CatalogApprovalStatus.NotRequested;
         /// <summary>
         /// Identifiant du Product dans la base serveur.
         /// Null tant que la création offline n'est pas synchronisée.

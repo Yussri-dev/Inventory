@@ -7,14 +7,12 @@ using Inventory.Dto.Enums;
 using Inventory.Dto.Pages.Results;
 using Inventory.Dto.ProductCatalogs.Requests;
 using Inventory.Dto.ProductCatalogs.Results;
-using Inventory.Dto.Products.Results;
 using Inventory.Dto.Queries;
 using Inventory.Infrastructure.Repositories;
 using Inventory.Services.Abstractions;
 using Inventory.Services.Context;
 using Inventory.Services.Exceptions;
 using Microsoft.EntityFrameworkCore;
-using QuestPDF.Helpers;
 
 namespace Inventory.Services
 {
@@ -46,7 +44,7 @@ namespace Inventory.Services
         // =========================
         // CREATE (SuperAdmin only)
         // =========================
-        public async Task<ProductCatalogResult> CreateAsync(CreateProductCatalogRequest request)
+        public async Task<ProductCatalogResult> CreateAsync(CreateProductCatalogRequest request, Guid? excludedTenantId = null)
         {
             var tenantId = _tenantContext.TenantId;
             var userId = _tenantContext.UserId;
@@ -173,8 +171,11 @@ namespace Inventory.Services
 
             await _unitOfWork.SaveChangesAsync();
 
-            await _productProvisioningService.ProvisionCatalogProductToAllTenantsAsync(entity.Id, userId);
-
+            await _productProvisioningService
+                .ProvisionCatalogProductToAllTenantsAsync(
+                    entity.Id,
+                    userId,
+                    excludedTenantId);
 
             return _mapper.Map<ProductCatalogResult>(entity);
         }

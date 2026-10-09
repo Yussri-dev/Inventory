@@ -1,5 +1,5 @@
 ﻿using Inventory.Domain.Entities;
-using Inventory.Domain.Enums;
+using Inventory.Dto.Enums;
 using Inventory.Infrastructure.Data;
 using Inventory.Services.Abstractions;
 using Microsoft.EntityFrameworkCore;
@@ -190,9 +190,10 @@ namespace Inventory.Services
         }
 
         public async Task<int> ProvisionCatalogProductToAllTenantsAsync(
-    Guid catalogProductId,
-    Guid createdByUserId,
-    CancellationToken cancellationToken = default)
+            Guid catalogProductId,
+            Guid createdByUserId,
+            Guid? excludedTenantId = null,
+            CancellationToken cancellationToken = default)
         {
             if (catalogProductId == Guid.Empty)
                 throw new ArgumentException("Catalog product id is required.", nameof(catalogProductId));
@@ -210,8 +211,11 @@ namespace Inventory.Services
                 throw new InvalidOperationException("Catalog product not found.");
 
             var tenants = await _context.Tenants
-                .Where(x => x.IsActive)
-                .ToListAsync(cancellationToken);
+             .Where(x =>
+                 x.IsActive &&
+                 (!excludedTenantId.HasValue ||
+                  x.Id != excludedTenantId.Value))
+             .ToListAsync(cancellationToken);
 
             if (tenants.Count == 0)
                 return 0;

@@ -25,5 +25,9 @@ namespace Inventory.LocalDB.Services.Interfaces
         Task UpsertAsync(LocalProduct product);
 
         Task<List<LocalProduct>> SearchAsync(string search, int take = 50);
+
+        Task<ProductResult> RequestCatalogApprovalAsync(Guid id, CancellationToken cancellationToken = default);
+
+        Task<LocalProduct?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
     }
 }

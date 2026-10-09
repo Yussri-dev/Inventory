@@ -1,34 +1,367 @@
 <!doctype html>
 <html lang="fr">
 <head>
-  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'">
-  <title>Inventory — Support magasins</title><link rel="stylesheet" href="support.css">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <meta http-equiv="Content-Security-Policy"
+          content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'">
+
+    <title>Inventory — Support magasins</title>
+
+    <link rel="stylesheet" href="support.css">
 </head>
+
 <body>
-<header><div><span class="brand">INVENTORY</span><h1>Support magasins</h1></div><button id="logout" hidden>Se déconnecter</button></header>
-<main>
-  <p id="message" role="status" aria-live="polite">Connectez-vous avec votre compte administrateur.</p>
-  <section id="loginPanel"><h2>Connexion</h2><form id="login">
-    <label>Email<input id="email" type="email" autocomplete="username" required></label>
-    <label>Mot de passe<input id="password" type="password" autocomplete="current-password" required></label>
-    <button>Se connecter</button>
-  </form></section>
-  <div id="workspace" hidden>
-    <section><label>Magasin<select id="store"></select></label><p>Les corrections sont enregistrées en ligne. Les postes les récupèrent à leur prochaine synchronisation, après mise à jour de l’application.</p></section>
-    <section><h2>1. Retrouver la vente</h2><form id="saleSearch"><label>Numéro de ticket<input id="saleQuery" maxlength="100" placeholder="Rechercher ou laisser vide pour les dernières ventes"></label><button>Rechercher</button></form>
-      <div class="table"><table><thead><tr><th>Ticket</th><th>Date</th><th>Client</th><th>Total</th><th>Action</th></tr></thead><tbody id="sales"></tbody></table></div>
-    </section>
-    <section id="correctionPanel" hidden><h2>2. Corriger le client</h2><p id="selectedSale"></p>
-      <form id="customerSearch"><label>Nom du bon client<input id="customerQuery" maxlength="200"></label><button>Rechercher le client</button></form>
-      <form id="correction"><label>Nouveau client<select id="customer" required></select></label>
-        <label>Motif<textarea id="reason" required minlength="3" maxlength="500" placeholder="Ex. : client sélectionné par erreur à la caisse"></textarea></label>
-        <p>Une dette vérifiable sera transférée au nouveau client. Les dossiers avec retours ou règlements ambigus seront refusés avec une explication.</p>
-        <button id="reviewButton">Vérifier la correction</button>
-      </form>
-      <div id="review" hidden><p id="reviewText"></p><button id="confirm">Confirmer la correction</button><button id="cancel" class="secondary">Annuler</button></div>
-    </section>
-    <section><h2>Historique des corrections</h2><button id="refreshHistory" class="secondary">Actualiser</button><div class="table"><table><thead><tr><th>Date</th><th>Ticket</th><th>Motif</th><th>Dette transférée</th><th>Référence</th></tr></thead><tbody id="history"></tbody></table></div></section>
-  </div>
-</main><script src="support.js"></script>
-</body></html>
+
+    <header>
+        <div>
+            <span class="brand">INVENTORY</span>
+            <h1>Support magasins</h1>
+        </div>
+
+        <button id="logout" hidden>
+            Se déconnecter
+        </button>
+    </header>
+
+    <main>
+
+        <p id="message"
+           role="status"
+           aria-live="polite">
+            Connectez-vous avec votre compte administrateur.
+        </p>
+
+        <!-- ========================= -->
+        <!-- LOGIN -->
+        <!-- ========================= -->
+
+        <section id="loginPanel">
+
+            <h2>Connexion</h2>
+
+            <form id="login">
+
+                <label>
+                    Email
+
+                    <input id="email"
+                           type="email"
+                           autocomplete="username"
+                           required>
+                </label>
+
+                <label>
+                    Mot de passe
+
+                    <input id="password"
+                           type="password"
+                           autocomplete="current-password"
+                           required>
+                </label>
+
+                <button>
+                    Se connecter
+                </button>
+
+            </form>
+
+        </section>
+
+
+        <!-- ========================= -->
+        <!-- WORKSPACE -->
+        <!-- ========================= -->
+
+        <div id="workspace" hidden>
+
+
+            <!-- ========================= -->
+            <!-- STORE -->
+            <!-- ========================= -->
+
+            <section>
+
+                <label>
+                    Magasin
+
+                    <select id="store"></select>
+                </label>
+
+                <p>
+                    Les corrections sont enregistrées en ligne.
+                    Les postes les récupèrent à leur prochaine synchronisation,
+                    après mise à jour de l’application.
+                </p>
+
+            </section>
+
+
+            <!-- ========================= -->
+            <!-- SALES -->
+            <!-- ========================= -->
+
+            <section>
+
+                <h2>1. Retrouver la vente</h2>
+
+                <form id="saleSearch">
+
+                    <label>
+                        Numéro de ticket
+
+                        <input id="saleQuery"
+                               maxlength="100"
+                               placeholder="Rechercher ou laisser vide pour les dernières ventes">
+                    </label>
+
+                    <button>
+                        Rechercher
+                    </button>
+
+                </form>
+
+                <div class="table">
+
+                    <table>
+
+                        <thead>
+                            <tr>
+                                <th>Ticket</th>
+                                <th>Date</th>
+                                <th>Client</th>
+                                <th>Total</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+
+                        <tbody id="sales"></tbody>
+
+                    </table>
+
+                </div>
+
+            </section>
+
+
+            <!-- ========================= -->
+            <!-- CUSTOMER CORRECTION -->
+            <!-- ========================= -->
+
+            <section id="correctionPanel" hidden>
+
+                <h2>2. Corriger le client</h2>
+
+                <p id="selectedSale"></p>
+
+                <form id="customerSearch">
+
+                    <label>
+                        Nom du bon client
+
+                        <input id="customerQuery"
+                               maxlength="200">
+                    </label>
+
+                    <button>
+                        Rechercher le client
+                    </button>
+
+                </form>
+
+
+                <form id="correction">
+
+                    <label>
+                        Nouveau client
+
+                        <select id="customer"
+                                required>
+                        </select>
+                    </label>
+
+                    <label>
+                        Motif
+
+                        <textarea id="reason"
+                                  required
+                                  minlength="3"
+                                  maxlength="500"
+                                  placeholder="Ex. : client sélectionné par erreur à la caisse">
+          </textarea>
+                    </label>
+
+                    <p>
+                        Une dette vérifiable sera transférée au nouveau client.
+                        Les dossiers avec retours ou règlements ambigus seront refusés
+                        avec une explication.
+                    </p>
+
+                    <button id="reviewButton">
+                        Vérifier la correction
+                    </button>
+
+                </form>
+
+
+                <div id="review" hidden>
+
+                    <p id="reviewText"></p>
+
+                    <button id="confirm">
+                        Confirmer la correction
+                    </button>
+
+                    <button id="cancel"
+                            class="secondary">
+                        Annuler
+                    </button>
+
+                </div>
+
+            </section>
+
+
+            <!-- ========================= -->
+            <!-- CATALOG APPROVALS -->
+            <!-- ========================= -->
+
+            <section>
+
+                <h2>Demandes catalogue</h2>
+
+                <p>
+                    Produits personnalisés soumis par les magasins
+                    pour intégration dans le catalogue global.
+                </p>
+
+                <button id="refreshCatalogApprovals"
+                        class="secondary">
+                    Actualiser
+                </button>
+
+                <div class="table">
+
+                    <table>
+
+                        <thead>
+                            <tr>
+                                <th>Magasin</th>
+                                <th>Produit</th>
+                                <th>Barcode</th>
+                                <th>Marque</th>
+                                <th>Catégorie</th>
+                                <th>Unité</th>
+                                <th>Approuver</th>
+                                <th>Refuser</th>
+                            </tr>
+                        </thead>
+
+                        <tbody id="catalogApprovals"></tbody>
+
+                    </table>
+
+                </div>
+
+                <div id="catalogApprovalPanel" hidden>
+
+                    <h3>Approuver le produit</h3>
+
+                    <p id="catalogApprovalProduct"></p>
+
+                    <form id="catalogApprovalForm">
+
+                        <label>
+                            Catégorie
+
+                            <select id="catalogCategoryId" required>
+                                <option value="">
+                                    -- Sélectionner une catégorie --
+                                </option>
+                            </select>
+                        </label>
+
+                        <label>
+                            Fabricant
+                            <input id="catalogManufacturer"
+                                   maxlength="100">
+                        </label>
+
+                        <label>
+                            Mode de vente
+                            <select id="catalogSellingMode" required>
+                                <option value="Unit">Unité</option>
+                                <option value="Weight">Poids</option>
+                            </select>
+                        </label>
+
+                        <label>
+                            Unité de mesure
+                            <select id="catalogUnitOfMeasure" required>
+                                <option value="pcs">pcs</option>
+                                <option value="kg">kg</option>
+                                <option value="g">g</option>
+                                <option value="l">l</option>
+                            </select>
+                        </label>
+
+                        <button type="submit">
+                            Confirmer l’approbation
+                        </button>
+
+                        <button type="button"
+                                id="cancelCatalogApproval"
+                                class="secondary">
+                            Annuler
+                        </button>
+
+                    </form>
+
+                </div>
+            </section>
+
+
+            <!-- ========================= -->
+            <!-- HISTORY -->
+            <!-- ========================= -->
+
+            <section>
+
+                <h2>Historique des corrections</h2>
+
+                <button id="refreshHistory"
+                        class="secondary">
+                    Actualiser
+                </button>
+
+                <div class="table">
+
+                    <table>
+
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Ticket</th>
+                                <th>Motif</th>
+                                <th>Dette transférée</th>
+                                <th>Référence</th>
+                            </tr>
+                        </thead>
+
+                        <tbody id="history"></tbody>
+
+                    </table>
+
+                </div>
+
+            </section>
+
+        </div>
+
+    </main>
+
+    <script src="support.js"></script>
+
+</body>
+</html>

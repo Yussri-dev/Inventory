@@ -55,12 +55,14 @@ public static class MauiProgram
         builder.Logging.AddDebug();
 #endif
 
-#if ANDROID
-        //const string apiBaseUrl = "https://10.0.2.2:8080";
-        const string apiBaseUrl = "https://10.0.2.2:7190";
-#else
-        const string apiBaseUrl = "https://localhost:7190";
-#endif
+        //#if ANDROID
+        //        //const string apiBaseUrl = "https://10.0.2.2:8080";
+        //        const string apiBaseUrl = "https://10.0.2.2:7190";
+        //#else
+        //                const string apiBaseUrl = "https://localhost:7190";
+        //#endif
+
+        const string apiBaseUrl = "https://api.ventepilote.com";
 
         builder.Services.AddHttpClient<Inventory.Ui.Services.Updates.IAppUpdateService, Inventory.Ui.Services.Updates.AppUpdateService>(client =>
         {

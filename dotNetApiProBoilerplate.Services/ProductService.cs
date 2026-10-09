@@ -1,6 +1,7 @@
 ﻿using AutoMapper;
 using AutoMapper.QueryableExtensions;
 using Inventory.Domain.Entities;
+using Inventory.Dto.Enums;
 using Inventory.Dto.Pages.Results;
 using Inventory.Dto.Products.Requests;
 using Inventory.Dto.Products.Results;
@@ -368,6 +369,62 @@ namespace Inventory.Services
             await _unitOfWork.SaveChangesAsync();
 
             return true;
+        }
+
+        public async Task<ProductResult> RequestCatalogApprovalAsync(Guid id)
+        {
+            var tenantId = _tenantContext.TenantId;
+            var userId = _tenantContext.UserId;
+
+            if (tenantId == Guid.Empty)
+            {
+                throw new UnauthorizedAccessException(
+                    "No tenant is associated with the current session.");
+            }
+
+            var product = await _repository.GetByIdAsync(id);
+
+            if (product == null ||
+                product.IsDeleted ||
+                product.TenantId != tenantId)
+            {
+                throw new NotFoundException("Product", id);
+            }
+
+            // Seuls les produits personnalisés peuvent être proposés.
+            if (product.CatalogProductId.HasValue &&
+                product.CatalogProductId.Value != Guid.Empty)
+            {
+                throw new ValidationException(
+                    "This product is already linked to the global catalog.");
+            }
+
+            if (product.CatalogApprovalStatus ==
+                CatalogApprovalStatus.Approved)
+            {
+                throw new ValidationException(
+                    "This product has already been approved.");
+            }
+
+            // Idempotent : s'il est déjà Pending, pas besoin d'échouer.
+            if (product.CatalogApprovalStatus !=
+                CatalogApprovalStatus.Pending)
+            {
+                product.CatalogApprovalStatus =
+                    CatalogApprovalStatus.Pending;
+
+                product.ModifiedAt =
+                    DateTime.UtcNow;
+
+                product.ModifiedByUserId =
+                    userId;
+
+                _repository.Update(product);
+
+                await _unitOfWork.SaveChangesAsync();
+            }
+
+            return _mapper.Map<ProductResult>(product);
         }
 
         // PAGINATION + FILTERING + SORTING
@@ -746,6 +803,24 @@ namespace Inventory.Services
                 Page = query.Page,
                 PageSize = query.PageSize
             };
+        }
+
+        public async Task<List<ProductResult>> GetPendingCatalogApprovalsAsync(CancellationToken cancellationToken = default)
+        {
+            var products =
+                await _repository.Query()
+                    .AsNoTracking()
+                    .Where(x =>
+                        !x.IsDeleted &&
+                        x.CatalogProductId == null &&
+                        x.CatalogApprovalStatus ==
+                            CatalogApprovalStatus.Pending)
+                    .OrderBy(x => x.CreatedAt)
+                    .ProjectTo<ProductResult>(
+                        _mapper.ConfigurationProvider)
+                    .ToListAsync(cancellationToken);
+
+            return products;
         }
     }
 }

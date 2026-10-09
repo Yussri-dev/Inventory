@@ -1,5 +1,5 @@
 ﻿using Inventory.Domain.Abstraction;
-using Inventory.Domain.Enums;
+using Inventory.Dto.Enums;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
@@ -11,6 +11,9 @@ namespace Inventory.Domain.Entities
         public Guid Id { get; set; }
 
         public Guid? CatalogProductId { get; set; }
+
+        public CatalogApprovalStatus CatalogApprovalStatus { get; set; } = 
+            CatalogApprovalStatus.NotRequested;
 
         [ForeignKey(nameof(CatalogProductId))]
         public ProductCatalog? CatalogProduct { get; set; }

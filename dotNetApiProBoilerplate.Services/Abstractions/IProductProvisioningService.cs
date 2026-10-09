@@ -8,9 +8,10 @@
             CancellationToken cancellationToken = default);
 
         Task<int> ProvisionCatalogProductToAllTenantsAsync(
-            Guid catalogProductId,
-            Guid createdByUserId,
-            CancellationToken cancellationToken = default);
+             Guid catalogProductId,
+             Guid createdByUserId,
+             Guid? excludedTenantId = null,
+             CancellationToken cancellationToken = default);
     }
 
 }

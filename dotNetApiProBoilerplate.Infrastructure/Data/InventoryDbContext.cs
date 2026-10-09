@@ -163,7 +163,7 @@ namespace Inventory.Infrastructure.Data
              "AND \"IsDeleted\" = FALSE");
 
             builder.Entity<Product>().HasIndex(e => e.Sku);
-            
+
             builder.Entity<Product>()
             .HasIndex(product => new
             {
@@ -182,7 +182,13 @@ namespace Inventory.Infrastructure.Data
             builder.Entity<PackComponent>().HasIndex(e => e.ComponentCatalogId);
             builder.Entity<ProductCatalog>().HasIndex(e => e.Barcode);
             builder.Entity<ProductCatalog>().HasIndex(e => e.InternalCode);
-            builder.Entity<ProductCategory>().HasIndex(e => e.Name);
+
+            builder.Entity<ProductCategory>(entity =>
+            {
+                entity.ToTable("ProductCategory");
+
+                entity.HasIndex(x => x.Name);
+            });
 
             builder.Entity<ProductCatalog>(entity =>
             {
@@ -605,7 +611,7 @@ namespace Inventory.Infrastructure.Data
                         .OnDelete(
                             DeleteBehavior.Restrict);
                 });
-            }
+        }
 
 
 
@@ -619,7 +625,7 @@ namespace Inventory.Infrastructure.Data
         // Products & Catalog
         public DbSet<Product> Products => Set<Product>();
         public DbSet<ProductCatalog> ProductCatalogs => Set<ProductCatalog>();
-
+        public DbSet<ProductCategory> ProductCategories => Set<ProductCategory>();
         // Sales & Transactions
         public DbSet<Sale> Sales => Set<Sale>();
         public DbSet<SaleLine> SaleLines => Set<SaleLine>();

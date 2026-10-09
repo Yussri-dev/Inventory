@@ -2804,30 +2804,41 @@ namespace Inventory.Ui.Services.Sync
                 return;
             }
 
-            if (product.CatalogProductId == null || product.CatalogProductId == Guid.Empty)
-            {
-                product.SyncStatus = SyncQueueStatus.Conflict;
+            //if (product.CatalogProductId == null || product.CatalogProductId == Guid.Empty)
+            //{
+            //    product.SyncStatus = SyncQueueStatus.Conflict;
 
-                queueItem.Status = SyncQueueStatus.Conflict;
-                queueItem.ErrorMessage = "Product has no CatalogProductId.";
+            //    queueItem.Status = SyncQueueStatus.Conflict;
+            //    queueItem.ErrorMessage = "Product has no CatalogProductId.";
 
-                result.Failed++;
-                result.Messages.Add($"Product {product.Name} conflict: missing CatalogProductId.");
+            //    result.Failed++;
+            //    result.Messages.Add($"Product {product.Name} conflict: missing CatalogProductId.");
 
-                await _db.SaveChangesAsync(cancellationToken);
-                return;
-            }
+            //    await _db.SaveChangesAsync(cancellationToken);
+            //    return;
+            //}
 
             var request = new CreateProductRequest
             {
-                CatalogProductId = product.CatalogProductId.Value,
+                CatalogProductId = product.CatalogProductId,
+
+                Name = product.Name,
+                Sku = product.Sku,
+                Barcode = product.Barcode,
+                Description = product.Description,
+                Brand = product.Brand,
+                Category = product.Category,
+                Unit = product.Unit,
+
                 SalePrice = product.SalePrice,
                 SalePrice2 = product.SalePrice2,
                 SalePrice3 = product.SalePrice3,
                 PurchasePrice = product.PurchasePrice,
                 VatRate = product.VatRate,
+
                 MinStockLevel = product.MinStockLevel,
                 MaxStockLevel = product.MaxStockLevel,
+
                 IsTracked = product.IsTracked,
                 IsActive = product.Status
             };

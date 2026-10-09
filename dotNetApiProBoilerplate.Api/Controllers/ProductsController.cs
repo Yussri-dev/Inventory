@@ -1,10 +1,12 @@
 ﻿using Inventory.Dto.Products.Requests;
+using Inventory.Dto.Products.Results;
 using Inventory.Dto.Queries;
 using Inventory.Services.Features.BarcodeLabels.Generate;
 using Inventory.Services.Features.Products.Create;
 using Inventory.Services.Features.Products.Delete;
 using Inventory.Services.Features.Products.GetAll;
 using Inventory.Services.Features.Products.GetById;
+using Inventory.Services.Features.Products.RequestCatalogApproval;
 using Inventory.Services.Features.Products.Search;
 using Inventory.Services.Features.Products.Update;
 using MediatR;
@@ -147,6 +149,19 @@ namespace Inventory.Api.Controllers
         {
             var result = await _mediator.Send(
                 new SearchProductsForAdminQuery(query),
+                cancellationToken);
+
+            return Ok(result);
+        }
+
+        [HttpPost("{id:guid}/request-catalog-approval")]
+        [ProducesResponseType(typeof(ProductResult), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<IActionResult> RequestCatalogApproval(Guid id, CancellationToken cancellationToken)
+        {
+            var result = await _mediator.Send(
+                new RequestCatalogApprovalCommand(id),
                 cancellationToken);
 
             return Ok(result);

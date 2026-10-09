@@ -5,6 +5,7 @@
 @using Inventory.Ui.Services.Labels
 @using Inventory.Ui.Services.Sync
 @using Microsoft.JSInterop
+@using Inventory.Ui.Interfaces
 
 @implements IAsyncDisposable
 @attribute [Microsoft.AspNetCore.Authorization.Authorize]
@@ -14,8 +15,9 @@
 @inject ILocalProductCatalogQueryService LocalCatalogQuery
 @inject ILocalBarcodeLabelService LocalLabelService
 @inject ILogger<Product> Logger
-
+@inject IProductApi ProductApi
 @inject IJSRuntime JS
+@inject ILocalBulkSyncUploader BulkSyncUploader
 
 <h3>Products</h3>
 
@@ -590,6 +592,28 @@
 
                         <td class="actions-end">
 
+                            @if (!product.CatalogProductId.HasValue)
+                            {
+                                @if (product.CatalogApprovalStatus ==
+                                     CatalogApprovalStatus.NotRequested ||
+                                     product.CatalogApprovalStatus ==
+                                     CatalogApprovalStatus.Rejected)
+                                {
+                                    <button class="btn small primary"
+                                            @onclick="() => RequestCatalogApprovalAsync(product)"
+                                            disabled="@isLoading">
+                                        Request catalog
+                                    </button>
+                                }
+                                else if (product.CatalogApprovalStatus ==
+                                         CatalogApprovalStatus.Pending)
+                                {
+                                    <span class="badge warning">
+                                        Pending
+                                    </span>
+                                }
+                            }
+
                             <button class="btn small ghost"
                                     @onclick="() => StartEditAsync(product)"
                                     disabled="@isLoading">
@@ -1035,7 +1059,7 @@
 
     private async Task Search()
     {
-        searchTerm = searchTerm.ToUpper().Trim();
+        searchTerm = searchTerm.Trim();
 
         isSearching =
             !string.IsNullOrWhiteSpace(searchTerm);
@@ -1087,6 +1111,7 @@
         await StartToastTimerAsync(
             clearSuccess: true);
     }
+
     private async Task StartToastTimerAsync(
         bool clearSuccess)
     {
@@ -1871,6 +1896,79 @@
         catch (OperationCanceledException)
         {
             // Un nouveau message a remplacé le précédent.
+        }
+    }
+
+    private async Task RequestCatalogApprovalAsync(
+    ProductResult product)
+    {
+        if (isLoading)
+            return;
+
+        try
+        {
+            isLoading = true;
+            ClearMessages();
+
+            var localProduct =
+                await LocalProductService.GetByIdAsync(
+                    product.Id);
+
+            if (localProduct == null)
+            {
+                ShowError("Local product not found.");
+                return;
+            }
+
+            // Le produit n'existe pas encore sur le serveur :
+            // synchroniser uniquement les produits Pending,
+            // avec un seul batch.
+            if (!localProduct.ServerId.HasValue ||
+                localProduct.ServerId.Value == Guid.Empty)
+            {
+                await BulkSyncUploader.SyncPendingAsync(
+                    new[] { "Product" },
+                    batchSize: 100,
+                    maximumBatches: 1);
+
+                // Relire depuis SQLite car le result handler
+                // doit avoir enregistré le ServerId.
+                localProduct =
+                    await LocalProductService.GetByIdAsync(
+                        product.Id);
+            }
+
+            if (localProduct == null ||
+                !localProduct.ServerId.HasValue ||
+                localProduct.ServerId.Value == Guid.Empty)
+            {
+                ShowError(
+                    "Product synchronization failed. The product still has no ServerId.");
+
+                return;
+            }
+
+            await ProductApi.RequestCatalogApproval(
+                localProduct.ServerId.Value);
+
+            await LocalProductService
+                .RequestCatalogApprovalAsync(
+                    product.Id);
+
+            await LoadData();
+
+            ShowSuccess(
+                $"Catalog approval requested for '{product.Name}'.");
+        }
+        catch (Exception exception)
+        {
+            ShowError(
+                $"Catalog approval request failed: " +
+                $"{exception.GetBaseException().Message}");
+        }
+        finally
+        {
+            isLoading = false;
         }
     }
 

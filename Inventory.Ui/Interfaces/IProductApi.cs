@@ -45,4 +45,9 @@ public interface IProductApi
     Task<HttpResponseMessage> GetLabel(
         Guid id,
         CancellationToken cancellationToken = default);
+
+    [Post("/api/v1/products/{id}/request-catalog-approval")]
+    Task<ProductResult> RequestCatalogApproval(
+        Guid id,
+        CancellationToken cancellationToken = default);
 }

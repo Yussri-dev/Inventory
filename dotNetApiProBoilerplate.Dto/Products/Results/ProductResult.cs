@@ -8,6 +8,8 @@ namespace Inventory.Dto.Products.Results
 
         public Guid? CatalogProductId { get; init; }
 
+        public CatalogApprovalStatus CatalogApprovalStatus { get; set; }
+
         public string Name { get; init; } = null!;
 
         public string? Sku { get; init; }

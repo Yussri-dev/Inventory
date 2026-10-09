@@ -693,6 +693,8 @@ public sealed class LocalProductSyncService
             NormalizeGuid(
                 serverProduct.CatalogProductId);
 
+        localProduct.CatalogApprovalStatus = serverProduct.CatalogApprovalStatus;
+
         var isCatalogProduct =
             catalog != null;
 

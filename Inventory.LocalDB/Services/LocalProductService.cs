@@ -474,19 +474,22 @@ public sealed class LocalProductService : ILocalProductService
 
         if (!string.IsNullOrWhiteSpace(query.Search))
         {
-            var term =
-                query.Search.ToUpper().Trim();
+            var term = query.Search.Trim();
 
             productsQuery = productsQuery.Where(x =>
-                x.Name.Contains(term) ||
+                EF.Functions.Like(x.Name, $"%{term}%") ||
+
                 (x.Barcode != null &&
-                 x.Barcode.Contains(term)) ||
+                 EF.Functions.Like(x.Barcode, $"%{term}%")) ||
+
                 (x.Sku != null &&
-                 x.Sku.Contains(term)) ||
+                 EF.Functions.Like(x.Sku, $"%{term}%")) ||
+
                 (x.Brand != null &&
-                 x.Brand.Contains(term)) ||
+                 EF.Functions.Like(x.Brand, $"%{term}%")) ||
+
                 (x.Category != null &&
-                 x.Category.Contains(term)));
+                 EF.Functions.Like(x.Category, $"%{term}%")));
         }
 
         var totalCount =
@@ -899,6 +902,7 @@ public sealed class LocalProductService : ILocalProductService
                     CatalogProductId =
                         product.CatalogProductId,
 
+
                     Name =
                         product.Name,
 
@@ -1119,6 +1123,88 @@ public sealed class LocalProductService : ILocalProductService
             DateTime.UtcNow;
     }
 
+    public async Task<ProductResult> RequestCatalogApprovalAsync(
+    Guid id,
+    CancellationToken cancellationToken = default)
+    {
+        if (id == Guid.Empty)
+        {
+            throw new ArgumentException(
+                "Product ID cannot be empty.",
+                nameof(id));
+        }
+
+        var tenantId =
+            _tenantContext.GetRequiredTenantId();
+
+        var product =
+            await _db.Products
+                .FirstOrDefaultAsync(
+                    x =>
+                        x.Id == id &&
+                        x.TenantId == tenantId &&
+                        !x.IsDeletedLocally,
+                    cancellationToken);
+
+        if (product == null)
+        {
+            throw new InvalidOperationException(
+                "Local product not found.");
+        }
+
+        if (!product.ServerId.HasValue ||
+            product.ServerId.Value == Guid.Empty)
+        {
+            throw new InvalidOperationException(
+                "Product must be synchronized before requesting catalog approval.");
+        }
+
+        if (product.CatalogProductId.HasValue &&
+            product.CatalogProductId.Value != Guid.Empty)
+        {
+            throw new InvalidOperationException(
+                "This product is already linked to the global catalog.");
+        }
+
+        if (product.CatalogApprovalStatus ==
+            CatalogApprovalStatus.Approved)
+        {
+            throw new InvalidOperationException(
+                "This product has already been approved.");
+        }
+
+        product.CatalogApprovalStatus =
+            CatalogApprovalStatus.Pending;
+
+        product.ModifiedAtUtc =
+            DateTime.UtcNow;
+
+        await _db.SaveChangesAsync(
+            cancellationToken);
+
+        return ToResult(product);
+    }
+
+    public async Task<LocalProduct?> GetByIdAsync(
+    Guid id,
+    CancellationToken cancellationToken = default)
+    {
+        if (id == Guid.Empty)
+            return null;
+
+        var tenantId =
+            _tenantContext.GetRequiredTenantId();
+
+        return await _db.Products
+            .AsNoTracking()
+            .FirstOrDefaultAsync(
+                x =>
+                    x.Id == id &&
+                    x.TenantId == tenantId &&
+                    !x.IsDeletedLocally,
+                cancellationToken);
+    }
+
     private static ProductResult ToResult(
     LocalProduct product)
     {
@@ -1129,6 +1215,8 @@ public sealed class LocalProductService : ILocalProductService
 
             CatalogProductId =
                 product.CatalogProductId,
+
+            CatalogApprovalStatus = product.CatalogApprovalStatus,
 
             Name =
                 product.Name,
