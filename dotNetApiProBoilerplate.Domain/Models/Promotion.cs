@@ -47,6 +47,8 @@ namespace Inventory.Domain.Models
         public Guid? ApplicableToProductId { get; set; }
 
         public bool CombinableWithOtherPromotions { get; set; }
+
+        public string? Notes { get; set; }
     }
 
 }
