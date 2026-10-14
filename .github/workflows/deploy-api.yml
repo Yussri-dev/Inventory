@@ -19,6 +19,27 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 9
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+
+      - name: Restore dotnet tools
+        run: dotnet tool restore
+
+      - name: Build EF migration bundle
+        run: |
+          dotnet ef migrations bundle \
+            --context InventoryDbContext \
+            --project dotNetApiProBoilerplate.Infrastructure/Inventory.Infrastructure.csproj \
+            --startup-project dotNetApiProBoilerplate.Api/Inventory.Api.csproj \
+            --self-contained \
+            --target-runtime linux-x64 \
+            --output efbundle
+
       - name: Restore SSH key
         shell: bash
         run: |
@@ -31,6 +52,20 @@ jobs:
         run: |
           mkdir -p ~/.ssh
           ssh-keyscan -T 10 -H "${{ secrets.VPS_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Upload EF migration bundle
+        shell: bash
+        run: |
+          scp \
+            -i ~/.ssh/id_ed25519 \
+            efbundle \
+            "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/opt/ventepilote/efbundle"
+
+      - name: Make EF bundle executable
+        shell: bash
+        run: |
+          ssh "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" \
+            "chmod +x /opt/ventepilote/efbundle"
 
       - name: Deploy API on VPS
         shell: bash
@@ -54,5 +89,5 @@ jobs:
 
             curl --fail --silent --show-error \
               https://api.ventepilote.com/support/index.html \
-            > /dev/null
+              > /dev/null
           EOF
