@@ -188,9 +188,7 @@ namespace Inventory.Api.Controllers
         }
 
         [HttpPut("pending/{id:guid}")]
-        public async Task<IActionResult> UpdatePending(
-    Guid id,
-    [FromBody] CreatePendingSaleRequest request)
+        public async Task<IActionResult> UpdatePending(Guid id, [FromBody] CreatePendingSaleRequest request)
         {
             var result = await _saleService.UpdatePendingAsync(id, request);
             return Ok(result);
