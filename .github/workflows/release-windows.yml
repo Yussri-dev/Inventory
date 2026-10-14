@@ -120,15 +120,13 @@ jobs:
         run: |
           $keyPath = "$env:RUNNER_TEMP\github_actions_ventepilote"
 
-          $sshKey = @'
-          ${{ secrets.VPS_SSH_KEY }}
-          '@
+          $sshKey = "${{ secrets.VPS_SSH_KEY }}"
 
-          $sshKey = $sshKey.Trim() -replace "`r`n", "`n"
+          $sshKey = $sshKey -replace "`r`n", "`n"
 
           [System.IO.File]::WriteAllText(
               $keyPath,
-              $sshKey + "`n",
+              $sshKey,
               [System.Text.UTF8Encoding]::new($false)
           )
 
@@ -137,12 +135,16 @@ jobs:
 
           scp `
             -i $keyPath `
+            -o BatchMode=yes `
+            -o ConnectTimeout=15 `
             -o StrictHostKeyChecking=no `
             "$env:MSIX_PATH" `
             "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/opt/ventepilote/updates/$env:MSIX_NAME"
 
           scp `
             -i $keyPath `
+            -o BatchMode=yes `
+            -o ConnectTimeout=15 `
             -o StrictHostKeyChecking=no `
             "$env:APPINSTALLER_PATH" `
             "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/opt/ventepilote/updates/Inventory.Ui.appinstaller"
