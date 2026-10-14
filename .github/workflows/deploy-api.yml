@@ -35,7 +35,7 @@ jobs:
           ConnectionStrings__DefaultConnection: "Host=localhost;Port=5432;Database=inventory_design;Username=design;Password=design"
           Jwt__Issuer: "Inventory.Design"
           Jwt__Audience: "Inventory.Design"
-          Jwt__Key: "InventoryDesignOnlyKey-NotForProduction-12345678901234567890"
+          Jwt__Key: "${{ secrets.DESIGN_JWT_KEY }}"
 
         run: |
           dotnet ef migrations bundle \
