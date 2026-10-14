@@ -1,0 +1,149 @@
+name: Release Windows
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 9
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+
+      - name: Install .NET MAUI workload
+        run: dotnet workload install maui
+
+      - name: Restore dependencies
+        run: dotnet restore Inventory.Ui/Inventory.Ui.csproj
+
+      - name: Restore signing certificate
+        shell: pwsh
+        run: |
+          $certificateBytes = [Convert]::FromBase64String("${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}")
+          [IO.File]::WriteAllBytes("$env:RUNNER_TEMP\InventoryPOS.pfx", $certificateBytes)
+
+      - name: Import signing certificate
+        shell: pwsh
+        run: |
+          $password = ConvertTo-SecureString "${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}" -AsPlainText -Force
+
+          Import-PfxCertificate `
+            -FilePath "$env:RUNNER_TEMP\InventoryPOS.pfx" `
+            -CertStoreLocation Cert:\CurrentUser\My `
+            -Password $password
+
+      - name: Get version from tag
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart("v")
+          "APP_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Set Windows package version
+        shell: pwsh
+        run: |
+          $packageVersion = "$env:APP_VERSION.${{ github.run_number }}"
+          "PACKAGE_VERSION=$packageVersion" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+          Write-Host "App version: $env:APP_VERSION"
+          Write-Host "Package version: $packageVersion"
+
+      - name: Build Windows MSIX
+        shell: pwsh
+        run: |
+          dotnet publish Inventory.Ui/Inventory.Ui.csproj `
+            -c Release `
+            -f net9.0-windows10.0.19041.0 `
+            -p:RuntimeIdentifierOverride=win10-x64 `
+            -p:ApplicationDisplayVersion=$env:APP_VERSION `
+            -p:ApplicationVersion=${{ github.run_number }} `
+            -p:GenerateAppxPackageOnBuild=true `
+            -p:AppxPackageSigningEnabled=true
+
+      - name: Find generated MSIX
+        shell: pwsh
+        run: |
+          $msix = Get-ChildItem -Path Inventory.Ui -Recurse -Filter *.msix |
+            Sort-Object LastWriteTime -Descending |
+            Select-Object -First 1
+
+          if (-not $msix) {
+            throw "No MSIX package found."
+          }
+
+          "MSIX_PATH=$($msix.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "MSIX_NAME=$($msix.Name)" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+          Write-Host "MSIX found: $($msix.FullName)"
+
+      - name: Generate App Installer manifest
+        shell: pwsh
+        run: |
+          $appInstallerPath = Join-Path $env:RUNNER_TEMP "Inventory.Ui.appinstaller"
+
+          $content = @"
+          <?xml version="1.0" encoding="utf-8"?>
+          <AppInstaller
+              xmlns="http://schemas.microsoft.com/appx/appinstaller/2018"
+              Version="$env:PACKAGE_VERSION"
+              Uri="https://api.ventepilote.com/updates/Inventory.Ui.appinstaller">
+
+              <MainPackage
+                  Name="com.companyname.inventory.ui"
+                  Publisher="CN=InventoryPOS"
+                  Version="$env:PACKAGE_VERSION"
+                  ProcessorArchitecture="x64"
+                  Uri="https://api.ventepilote.com/updates/$env:MSIX_NAME" />
+
+              <UpdateSettings>
+                  <OnLaunch
+                      HoursBetweenUpdateChecks="0"
+                      ShowPrompt="true"
+                      UpdateBlocksActivation="false" />
+              </UpdateSettings>
+          </AppInstaller>
+          "@
+
+          Set-Content -Path $appInstallerPath -Value $content -Encoding UTF8
+
+          "APPINSTALLER_PATH=$appInstallerPath" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Deploy MSIX and AppInstaller to VPS
+        shell: pwsh
+        run: |
+          $keyPath = "$env:RUNNER_TEMP\github_actions_ventepilote"
+
+          Set-Content `
+            -Path $keyPath `
+            -Value "${{ secrets.VPS_SSH_KEY }}" `
+            -NoNewline
+
+          scp `
+            -i $keyPath `
+            -o StrictHostKeyChecking=no `
+            "$env:MSIX_PATH" `
+            "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/opt/ventepilote/updates/$env:MSIX_NAME"
+
+          scp `
+            -i $keyPath `
+            -o StrictHostKeyChecking=no `
+            "$env:APPINSTALLER_PATH" `
+            "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:/opt/ventepilote/updates/Inventory.Ui.appinstaller"
+
+      - name: Verify deployment
+        shell: pwsh
+        run: |
+          $msixUrl = "https://api.ventepilote.com/updates/$env:MSIX_NAME"
+          $appInstallerUrl = "https://api.ventepilote.com/updates/Inventory.Ui.appinstaller"
+
+          Invoke-WebRequest -Uri $msixUrl -Method Head
+          Invoke-WebRequest -Uri $appInstallerUrl -Method Head
+
+          Write-Host "Deployment verified."
