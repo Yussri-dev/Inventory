@@ -31,6 +31,8 @@ jobs:
         run: dotnet tool restore
 
       - name: Build EF migration bundle
+        env:
+          ConnectionStrings__DefaultConnection: "Host=localhost;Port=5432;Database=inventory_design;Username=design;Password=design"
         run: |
           dotnet ef migrations bundle \
             --context InventoryDbContext \
