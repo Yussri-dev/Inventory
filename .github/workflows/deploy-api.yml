@@ -73,7 +73,7 @@ jobs:
           ssh "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" \
             "chmod +x /opt/ventepilote/efbundle"
 
-      - name: Deploy API on VPS
+            - name: Deploy API on VPS
         shell: bash
         run: |
           ssh "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" << 'EOF'
@@ -84,6 +84,21 @@ jobs:
 
             cd /opt/ventepilote
             ./backup-postgres.sh
+
+            docker run --rm \
+              --network ventepilote_ventepilote-network \
+              --env-file /opt/ventepilote/.env \
+              -v /opt/ventepilote/efbundle:/app/efbundle:ro \
+              mcr.microsoft.com/dotnet/runtime-deps:9.0 \
+              sh -c '
+                export ConnectionStrings__DefaultConnection="Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD};Timeout=10;SslMode=Disable"
+                export Jwt__Issuer="${JWT_ISSUER}"
+                export Jwt__Audience="${JWT_AUDIENCE}"
+                export Jwt__Key="${JWT_KEY}"
+
+                exec /app/efbundle \
+                  --connection "$ConnectionStrings__DefaultConnection"
+              '
 
             cd /opt/ventepilote/app
             docker build -t ventepilote-api:prod .
