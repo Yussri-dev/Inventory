@@ -64,6 +64,7 @@ jobs:
             -p:RuntimeIdentifierOverride=win10-x64 `
             -p:ApplicationDisplayVersion=$env:APP_VERSION `
             -p:ApplicationVersion=${{ github.run_number }} `
+            -p:PackageVersion=$env:PACKAGE_VERSION `
             -p:GenerateAppxPackageOnBuild=true `
             -p:AppxPackageSigningEnabled=true
 
