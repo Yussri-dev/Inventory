@@ -1,0 +1,57 @@
+name: Deploy API
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "dotNetApiProBoilerplate.Api/**"
+      - "dotNetApiProBoilerplate.Domain/**"
+      - "dotNetApiProBoilerplate.Dto/**"
+      - "dotNetApiProBoilerplate.Infrastructure/**"
+      - "dotNetApiProBoilerplate.Services/**"
+      - "Dockerfile"
+      - "compose.yaml"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Restore SSH key
+        shell: bash
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_KEY_BASE64 }}" | base64 -d > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+
+      - name: Add VPS to known hosts
+        shell: bash
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -T 10 -H "${{ secrets.VPS_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Deploy API on VPS
+        shell: bash
+        run: |
+          ssh "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" << 'EOF'
+            set -e
+
+            cd /opt/ventepilote/app
+            git pull --ff-only origin main
+
+            cd /opt/ventepilote
+            ./backup-postgres.sh
+
+            cd /opt/ventepilote/app
+            docker build -t ventepilote-api:prod .
+
+            cd /opt/ventepilote
+            docker compose up -d api
+
+            sleep 10
+
+            curl --fail --silent --show-error \
+              https://api.ventepilote.com/swagger/index.html \
+              > /dev/null
+          EOF
