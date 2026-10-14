@@ -12,6 +12,7 @@ on:
       - "dotNetApiProBoilerplate.Services/**"
       - "Dockerfile"
       - "compose.yaml"
+      - ".github/workflows/deploy-api.yml"
 
 jobs:
   deploy:
@@ -52,6 +53,6 @@ jobs:
             sleep 10
 
             curl --fail --silent --show-error \
-              https://api.ventepilote.com/swagger/index.html \
-              > /dev/null
+              https://api.ventepilote.com/support/index.html \
+            > /dev/null
           EOF
