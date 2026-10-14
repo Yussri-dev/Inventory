@@ -120,10 +120,17 @@ jobs:
         run: |
           $keyPath = "$env:RUNNER_TEMP\github_actions_ventepilote"
 
-          Set-Content `
-            -Path $keyPath `
-            -Value "${{ secrets.VPS_SSH_KEY }}" `
-            -NoNewline
+          $sshKey = @'
+          ${{ secrets.VPS_SSH_KEY }}
+          '@
+
+          $sshKey = $sshKey.Trim() -replace "`r`n", "`n"
+
+          [System.IO.File]::WriteAllText(
+              $keyPath,
+              $sshKey + "`n",
+              [System.Text.UTF8Encoding]::new($false)
+          )
 
           icacls $keyPath /inheritance:r
           icacls $keyPath /grant:r "$($env:USERNAME):(R)"
