@@ -33,6 +33,10 @@ jobs:
       - name: Build EF migration bundle
         env:
           ConnectionStrings__DefaultConnection: "Host=localhost;Port=5432;Database=inventory_design;Username=design;Password=design"
+          Jwt__Issuer: "Inventory.Design"
+          Jwt__Audience: "Inventory.Design"
+          Jwt__Key: "InventoryDesignOnlyKey-NotForProduction-12345678901234567890"
+
         run: |
           dotnet ef migrations bundle \
             --context InventoryDbContext \
