@@ -125,6 +125,9 @@ jobs:
             -Value "${{ secrets.VPS_SSH_KEY }}" `
             -NoNewline
 
+          icacls $keyPath /inheritance:r
+          icacls $keyPath /grant:r "$($env:USERNAME):(R)"
+
           scp `
             -i $keyPath `
             -o StrictHostKeyChecking=no `
