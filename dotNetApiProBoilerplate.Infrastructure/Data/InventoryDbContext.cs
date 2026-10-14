@@ -485,61 +485,61 @@ namespace Inventory.Infrastructure.Data
                 .OnDelete(DeleteBehavior.Restrict);
 
             builder.Entity<SyncOperationRecord>(
-    entity =>
-    {
-        entity.ToTable(
-            "SyncOperationRecords");
-
-        entity.HasKey(record =>
-            record.Id);
-
-        entity.Property(record =>
-                record.EntityName)
-            .HasMaxLength(100)
-            .IsRequired();
-
-        entity.Property(record =>
-                record.Operation)
-            .HasMaxLength(50)
-            .IsRequired();
-
-        entity.Property(record =>
-                record.Status)
-            .HasMaxLength(50)
-            .IsRequired();
-
-        entity.Property(record =>
-                record.PayloadHash)
-            .HasMaxLength(64)
-            .IsRequired();
-
-        entity.Property(record =>
-                record.ErrorMessage)
-            .HasMaxLength(2000);
-
-        entity.HasIndex(record =>
-                new
+                entity =>
                 {
-                    record.TenantId,
-                    record.ClientOperationId
-                })
-            .IsUnique();
+                    entity.ToTable(
+                        "SyncOperationRecords");
 
-        entity.HasIndex(record =>
-            new
-            {
-                record.TenantId,
-                record.BatchId
-            });
+                    entity.HasKey(record =>
+                        record.Id);
 
-        entity.HasIndex(record =>
-            new
-            {
-                record.TenantId,
-                record.Status,
-                record.ReceivedAtUtc
-            });
-    });
+                    entity.Property(record =>
+                            record.EntityName)
+                        .HasMaxLength(100)
+                        .IsRequired();
+
+                    entity.Property(record =>
+                            record.Operation)
+                        .HasMaxLength(50)
+                        .IsRequired();
+
+                    entity.Property(record =>
+                            record.Status)
+                        .HasMaxLength(50)
+                        .IsRequired();
+
+                    entity.Property(record =>
+                            record.PayloadHash)
+                        .HasMaxLength(64)
+                        .IsRequired();
+
+                    entity.Property(record =>
+                            record.ErrorMessage)
+                        .HasMaxLength(2000);
+
+                    entity.HasIndex(record =>
+                            new
+                            {
+                                record.TenantId,
+                                record.ClientOperationId
+                            })
+                        .IsUnique();
+
+                    entity.HasIndex(record =>
+                        new
+                        {
+                            record.TenantId,
+                            record.BatchId
+                        });
+
+                    entity.HasIndex(record =>
+                        new
+                        {
+                            record.TenantId,
+                            record.Status,
+                            record.ReceivedAtUtc
+                        });
+                });
 
             builder.Entity<CustomerTransaction>(
                 entity =>
@@ -611,6 +611,30 @@ namespace Inventory.Infrastructure.Data
                         .OnDelete(
                             DeleteBehavior.Restrict);
                 });
+
+            // Configuration
+
+            builder.Entity<GlobalSetting>(entity =>
+            {
+                entity.ToTable("GlobalSettings");
+
+                entity.HasKey(x => x.Id);
+
+                entity.Property(x => x.DefaultVatRate)
+                    .HasPrecision(5, 2);
+
+                entity.Property(x => x.DefaultCurrency)
+                    .HasMaxLength(3)
+                    .IsRequired();
+
+                entity.Property(x => x.DefaultLocale)
+                    .HasMaxLength(20)
+                    .IsRequired();
+
+                entity.Property(x => x.DefaultTimeZone)
+                    .HasMaxLength(100)
+                    .IsRequired();
+            });
         }
 
 
@@ -673,5 +697,7 @@ namespace Inventory.Infrastructure.Data
         public DbSet<PackComponent> PackComponents => Set<PackComponent>();
 
         public DbSet<SyncOperationRecord> SyncOperationRecords => Set<SyncOperationRecord>();
+
+        public DbSet<GlobalSetting> GlobalSettings { get; set; }
     }
 }

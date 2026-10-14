@@ -820,7 +820,7 @@ namespace Inventory.Infrastructure.Migrations
 
                     b.HasIndex("Name");
 
-                    b.ToTable("ProductCategory");
+                    b.ToTable("ProductCategory", (string)null);
                 });
 
             modelBuilder.Entity("Inventory.Domain.Entities.Purchase", b =>
@@ -2080,6 +2080,45 @@ namespace Inventory.Infrastructure.Migrations
                     b.HasIndex("TenantId");
 
                     b.ToTable("DocumentNumbers");
+                });
+
+            modelBuilder.Entity("Inventory.Domain.Models.GlobalSetting", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DefaultCurrency")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)");
+
+                    b.Property<string>("DefaultLocale")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("DefaultTimeZone")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<decimal>("DefaultVatRate")
+                        .HasPrecision(5, 2)
+                        .HasColumnType("numeric(5,2)");
+
+                    b.Property<DateTime?>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("UpdatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("GlobalSettings", (string)null);
                 });
 
             modelBuilder.Entity("Inventory.Domain.Models.InventoryLine", b =>

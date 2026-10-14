@@ -4,6 +4,7 @@ using Inventory.Services;
 using Inventory.Services.Abstractions;
 using Inventory.Services.Behaviors;
 using Inventory.Services.Context;
+using Inventory.Services.GlobalSettings;
 using Inventory.Services.Handlers;
 using Inventory.Services.Sync;
 using Inventory.Services.Ticket;
@@ -93,6 +94,8 @@ namespace Inventory.Api.Installers
             builder.Services.AddScoped<ISyncOperationHandler, SaleSyncOperationHandler>();
 
             builder.Services.AddScoped<ISyncBatchService, SyncBatchService>();
+
+            builder.Services.AddScoped<    IGlobalSettingService,    GlobalSettingService>();
             return builder;
         }
     }

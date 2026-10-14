@@ -4,11 +4,16 @@
 @using Inventory.Dto.Auth.Requests
 @using Inventory.Dto.Auth.Results
 @using Inventory.Dto.Enums
+@using Inventory.Dto.GlobalRequests.Results
 @using Inventory.Ui.Interfaces
 @using Refit
+@using Authorize = Microsoft.AspNetCore.Authorization.AuthorizeAttribute
 
 @inject IAuthApi AuthApi
 @inject IAuthApiOpen AuthApiOpen
+@inject IGlobalSettingsApi GlobalSettingsApi
+
+@attribute [Authorize(Roles = "SuperAdmin")]
 
 <PageTitle>Configuration</PageTitle>
 
@@ -625,6 +630,258 @@
 
                 </div>
             }
+
+            else if (selectedSection == TaxesSection)
+            {
+                <div class="user-management-section">
+
+                    <div class="section-introduction">
+                        <div class="placeholder-icon">
+                            <i class="bi bi-receipt"></i>
+                        </div>
+
+                        <div>
+                            <h3>Taxes et TVA</h3>
+
+                            <p>
+                                Configurez le taux de TVA par défaut
+                                utilisé lors de la création d'une nouvelle entreprise.
+                            </p>
+                        </div>
+                    </div>
+
+                    <EditForm Model="taxForm"
+                              OnValidSubmit="SaveTaxesAsync">
+
+                        <DataAnnotationsValidator />
+
+                        <div class="form-card">
+
+                            <div class="form-grid">
+
+                                <div class="form-group">
+                                    <label for="defaultVatRate">
+                                        TVA par défaut
+                                    </label>
+
+                                    <InputNumber id="defaultVatRate"
+                                                 class="form-control"
+                                                 disabled="@isSubmitting"
+                                                 @bind-Value="taxForm.DefaultVatRate" />
+
+                                    <ValidationMessage For="@(() => taxForm.DefaultVatRate)" />
+
+                                    <small>
+                                        Exemple : 21 pour 21 %.
+                                    </small>
+                                </div>
+
+                            </div>
+
+                            <div class="role-information">
+                                <i class="bi bi-info-circle"></i>
+
+                                <div>
+                                    <strong>
+                                        Configuration globale
+                                    </strong>
+
+                                    <span>
+                                        Cette valeur sera utilisée comme TVA par défaut
+                                        pour les nouveaux tenants.
+                                        Les tenants existants ne seront pas modifiés.
+                                    </span>
+                                </div>
+                            </div>
+
+                            <div class="form-actions">
+
+                                <button type="submit"
+                                        class="btn-primary"
+                                        disabled="@isSubmitting">
+
+                                    @if (isSubmitting)
+                                    {
+                                        <span class="spinner"></span>
+                                        <span>Enregistrement...</span>
+                                    }
+                                    else
+                                    {
+                                        <i class="bi bi-check-lg"></i>
+                                        <span>Enregistrer</span>
+                                    }
+
+                                </button>
+
+                            </div>
+
+                        </div>
+
+                    </EditForm>
+
+                </div>
+            }
+
+            else if (selectedSection == LocalizationSection)
+            {
+                <div class="user-management-section">
+
+                    <div class="section-introduction">
+                        <div class="placeholder-icon">
+                            <i class="bi bi-globe2"></i>
+                        </div>
+
+                        <div>
+                            <h3>Devise et localisation</h3>
+
+                            <p>
+                                Configurez les paramètres régionaux par défaut
+                                utilisés lors de la création d'une nouvelle entreprise.
+                            </p>
+                        </div>
+                    </div>
+
+                    <EditForm Model="localizationForm"
+                              OnValidSubmit="SaveLocalizationAsync">
+
+                        <DataAnnotationsValidator />
+
+                        <div class="form-card">
+
+                            <div class="form-grid">
+
+                                <div class="form-group">
+                                    <label for="currency">
+                                        Devise
+                                    </label>
+
+                                    <InputSelect id="currency"
+                                                 class="form-control"
+                                                 disabled="@isSubmitting"
+                                                 @bind-Value="localizationForm.Currency">
+
+                                        <option value="EUR">EUR - Euro</option>
+                                        <option value="MAD">MAD - Dirham marocain</option>
+                                        <option value="USD">USD - Dollar américain</option>
+                                        <option value="GBP">GBP - Livre sterling</option>
+
+                                    </InputSelect>
+
+                                    <ValidationMessage For="@(() => localizationForm.Currency)" />
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="locale">
+                                        Langue / région
+                                    </label>
+
+                                    <InputSelect id="locale"
+                                                 class="form-control"
+                                                 disabled="@isSubmitting"
+                                                 @bind-Value="localizationForm.Locale">
+
+                                        <option value="fr-BE">
+                                            Français - Belgique
+                                        </option>
+
+                                        <option value="nl-BE">
+                                            Nederlands - België
+                                        </option>
+
+                                        <option value="fr-FR">
+                                            Français - France
+                                        </option>
+
+                                        <option value="fr-MA">
+                                            Français - Maroc
+                                        </option>
+
+                                        <option value="en-US">
+                                            English - United States
+                                        </option>
+
+                                    </InputSelect>
+
+                                    <ValidationMessage For="@(() => localizationForm.Locale)" />
+                                </div>
+
+                                <div class="form-group form-group-full">
+                                    <label for="timezone">
+                                        Fuseau horaire
+                                    </label>
+
+                                    <InputSelect id="timezone"
+                                                 class="form-control"
+                                                 disabled="@isSubmitting"
+                                                 @bind-Value="localizationForm.TimeZone">
+
+                                        <option value="Europe/Brussels">
+                                            Europe/Brussels
+                                        </option>
+
+                                        <option value="Europe/Paris">
+                                            Europe/Paris
+                                        </option>
+
+                                        <option value="Africa/Casablanca">
+                                            Africa/Casablanca
+                                        </option>
+
+                                        <option value="UTC">
+                                            UTC
+                                        </option>
+
+                                    </InputSelect>
+
+                                    <ValidationMessage For="@(() => localizationForm.TimeZone)" />
+                                </div>
+
+                            </div>
+
+                            <div class="role-information">
+                                <i class="bi bi-info-circle"></i>
+
+                                <div>
+                                    <strong>
+                                        Configuration globale
+                                    </strong>
+
+                                    <span>
+                                        Ces paramètres seront appliqués par défaut
+                                        uniquement aux nouvelles entreprises.
+                                        Les tenants existants ne seront pas modifiés.
+                                    </span>
+                                </div>
+                            </div>
+
+                            <div class="form-actions">
+
+                                <button type="submit"
+                                        class="btn-primary"
+                                        disabled="@isSubmitting">
+
+                                    @if (isSubmitting)
+                                    {
+                                        <span class="spinner"></span>
+                                        <span>Enregistrement...</span>
+                                    }
+                                    else
+                                    {
+                                        <i class="bi bi-check-lg"></i>
+                                        <span>Enregistrer</span>
+                                    }
+
+                                </button>
+
+                            </div>
+
+                        </div>
+
+                    </EditForm>
+
+                </div>
+            }
+
             else
             {
                 <div class="placeholder-content">
@@ -652,6 +909,9 @@
     private const string TenantCreationSection =
         "Créer une entreprise";
 
+    private const string TaxesSection =
+        "Taxes et TVA";
+
     private readonly UserRole[] availableRoles =
     [
         UserRole.Manager,
@@ -660,12 +920,18 @@
         UserRole.Viewer
     ];
 
+    private sealed class TaxForm
+    {
+        [Range(
+            0,
+            100,
+            ErrorMessage = "Le taux de TVA doit être compris entre 0 et 100.")]
+        public decimal DefaultVatRate { get; set; }
+    }
     private CreateUserForm userForm = new()
     {
         Role = UserRole.Cashier
     };
-
-    private CreateTenantForm tenantForm = new();
 
     private string? selectedSection;
     private string? successMessage;
@@ -717,16 +983,132 @@
         ClearMessages();
     }
 
-    private void OpenTaxes()
+    private async Task OpenTaxes()
     {
-        selectedSection = "Taxes et TVA";
+        selectedSection = TaxesSection;
         ClearMessages();
+        await LoadGlobalSettingsAsync();
+
     }
 
-    private void OpenLocalization()
+    private const string LocalizationSection = "Devise et localisation";
+
+    private async Task OpenLocalization()
     {
         selectedSection = "Devise et localisation";
         ClearMessages();
+
+        await LoadLocalizationSettingsAsync();
+    }
+
+    private async Task LoadLocalizationSettingsAsync()
+    {
+        try
+        {
+            var settings = await GlobalSettingsApi.GetAsync();
+
+            localizationForm.Currency = settings.DefaultCurrency;
+            localizationForm.Locale = settings.DefaultLocale;
+            localizationForm.TimeZone = settings.DefaultTimeZone;
+
+        }
+        catch (ApiException exception)
+        {
+            errorMessage = GetApiExceptionMessage(
+                exception,
+                "Impossible de charger la configuration de localisation.");
+        }
+        catch (HttpRequestException)
+        {
+            errorMessage = "Impossible de contacter le serveur.";
+        }
+    }
+
+    private LocalizationForm localizationForm = new();
+
+
+    private sealed class LocalizationForm
+    {
+        [Required]
+        [MaxLength(3)]
+        public string Currency { get; set; } = "EUR";
+
+        [Required]
+        [MaxLength(20)]
+        public string Locale { get; set; } = "fr-BE";
+
+        [Required]
+        [MaxLength(100)]
+        public string TimeZone { get; set; } =
+            "Europe/Brussels";
+    }
+
+    private async Task SaveLocalizationAsync()
+    {
+        if (isSubmitting)
+            return;
+
+        ClearMessages();
+        isSubmitting = true;
+
+        try
+        {
+            var currentSettings =
+                await GlobalSettingsApi.GetAsync();
+
+            var request =
+                new UpdateGlobalConfigurationRequest
+                {
+                    DefaultVatRate =
+                        currentSettings.DefaultVatRate,
+
+                    DefaultCurrency =
+                        localizationForm.Currency,
+
+                    DefaultLocale =
+                        localizationForm.Locale,
+
+                    DefaultTimeZone =
+                        localizationForm.TimeZone
+                };
+
+            var result =
+                await GlobalSettingsApi.UpdateAsync(
+                    request);
+
+            localizationForm.Currency =
+                result.DefaultCurrency;
+
+            localizationForm.Locale =
+                result.DefaultLocale;
+
+            localizationForm.TimeZone =
+                result.DefaultTimeZone;
+
+            successMessage =
+                "Les paramètres de localisation ont été mis à jour avec succès.";
+        }
+        catch (ValidationApiException exception)
+        {
+            errorMessage =
+                ExtractValidationError(exception);
+        }
+        catch (ApiException exception)
+        {
+            errorMessage =
+                GetApiExceptionMessage(
+                    exception,
+                    "La mise à jour des paramètres de localisation a échoué.");
+        }
+        catch (HttpRequestException)
+        {
+            errorMessage =
+                "Impossible de contacter le serveur.";
+        }
+        finally
+        {
+            isSubmitting = false;
+        }
     }
 
     private void OpenSecurity()
@@ -842,6 +1224,97 @@
             return exception.Message;
 
         return "Les informations fournies ne sont pas valides.";
+    }
+
+    private async Task LoadGlobalSettingsAsync()
+    {
+        try
+        {
+            var settings =
+                await GlobalSettingsApi.GetAsync();
+
+            taxForm.DefaultVatRate = settings.DefaultVatRate;
+        }
+        catch (ApiException exception)
+        {
+            errorMessage = GetApiExceptionMessage(exception, "Impossible de charger la configuration globale.");
+        }
+        catch (HttpRequestException)
+        {
+            errorMessage = "Impossible de contacter le serveur.";
+        }
+    }
+
+    private TaxForm taxForm = new()
+    {
+        DefaultVatRate = 21m
+    };
+
+    private CreateTenantForm tenantForm = new();
+
+
+
+    private async Task SaveTaxesAsync()
+    {
+        if (isSubmitting)
+            return;
+
+        ClearMessages();
+
+        isSubmitting = true;
+
+        try
+        {
+            var currentSettings =
+                await GlobalSettingsApi.GetAsync();
+
+            var request =
+                new UpdateGlobalConfigurationRequest
+                {
+                    DefaultVatRate =
+                        taxForm.DefaultVatRate,
+
+                    DefaultCurrency =
+                        currentSettings.DefaultCurrency,
+
+                    DefaultLocale =
+                        currentSettings.DefaultLocale,
+
+                    DefaultTimeZone =
+                        currentSettings.DefaultTimeZone
+                };
+
+            var result =
+                await GlobalSettingsApi.UpdateAsync(
+                    request);
+
+            taxForm.DefaultVatRate =
+                result.DefaultVatRate;
+
+            successMessage =
+                "La TVA par défaut a été mise à jour avec succès.";
+        }
+        catch (ValidationApiException exception)
+        {
+            errorMessage =
+                ExtractValidationError(exception);
+        }
+        catch (ApiException exception)
+        {
+            errorMessage =
+                GetApiExceptionMessage(
+                    exception,
+                    "La mise à jour de la TVA a échoué.");
+        }
+        catch (HttpRequestException)
+        {
+            errorMessage =
+                "Impossible de contacter le serveur.";
+        }
+        finally
+        {
+            isSubmitting = false;
+        }
     }
 
     private static string GetPlanLabel(
@@ -1176,6 +1649,15 @@
             ErrorMessage = "Le rôle est obligatoire.")]
         public UserRole Role { get; set; } = UserRole.Cashier;
     }
+
+    // private sealed class TaxForm
+    // {
+    //     [Range(
+    //         0,
+    //         100,
+    //         ErrorMessage = "Le taux de TVA doit être compris entre 0 et 100.")]
+    //     public decimal DefaultVatRate { get; set; } = 21m;
+    // }
 
     private sealed class CreateTenantForm
     {

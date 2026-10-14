@@ -1,5 +1,6 @@
 ﻿using AutoMapper;
 using Inventory.Domain.Entities;
+using Inventory.Domain.Models;
 using Inventory.Dto.Customers.Results;
 using Inventory.Dto.GlobalRequests.Results;
 using Inventory.Dto.PackComponent.Results;
@@ -28,6 +29,7 @@ namespace Inventory.Services.Features.Pos.Bootstrap
         private readonly ITenantContext _tenant;
         private readonly IMapper _mapper;
         private readonly ICashSessionService _cashSession;
+        private readonly IRepository<Tenant> _tenants;
 
         public PosBootstrapHandler(
             IRepository<Product> products,
@@ -38,7 +40,8 @@ namespace Inventory.Services.Features.Pos.Bootstrap
             IRepository<Domain.Entities.ProductCategory> productCategory,
             ITenantContext tenant,
             IMapper mapper,
-            ICashSessionService cashSession)
+            ICashSessionService cashSession,
+            IRepository<Tenant> tenants)
         {
             _products = products;
             _productCatalogs = productCatalog;
@@ -49,6 +52,7 @@ namespace Inventory.Services.Features.Pos.Bootstrap
             _tenant = tenant;
             _mapper = mapper;
             _cashSession = cashSession;
+            _tenants = tenants;
         }
 
         public async Task<PosBootstrapResult> Handle(
@@ -57,6 +61,22 @@ namespace Inventory.Services.Features.Pos.Bootstrap
         {
             var tenantId =
                 _tenant.TenantId;
+
+            var tenantConfiguration = await _tenants
+                .Query()
+                .AsNoTracking()
+                .FirstOrDefaultAsync(
+                    x =>
+                        x.Id == tenantId &&
+                        x.IsActive &&
+                        !x.IsDeleted,
+                    ct);
+
+            if (tenantConfiguration is null)
+            {
+                throw new InvalidOperationException(
+                    $"Tenant '{tenantId}' was not found.");
+            }
 
             // ============================================================
             // PRODUCTS
@@ -381,17 +401,19 @@ namespace Inventory.Services.Features.Pos.Bootstrap
                     activeSession,
 
                 Config =
-                    new PosConfigResult
-                    {
-                        Currency =
-                            "EUR",
+                new PosConfigResult
+                {
+                    Currency =
+                        string.IsNullOrWhiteSpace(
+                            tenantConfiguration.Currency)
+                            ? "EUR"
+                            : tenantConfiguration.Currency,
 
-                        DefaultVatRate =
-                            21,
+                    DefaultVatRate =
+                        tenantConfiguration.DefaultVatRate,
 
-                        AllowNegativeStock =
-                            false
-                    }
+                    AllowNegativeStock = tenantConfiguration.AllowNegativeStock
+                }
             };
         }
     }

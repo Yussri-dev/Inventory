@@ -18,17 +18,19 @@ namespace Inventory.Services
         private readonly JwtTokenGenerator _jwt;
         private readonly InventoryDbContext _context;
         private readonly IProductProvisioningService _productProvisioningService;
-
+        private readonly IGlobalSettingService _globalSettingService;
         public AuthService(
             UserManager<ApplicationUser> userManager,
             JwtTokenGenerator jwt,
             InventoryDbContext context,
-            IProductProvisioningService productProvisioningService)
+            IProductProvisioningService productProvisioningService,
+            IGlobalSettingService globalSettingService)
         {
             _userManager = userManager;
             _jwt = jwt;
             _context = context;
             _productProvisioningService = productProvisioningService;
+            _globalSettingService = globalSettingService;
         }
 
         /// <summary>
@@ -42,6 +44,8 @@ namespace Inventory.Services
             var normalizedEmail = request.Email.Trim();
             var now = DateTime.UtcNow;
             var limits = SubscriptionPlanResolver.GetLimits(request.SubscriptionPlan);
+
+            var globalSettings = await _globalSettingService.GetAsync(cancellationToken);
 
             var existingUser =
                 await _userManager.FindByEmailAsync(normalizedEmail);
@@ -69,13 +73,13 @@ namespace Inventory.Services
                     CreatedAt = now,
                     CreatedByUserId = Guid.Empty,
 
-                    Currency = "EUR",
-                    Locale = "fr-BE",
-                    TimeZone = "Europe/Brussels",
+                    Currency = globalSettings.DefaultCurrency,
+                    Locale = globalSettings.DefaultLocale,
+                    TimeZone = globalSettings.DefaultTimeZone,
                     DateFormat = "dd/MM/yyyy",
                     TimeFormat = "HH:mm",
                     DecimalPlaces = 2,
-                    DefaultVatRate = 21m,
+                    DefaultVatRate = globalSettings.DefaultVatRate,
 
                     SubscriptionPlan = request.SubscriptionPlan.ToString(),
 

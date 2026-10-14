@@ -103,8 +103,7 @@ public static class MauiProgram
         // OPEN API
         // =========================
 
-        builder.Services.AddOpenApi<IAuthApiOpen>(
-            apiBaseUrl);
+        builder.Services.AddOpenApi<IAuthApiOpen>(apiBaseUrl);
 
         // =========================
         // LOCAL SERVICES
@@ -480,7 +479,7 @@ public static class MauiProgram
         builder.Services.AddSecuredApi<ILoyaltyCardsApi>(
             apiBaseUrl);
 
-
+        builder.Services.AddSecuredApi<IGlobalSettingsApi>(apiBaseUrl);
 
 
         builder.Services.AddMudServices();
