@@ -950,6 +950,9 @@ namespace Inventory.LocalDB.Migrations
                         .HasPrecision(18, 2)
                         .HasColumnType("decimal(18,2)");
 
+                    b.Property<int>("SellingMode")
+                        .HasColumnType("INTEGER");
+
                     b.Property<Guid?>("ServerId")
                         .HasColumnType("TEXT");
 
@@ -974,6 +977,11 @@ namespace Inventory.LocalDB.Migrations
 
                     b.Property<string>("Unit")
                         .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("UnitOfMeasure")
+                        .IsRequired()
+                        .HasMaxLength(20)
                         .HasColumnType("TEXT");
 
                     b.Property<Guid?>("UnitProductLocalId")

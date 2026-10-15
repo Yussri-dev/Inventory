@@ -801,6 +801,25 @@ public sealed class LocalProductSyncService
         }
 
         // ============================================================
+        // UNIT / SELLING MODE
+        // ============================================================
+
+        localProduct.SellingMode =
+            isCatalogProduct
+                ? catalog!.SellingMode
+                : serverProduct.SellingMode;
+
+        localProduct.UnitOfMeasure =
+            isCatalogProduct &&
+            !string.IsNullOrWhiteSpace(catalog!.UnitOfMeasure)
+                ? catalog.UnitOfMeasure.Trim()
+                : !string.IsNullOrWhiteSpace(serverProduct.Unit)
+                    ? serverProduct.Unit.Trim()
+                    : "pcs";
+
+        localProduct.Unit =
+            localProduct.UnitOfMeasure;
+        // ============================================================
         // TENANT PRICING
         // ============================================================
 

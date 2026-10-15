@@ -41,6 +41,7 @@ namespace Inventory.Dto.Products.Results
         public ProductStatus Status { get; init; }
 
         public bool IsTracked { get; init; }
+        public SellingMode SellingMode { get; set; }
 
         public bool IsPack { get; set; }
 

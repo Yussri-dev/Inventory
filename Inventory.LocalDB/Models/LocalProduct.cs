@@ -120,6 +120,10 @@ namespace Inventory.LocalDB.Models
 
         public DateTime? LastSyncedAtUtc { get; set; }
 
+        public SellingMode SellingMode { get; set; } = SellingMode.Unit;
+
+        [MaxLength(20)]
+        public string UnitOfMeasure { get; set; } = "pcs";
         /// <summary>
         /// Dernière date de modification reçue du serveur.
         /// Utile pour les conflits.
