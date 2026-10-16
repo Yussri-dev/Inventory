@@ -441,9 +441,9 @@ namespace Inventory.Api.Controllers
         [HttpPut("{tenantId:guid}/subscription")]
         [Authorize(Roles = "SuperAdmin")]
         public async Task<ActionResult<TenantResponse>> UpdateSubscription(
-    Guid tenantId,
-    UpdateTenantSubscriptionRequest request,
-    CancellationToken cancellationToken)
+            Guid tenantId,
+            UpdateTenantSubscriptionRequest request,
+            CancellationToken cancellationToken)
         {
             var tenant = await _context.Tenants
                 .FirstOrDefaultAsync(
@@ -454,11 +454,11 @@ namespace Inventory.Api.Controllers
                 return NotFound();
 
             tenant.SubscriptionPlan = request.SubscriptionPlan;
-            tenant.SubscriptionStartDate = request.SubscriptionStartDate;
-            tenant.SubscriptionEndDate = request.SubscriptionEndDate;
+            tenant.SubscriptionStartDate = ToUtc(request.SubscriptionStartDate);
+            tenant.SubscriptionEndDate = ToUtc(request.SubscriptionEndDate);
 
             tenant.IsTrialActive = request.IsTrialActive;
-            tenant.TrialEndDate = request.TrialEndDate;
+            tenant.TrialEndDate = ToUtc(request.TrialEndDate);
 
             tenant.IsActive = request.IsActive;
             tenant.IsSuspended = request.IsSuspended;
@@ -500,6 +500,27 @@ namespace Inventory.Api.Controllers
                 CreatedAt = tenant.CreatedAt,
                 LastActivityAt = tenant.LastActivityAt
             });
+        }
+
+        private static DateTime? ToUtc(DateTime? value)
+        {
+            if (!value.HasValue)
+                return null;
+
+            var date = value.Value;
+
+            return date.Kind switch
+            {
+                DateTimeKind.Utc => date,
+
+                DateTimeKind.Local =>
+                    date.ToUniversalTime(),
+
+                DateTimeKind.Unspecified =>
+                    DateTime.SpecifyKind(date, DateTimeKind.Utc),
+
+                _ => date
+            };
         }
     }
 }
