@@ -109,7 +109,13 @@ namespace Inventory.Services
                         .Where(char.IsLetterOrDigit)
                         .ToArray());
 
-                request.Barcode = EanTools.Normalize(request.Barcode);
+                var isInternalBarcode = request.Barcode.StartsWith("10000000", StringComparison.Ordinal);
+
+                if (!isInternalBarcode)
+                {
+                    request.Barcode =
+                        EanTools.Normalize(request.Barcode);
+                }
 
                 var detectedType = BarcodeDetector.Detect(request.Barcode);
 
@@ -317,8 +323,13 @@ namespace Inventory.Services
                             .Where(char.IsLetterOrDigit)
                             .ToArray());
 
-                    request.Barcode =
-                        EanTools.Normalize(request.Barcode);
+                    var isInternalBarcode = request.Barcode.StartsWith("10000000", StringComparison.Ordinal);
+
+                    if (!isInternalBarcode)
+                    {
+                        request.Barcode =
+                            EanTools.Normalize(request.Barcode);
+                    }
 
                     if (request.Barcode != catalog.Barcode)
                     {

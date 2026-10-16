@@ -340,7 +340,7 @@ namespace Inventory.Ui.Services
         }
 
         private static void ValidateCatalogBarcode(
-    ProductCatalogResult catalog)
+     ProductCatalogResult catalog)
         {
             if (catalog == null)
                 throw new ArgumentNullException(nameof(catalog));
@@ -349,45 +349,23 @@ namespace Inventory.Ui.Services
                 return;
 
             var barcode = catalog.Barcode.Trim();
-            var internalCode = catalog.InternalCode?.Trim();
 
-            // Only validate our internally generated barcodes.
+            // Barcode externe / fabricant : aucune validation interne.
             if (!barcode.StartsWith(
-                    "100000",
+                    "10000000",
                     StringComparison.Ordinal))
             {
                 return;
             }
 
-            if (string.IsNullOrWhiteSpace(internalCode))
+            // Un barcode interne VentePilote doit simplement
+            // avoir le bon format.
+            if (barcode.Length != 13 ||
+                !barcode.All(char.IsDigit))
             {
                 throw new InvalidOperationException(
-                    $"Catalog '{catalog.Id}' has internal barcode " +
-                    $"'{barcode}' but no InternalCode.");
-            }
-
-            if (internalCode.Length > 5 ||
-                !internalCode.All(char.IsDigit))
-            {
-                throw new InvalidOperationException(
-                    $"Catalog '{catalog.Id}' contains invalid " +
-                    $"InternalCode '{internalCode}'.");
-            }
-
-            var expectedBarcode =
-                $"10000000{internalCode.PadLeft(5, '0')}";
-
-            if (!string.Equals(
-                    barcode,
-                    expectedBarcode,
-                    StringComparison.Ordinal))
-            {
-                throw new InvalidOperationException(
-                    $"Catalog barcode inconsistency. " +
-                    $"CatalogId='{catalog.Id}', " +
-                    $"InternalCode='{internalCode}', " +
-                    $"Barcode='{barcode}', " +
-                    $"Expected='{expectedBarcode}'.");
+                    $"Catalog '{catalog.Id}' contains invalid internal barcode " +
+                    $"'{barcode}'.");
             }
         }
 
