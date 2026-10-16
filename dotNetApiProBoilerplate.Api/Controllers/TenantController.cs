@@ -385,5 +385,121 @@ namespace Inventory.Api.Controllers
                 availableSlots = tenant.MaxUsers - tenant.CurrentUsers
             });
         }
+
+        [HttpGet("subscriptions")]
+        [Authorize(Roles = "SuperAdmin")]
+        public async Task<ActionResult<List<TenantResponse>>> GetTenantSubscriptions(CancellationToken cancellationToken)
+        {
+            var tenants = await _context.Tenants
+                .Where(t => !t.IsDeleted)
+                .OrderBy(t => t.Name)
+                .ToListAsync(cancellationToken);
+
+            var result = tenants.Select(t => new TenantResponse
+            {
+                Id = t.Id,
+                Name = t.Name,
+                LegalName = t.LegalName,
+                TradeName = t.TradeName,
+                Email = t.Email,
+
+                Currency = t.Currency,
+                Locale = t.Locale,
+                TimeZone = t.TimeZone,
+                DefaultVatRate = t.DefaultVatRate,
+
+                SubscriptionPlan = t.SubscriptionPlan,
+                SubscriptionStartDate = t.SubscriptionStartDate,
+                SubscriptionEndDate = t.SubscriptionEndDate,
+                IsTrialActive = t.IsTrialActive,
+                TrialEndDate = t.TrialEndDate,
+
+                MaxUsers = t.MaxUsers,
+                MaxProducts = t.MaxProducts,
+                MaxLocations = t.MaxLocations,
+                MaxMonthlyTransactions = t.MaxMonthlyTransactions,
+
+                CurrentUsers = t.CurrentUsers,
+                CurrentProducts = t.CurrentProducts,
+                CurrentLocations = t.CurrentLocations,
+                CurrentMonthTransactions = t.CurrentMonthTransactions,
+
+                IsActive = t.IsActive,
+                IsSuspended = t.IsSuspended,
+                SuspensionReason = t.SuspensionReason,
+
+                CreatedAt = t.CreatedAt,
+                LastActivityAt = t.LastActivityAt,
+
+                IsSubscriptionActive = t.IsSubscriptionActive(),
+                DaysUntilExpiry = t.GetDaysUntilExpiry()
+            }).ToList();
+
+            return Ok(result);
+        }
+
+        [HttpPut("{tenantId:guid}/subscription")]
+        [Authorize(Roles = "SuperAdmin")]
+        public async Task<ActionResult<TenantResponse>> UpdateSubscription(
+    Guid tenantId,
+    UpdateTenantSubscriptionRequest request,
+    CancellationToken cancellationToken)
+        {
+            var tenant = await _context.Tenants
+                .FirstOrDefaultAsync(
+                    t => t.Id == tenantId && !t.IsDeleted,
+                    cancellationToken);
+
+            if (tenant == null)
+                return NotFound();
+
+            tenant.SubscriptionPlan = request.SubscriptionPlan;
+            tenant.SubscriptionStartDate = request.SubscriptionStartDate;
+            tenant.SubscriptionEndDate = request.SubscriptionEndDate;
+
+            tenant.IsTrialActive = request.IsTrialActive;
+            tenant.TrialEndDate = request.TrialEndDate;
+
+            tenant.IsActive = request.IsActive;
+            tenant.IsSuspended = request.IsSuspended;
+
+            tenant.SuspensionReason =
+                request.IsSuspended
+                    ? request.SuspensionReason
+                    : null;
+
+            tenant.SuspendedAt =
+                request.IsSuspended
+                    ? tenant.SuspendedAt ?? DateTime.UtcNow
+                    : null;
+
+            tenant.UpdatedAt = DateTime.UtcNow;
+            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+
+            tenant.UpdatedByUserId =
+                Guid.TryParse(userId, out var parsedUserId)
+                    ? parsedUserId
+                    : null;
+
+            await _context.SaveChangesAsync(cancellationToken);
+
+            return Ok(new TenantResponse
+            {
+                Id = tenant.Id,
+                Name = tenant.Name,
+                SubscriptionPlan = tenant.SubscriptionPlan,
+                SubscriptionStartDate = tenant.SubscriptionStartDate,
+                SubscriptionEndDate = tenant.SubscriptionEndDate,
+                IsTrialActive = tenant.IsTrialActive,
+                TrialEndDate = tenant.TrialEndDate,
+                IsActive = tenant.IsActive,
+                IsSuspended = tenant.IsSuspended,
+                SuspensionReason = tenant.SuspensionReason,
+                IsSubscriptionActive = tenant.IsSubscriptionActive(),
+                DaysUntilExpiry = tenant.GetDaysUntilExpiry(),
+                CreatedAt = tenant.CreatedAt,
+                LastActivityAt = tenant.LastActivityAt
+            });
+        }
     }
 }

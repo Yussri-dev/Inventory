@@ -5,6 +5,8 @@
 @using Inventory.Dto.Auth.Results
 @using Inventory.Dto.Enums
 @using Inventory.Dto.GlobalRequests.Results
+@using Inventory.Dto.Tenants.Requests
+@using Inventory.Dto.Tenants.Results
 @using Inventory.Ui.Interfaces
 @using Refit
 @using Authorize = Microsoft.AspNetCore.Authorization.AuthorizeAttribute
@@ -12,6 +14,7 @@
 @inject IAuthApi AuthApi
 @inject IAuthApiOpen AuthApiOpen
 @inject IGlobalSettingsApi GlobalSettingsApi
+@inject ITenantApi TenantApi
 
 @attribute [Authorize(Roles = "SuperAdmin")]
 
@@ -200,6 +203,27 @@
             </button>
         </article>
 
+        <article class="configuration-card">
+            <div class="card-icon">
+                <i class="bi bi-credit-card"></i>
+            </div>
+
+            <div class="card-content">
+                <h2>Abonnements / Entreprises</h2>
+
+                <p>
+                    Consultez les tenants, leurs plans,
+                    dates d’abonnement et statuts.
+                </p>
+            </div>
+
+            <button type="button"
+                    class="card-action"
+                    @onclick="OpenTenantSubscriptions">
+                Gérer
+                <i class="bi bi-arrow-right"></i>
+            </button>
+        </article>
     </section>
 
     @if (!string.IsNullOrWhiteSpace(selectedSection))
@@ -882,6 +906,267 @@
                 </div>
             }
 
+            else if (selectedSection == TenantSubscriptionsSection)
+            {
+                <div class="user-management-section">
+
+                    <div class="section-introduction">
+                        <div class="placeholder-icon">
+                            <i class="bi bi-credit-card"></i>
+                        </div>
+
+                        <div>
+                            <h3>Abonnements des entreprises</h3>
+
+                            <p>
+                                Consultez les plans, périodes d’essai,
+                                dates d’expiration et statuts des tenants.
+                            </p>
+                        </div>
+                    </div>
+
+                    @if (tenants.Count == 0)
+                    {
+                        <div class="placeholder-content">
+                            <p>Aucune entreprise trouvée.</p>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="form-card">
+
+                            <table class="table">
+                                <thead>
+                                    <tr>
+                                        <th>Entreprise</th>
+                                        <th>Plan</th>
+                                        <th>Début</th>
+                                        <th>Fin</th>
+                                        <th>Trial</th>
+                                        <th>Statut</th>
+                                        <th>Jours restants</th>
+                                        <th>Action</th>
+                                    </tr>
+                                </thead>
+
+                                <tbody>
+                                    @foreach (var tenant in tenants)
+                                    {
+                                        <tr>
+                                            <td>
+                                                <strong>@tenant.Name</strong>
+
+                                                @if (!string.IsNullOrWhiteSpace(tenant.Email))
+                                                {
+                                                    <div class="text-muted">
+                                                        @tenant.Email
+                                                    </div>
+                                                }
+                                            </td>
+
+                                            <td>
+                                                @tenant.SubscriptionPlan
+                                            </td>
+
+                                            <td>
+                                                @(tenant.SubscriptionStartDate?.ToString("dd/MM/yyyy") ?? "-")
+                                            </td>
+
+                                            <td>
+                                                @(tenant.SubscriptionEndDate?.ToString("dd/MM/yyyy") ?? "-")
+                                            </td>
+
+                                            <td>
+                                                @if (tenant.IsTrialActive)
+                                                {
+                                                    <span class="badge bg-info">
+                                                        Oui
+                                                    </span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="badge bg-secondary">
+                                                        Non
+                                                    </span>
+                                                }
+                                            </td>
+
+                                            <td>
+                                                @if (tenant.IsSuspended)
+                                                {
+                                                    <span class="badge bg-danger">
+                                                        Suspendu
+                                                    </span>
+                                                }
+                                                else if (tenant.IsSubscriptionActive)
+                                                {
+                                                    <span class="badge bg-success">
+                                                        Actif
+                                                    </span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="badge bg-warning text-dark">
+                                                        Expiré
+                                                    </span>
+                                                }
+                                            </td>
+
+                                            <td>
+                                                @tenant.DaysUntilExpiry
+                                            </td>
+
+                                            <td>
+                                                <button type="button"
+                                                        class="btn-primary"
+                                                        @onclick="() => OpenSubscriptionEdit(tenant)">
+                                                    Modifier
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+
+                        </div>
+                    }
+
+                    @if (showSubscriptionEdit &&
+                                selectedTenantSubscription != null)
+                    {
+                        <div class="form-card" style="margin-top:20px;">
+
+                            <div class="section-introduction">
+                                <div>
+                                    <h3>
+                                        Modifier l’abonnement
+                                    </h3>
+
+                                    <p>
+                                        @selectedTenantSubscription.Name
+                                    </p>
+                                </div>
+                            </div>
+
+                            <EditForm Model="subscriptionForm"
+                                      OnValidSubmit="SaveSubscriptionAsync">
+
+                                <DataAnnotationsValidator />
+
+                                <div class="form-grid">
+
+                                    <div class="form-group">
+                                        <label>Plan</label>
+
+                                        <InputSelect class="form-control"
+                                                     disabled="@isSubmitting"
+                                                     @bind-Value="subscriptionForm.SubscriptionPlan">
+
+                                            <option value="Free">Gratuit</option>
+                                            <option value="Basic">Basic</option>
+                                            <option value="Professional">Professionnel</option>
+                                            <option value="Enterprise">Entreprise</option>
+
+                                        </InputSelect>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label>Date de début</label>
+
+                                        <InputDate class="form-control"
+                                                   disabled="@isSubmitting"
+                                                   @bind-Value="subscriptionForm.SubscriptionStartDate" />
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label>Date de fin</label>
+
+                                        <InputDate class="form-control"
+                                                   disabled="@isSubmitting"
+                                                   @bind-Value="subscriptionForm.SubscriptionEndDate" />
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label class="checkbox-setting">
+                                            <InputCheckbox disabled="@isSubmitting"
+                                                           @bind-Value="subscriptionForm.IsTrialActive" />
+
+                                            <span>Période d’essai active</span>
+                                        </label>
+                                    </div>
+
+                                    @if (subscriptionForm.IsTrialActive)
+                                    {
+                                        <div class="form-group">
+                                            <label>Fin de période d’essai</label>
+
+                                            <InputDate class="form-control"
+                                                       disabled="@isSubmitting"
+                                                       @bind-Value="subscriptionForm.TrialEndDate" />
+                                        </div>
+                                    }
+
+                                    <div class="form-group">
+                                        <label class="checkbox-setting">
+                                            <InputCheckbox disabled="@isSubmitting"
+                                                           @bind-Value="subscriptionForm.IsActive" />
+
+                                            <span>Tenant actif</span>
+                                        </label>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label class="checkbox-setting">
+                                            <InputCheckbox disabled="@isSubmitting"
+                                                           @bind-Value="subscriptionForm.IsSuspended" />
+
+                                            <span>Suspendre le tenant</span>
+                                        </label>
+                                    </div>
+
+                                    @if (subscriptionForm.IsSuspended)
+                                    {
+                                        <div class="form-group form-group-full">
+                                            <label>Raison de suspension</label>
+
+                                            <InputText class="form-control"
+                                                       disabled="@isSubmitting"
+                                                       @bind-Value="subscriptionForm.SuspensionReason" />
+                                        </div>
+                                    }
+
+                            </div>
+
+                            <div class="form-actions">
+
+                                <button type="button"
+                                        class="btn-secondary"
+                                        disabled="@isSubmitting"
+                                        @onclick="CloseSubscriptionEdit">
+                                    Annuler
+                                </button>
+
+                                <button type="submit"
+                                        class="btn-primary"
+                                        disabled="@isSubmitting">
+
+                                    @(isSubmitting
+                                                                ? "Enregistrement..."
+                                                                : "Enregistrer")
+
+                        </button>
+
+                                </div>
+
+                            </EditForm>
+
+                        </div>
+                        }
+
+                </div>
+            }
+
+
             else
             {
                 <div class="placeholder-content">
@@ -941,6 +1226,14 @@
     private bool showUserPassword;
     private bool showTenantPassword;
 
+    private const string TenantSubscriptionsSection = "Abonnements / Entreprises";
+
+    private TenantResponse? selectedTenantSubscription;
+
+    private UpdateTenantSubscriptionRequest subscriptionForm = new();
+
+    private bool showSubscriptionEdit;
+
     private readonly SubscriptionPlan[] availablePlans =
     [
         SubscriptionPlan.Free,
@@ -948,6 +1241,120 @@
         SubscriptionPlan.Professional,
         SubscriptionPlan.Enterprise
     ];
+
+    private List<TenantResponse> tenants = new();
+
+    private async Task OpenTenantSubscriptions()
+    {
+        selectedSection = TenantSubscriptionsSection;
+        ClearMessages();
+
+        await LoadTenantSubscriptionsAsync();
+    }
+
+    private async Task LoadTenantSubscriptionsAsync()
+    {
+        try
+        {
+            tenants = await TenantApi.GetSubscriptionsAsync();
+        }
+        catch (ApiException exception)
+        {
+            errorMessage = GetApiExceptionMessage(
+                exception,
+                "Impossible de charger les abonnements.");
+        }
+        catch (HttpRequestException)
+        {
+            errorMessage = "Impossible de contacter le serveur.";
+        }
+    }
+
+    private void OpenSubscriptionEdit(TenantResponse tenant)
+    {
+        selectedTenantSubscription = tenant;
+
+        subscriptionForm = new UpdateTenantSubscriptionRequest
+        {
+            SubscriptionPlan = tenant.SubscriptionPlan,
+            SubscriptionStartDate = tenant.SubscriptionStartDate,
+            SubscriptionEndDate = tenant.SubscriptionEndDate,
+            IsTrialActive = tenant.IsTrialActive,
+            TrialEndDate = tenant.TrialEndDate,
+            IsActive = tenant.IsActive,
+            IsSuspended = tenant.IsSuspended,
+            SuspensionReason = tenant.SuspensionReason
+        };
+
+        showSubscriptionEdit = true;
+    }
+
+    private async Task SaveSubscriptionAsync()
+    {
+        if (isSubmitting ||
+            selectedTenantSubscription == null)
+        {
+            return;
+        }
+
+        ClearMessages();
+        isSubmitting = true;
+
+        try
+        {
+            await TenantApi.UpdateSubscriptionAsync(
+                selectedTenantSubscription.Id,
+                subscriptionForm);
+
+            await LoadTenantSubscriptionsAsync();
+
+            successMessage =
+                $"L’abonnement de " +
+                $"'{selectedTenantSubscription.Name}' " +
+                "a été mis à jour avec succès.";
+
+            showSubscriptionEdit = false;
+            selectedTenantSubscription = null;
+            subscriptionForm =
+                new UpdateTenantSubscriptionRequest();
+        }
+        catch (ValidationApiException exception)
+        {
+            errorMessage =
+                ExtractValidationError(exception);
+        }
+        catch (ApiException exception)
+        {
+            errorMessage =
+                GetApiExceptionMessage(
+                    exception,
+                    "La mise à jour de l’abonnement a échoué.");
+        }
+        catch (HttpRequestException)
+        {
+            errorMessage =
+                "Impossible de contacter le serveur.";
+        }
+        catch (TaskCanceledException)
+        {
+            errorMessage =
+                "La requête a été annulée ou a dépassé le délai.";
+        }
+        finally
+        {
+            isSubmitting = false;
+        }
+    }
+
+    private void CloseSubscriptionEdit()
+    {
+        if (isSubmitting)
+            return;
+
+        showSubscriptionEdit = false;
+        selectedTenantSubscription = null;
+        subscriptionForm = new UpdateTenantSubscriptionRequest();
+    }
 
     private string userPasswordInputType =>
         showUserPassword ? "text" : "password";

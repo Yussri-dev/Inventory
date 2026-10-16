@@ -371,11 +371,21 @@ namespace Inventory.Domain.Models
 
         public bool IsSubscriptionActive()
         {
-            if (IsTrialActive && TrialEndDate.HasValue && TrialEndDate.Value > DateTime.UtcNow)
-                return true;
+            if (!IsActive || IsDeleted || IsSuspended)
+                return false;
 
-            if (SubscriptionEndDate.HasValue && SubscriptionEndDate.Value > DateTime.UtcNow)
+            if (IsTrialActive &&
+                TrialEndDate.HasValue &&
+                TrialEndDate.Value > DateTime.UtcNow)
+            {
                 return true;
+            }
+
+            if (SubscriptionEndDate.HasValue &&
+                SubscriptionEndDate.Value > DateTime.UtcNow)
+            {
+                return true;
+            }
 
             return false;
         }

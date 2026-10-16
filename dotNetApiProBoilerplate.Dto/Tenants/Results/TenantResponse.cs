@@ -92,6 +92,13 @@ namespace Inventory.Dto.Tenants.Results
         public int CurrentMonthTransactions { get; set; }
 
         public bool IsActive { get; set; }
+        public bool IsSuspended { get; set; }
+
+        public string? SuspensionReason { get; set; }
+
+        public int DaysUntilExpiry { get; set; }
+
+        public bool IsSubscriptionActive { get; set; }
 
         public DateTime CreatedAt { get; set; }
 

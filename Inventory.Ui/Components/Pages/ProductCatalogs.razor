@@ -816,20 +816,45 @@
 
     public async ValueTask DisposeAsync()
     {
-        messageVersion++; // invalide les toasts en attente
+        messageVersion++;
 
         if (barcodeScannerModule != null)
         {
-            try { await barcodeScannerModule.InvokeVoidAsync("dispose"); }
-            catch (JSDisconnectedException) { }
-            catch (ObjectDisposedException) { }
+            try
+            {
+                await barcodeScannerModule.InvokeVoidAsync("dispose");
+            }
+            catch (JSDisconnectedException)
+            {
+                // WebView already disconnected during app shutdown.
+            }
+            catch (ObjectDisposedException)
+            {
+                // JS module already disposed.
+            }
+            catch (JSException)
+            {
+                // JS object may already have been destroyed
+                // while the BlazorWebView is shutting down.
+            }
 
-            try { await barcodeScannerModule.DisposeAsync(); }
-            catch (JSDisconnectedException) { }
-            catch (ObjectDisposedException) { }
+            try
+            {
+                await barcodeScannerModule.DisposeAsync();
+            }
+            catch (JSDisconnectedException)
+            {
+            }
+            catch (ObjectDisposedException)
+            {
+            }
+            catch (JSException)
+            {
+            }
         }
 
         barcodeScannerReference?.Dispose();
+
         barcodeScannerModule = null;
         barcodeScannerReference = null;
     }
