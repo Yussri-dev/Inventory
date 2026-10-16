@@ -213,12 +213,20 @@ public sealed class LocalProductSyncService
                         localProduct.ServerId.Value != Guid.Empty &&
                         localProduct.ServerId.Value != serverProduct.Id)
                     {
-                        throw new InvalidOperationException(
-                            $"Local Product '{localProduct.Id}' is already " +
-                            $"linked to server Product " +
-                            $"'{localProduct.ServerId.Value}', but the server " +
-                            $"returned Product '{serverProduct.Id}' for the " +
-                            $"same catalog '{serverProduct.CatalogProductId}'.");
+                        var oldServerId = localProduct.ServerId.Value;
+
+                        _logger.LogWarning(
+                            "RELINKING STALE PRODUCT => " +
+                            "LocalId={LocalId}, " +
+                            "OldServerId={OldServerId}, " +
+                            "NewServerId={NewServerId}, " +
+                            "CatalogProductId={CatalogProductId}",
+                            localProduct.Id,
+                            oldServerId,
+                            serverProduct.Id,
+                            serverProduct.CatalogProductId);
+
+                        localByServerId.Remove(oldServerId);
                     }
 
                     string? categoryName = null;
@@ -819,6 +827,27 @@ public sealed class LocalProductSyncService
 
         localProduct.Unit =
             localProduct.UnitOfMeasure;
+
+        var incomingPricesAreAllZero =
+    serverProduct.PurchasePrice == 0m &&
+    serverProduct.SalePrice == 0m &&
+    serverProduct.SalePrice2 == 0m &&
+    serverProduct.SalePrice3 == 0m;
+
+        var localHasExistingPrice =
+            localProduct.PurchasePrice != 0m ||
+            localProduct.SalePrice != 0m ||
+            localProduct.SalePrice2 != 0m ||
+            localProduct.SalePrice3 != 0m;
+
+        if (incomingPricesAreAllZero &&
+            localHasExistingPrice)
+        {
+            throw new InvalidOperationException(
+                $"Product synchronization rejected for '{serverProduct.Id}': " +
+                "server attempted to replace existing local prices with all-zero prices.");
+        }
+
         // ============================================================
         // TENANT PRICING
         // ============================================================
@@ -1443,14 +1472,23 @@ public sealed class LocalProductSyncService
                      */
 
                     if (localProduct.ServerId.HasValue &&
-                        localProduct.ServerId.Value != Guid.Empty &&
-                        localProduct.ServerId.Value != serverProduct.Id)
+    localProduct.ServerId.Value != Guid.Empty &&
+    localProduct.ServerId.Value != serverProduct.Id)
                     {
-                        throw new InvalidOperationException(
-                            $"Local Product '{localProduct.Id}' is already " +
-                            $"linked to server Product " +
-                            $"'{localProduct.ServerId.Value}', but the server " +
-                            $"returned Product '{serverProduct.Id}'.");
+                        var oldServerId = localProduct.ServerId.Value;
+
+                        _logger.LogWarning(
+                            "FORCE RELINKING STALE PRODUCT => " +
+                            "LocalId={LocalId}, " +
+                            "OldServerId={OldServerId}, " +
+                            "NewServerId={NewServerId}, " +
+                            "CatalogProductId={CatalogProductId}",
+                            localProduct.Id,
+                            oldServerId,
+                            serverProduct.Id,
+                            serverProduct.CatalogProductId);
+
+                        localByServerId.Remove(oldServerId);
                     }
 
                     // ====================================================

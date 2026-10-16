@@ -69,15 +69,26 @@ public partial class InventoryDbContext
 
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
     {
-        ValidateTenantWritesAsync(false, CancellationToken.None).GetAwaiter().GetResult();
+        ValidateTenantWritesAsync(false, CancellationToken.None)
+            .GetAwaiter()
+            .GetResult();
+
+        EnsureProductCatalogPriceIntegrity();
+
         return base.SaveChanges(acceptAllChangesOnSuccess);
     }
 
-    public override async Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess,
+    public override async Task<int> SaveChangesAsync(
+        bool acceptAllChangesOnSuccess,
         CancellationToken cancellationToken = default)
     {
         await ValidateTenantWritesAsync(true, cancellationToken);
-        return await base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+
+        EnsureProductCatalogPriceIntegrity();
+
+        return await base.SaveChangesAsync(
+            acceptAllChangesOnSuccess,
+            cancellationToken);
     }
 
     private async Task ValidateTenantWritesAsync(bool asynchronous, CancellationToken cancellationToken)

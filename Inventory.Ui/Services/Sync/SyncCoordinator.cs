@@ -1,6 +1,7 @@
-﻿using Microsoft.EntityFrameworkCore;
+﻿using Inventory.LocalDB.Services;
 using Inventory.LocalDB.Services.Interfaces;
 using Inventory.Ui.Interfaces;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using System.Threading.Channels;
 
@@ -29,7 +30,10 @@ namespace Inventory.Ui.Services.Sync
         private int _isSynchronizing;
         public bool IsSynchronizing => Volatile.Read(ref _isSynchronizing) == 1;
 
-        public SyncCoordinator(IServiceScopeFactory scopeFactory, ILogger<SyncCoordinator> logger)
+        public SyncCoordinator(
+            IServiceScopeFactory scopeFactory,
+            ILogger<SyncCoordinator> logger
+            )
         {
             _scopeFactory = scopeFactory;
             _logger = logger;
@@ -463,6 +467,68 @@ namespace Inventory.Ui.Services.Sync
 
             if (_poller != null) await IgnoreCancellationAsync(_poller);
             _shutdownSource.Dispose();
+        }
+
+        public async Task<Guid> EnsureProductSyncedAsync(
+    Guid localProductId,
+    CancellationToken cancellationToken = default)
+        {
+            await _syncLock.WaitAsync(cancellationToken);
+
+            try
+            {
+                await using var scope =
+                    _scopeFactory.CreateAsyncScope();
+
+                var localProductService =
+                    scope.ServiceProvider
+                        .GetRequiredService<ILocalProductService>();
+
+                var bulkSyncUploader =
+                    scope.ServiceProvider
+                        .GetRequiredService<ILocalBulkSyncUploader>();
+
+                var localProduct =
+                    await localProductService.GetByIdAsync(
+                        localProductId);
+
+                if (localProduct == null)
+                {
+                    throw new InvalidOperationException(
+                        "Local product was not found.");
+                }
+
+                if (localProduct.ServerId.HasValue &&
+                    localProduct.ServerId.Value != Guid.Empty)
+                {
+                    return localProduct.ServerId.Value;
+                }
+
+                await bulkSyncUploader.SyncPendingAsync(
+                    new[] { "Product" },
+                    batchSize: 100,
+                    maximumBatches: 1,
+                    cancellationToken: cancellationToken);
+
+                localProduct =
+                    await localProductService.GetByIdAsync(
+                        localProductId);
+
+                if (localProduct == null ||
+                    !localProduct.ServerId.HasValue ||
+                    localProduct.ServerId.Value == Guid.Empty)
+                {
+                    throw new InvalidOperationException(
+                        "Product synchronization failed. " +
+                        "The product still has no ServerId.");
+                }
+
+                return localProduct.ServerId.Value;
+            }
+            finally
+            {
+                _syncLock.Release();
+            }
         }
     }
 }

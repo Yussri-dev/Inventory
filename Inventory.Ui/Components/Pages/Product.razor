@@ -17,7 +17,6 @@
 @inject ILogger<Product> Logger
 @inject IProductApi ProductApi
 @inject IJSRuntime JS
-@inject ILocalBulkSyncUploader BulkSyncUploader
 
 <h3>Products</h3>
 
@@ -454,12 +453,12 @@
                                 {
                                     <span class="badge"
                                           style="
-                                                                                                                                                                                                                                  background:#6f42c1;
-                                                                                                                                                                                                                                  color:white;
-                                                                                                                                                                                                                                  font-size:10px;
-                                                                                                                                                                                                                                  padding:2px 6px;
-                                                                                                                                                                                                                                  border-radius:4px;
-                                                                                                                                                                                                                                  margin-left:6px;">
+                                                                                                                                                                                                                                              background:#6f42c1;
+                                                                                                                                                                                                                                              color:white;
+                                                                                                                                                                                                                                              font-size:10px;
+                                                                                                                                                                                                                                              padding:2px 6px;
+                                                                                                                                                                                                                                              border-radius:4px;
+                                                                                                                                                                                                                                              margin-left:6px;">
                                         PACK
                                     </span>
                                 }
@@ -595,9 +594,9 @@
                             @if (!product.CatalogProductId.HasValue)
                             {
                                 @if (product.CatalogApprovalStatus ==
-                                     CatalogApprovalStatus.NotRequested ||
-                                     product.CatalogApprovalStatus ==
-                                     CatalogApprovalStatus.Rejected)
+                                                    CatalogApprovalStatus.NotRequested ||
+                                                    product.CatalogApprovalStatus ==
+                                                    CatalogApprovalStatus.Rejected)
                                 {
                                     <button class="btn small primary"
                                             @onclick="() => RequestCatalogApprovalAsync(product)"
@@ -606,7 +605,7 @@
                                     </button>
                                 }
                                 else if (product.CatalogApprovalStatus ==
-                                         CatalogApprovalStatus.Pending)
+                                CatalogApprovalStatus.Pending)
                                 {
                                     <span class="badge warning">
                                         Pending
@@ -1910,46 +1909,10 @@
             isLoading = true;
             ClearMessages();
 
-            var localProduct =
-                await LocalProductService.GetByIdAsync(
-                    product.Id);
 
-            if (localProduct == null)
-            {
-                ShowError("Local product not found.");
-                return;
-            }
+            var serverId = await SyncCoordinator.EnsureProductSyncedAsync(product.Id);
 
-            // Le produit n'existe pas encore sur le serveur :
-            // synchroniser uniquement les produits Pending,
-            // avec un seul batch.
-            if (!localProduct.ServerId.HasValue ||
-                localProduct.ServerId.Value == Guid.Empty)
-            {
-                await BulkSyncUploader.SyncPendingAsync(
-                    new[] { "Product" },
-                    batchSize: 100,
-                    maximumBatches: 1);
-
-                // Relire depuis SQLite car le result handler
-                // doit avoir enregistré le ServerId.
-                localProduct =
-                    await LocalProductService.GetByIdAsync(
-                        product.Id);
-            }
-
-            if (localProduct == null ||
-                !localProduct.ServerId.HasValue ||
-                localProduct.ServerId.Value == Guid.Empty)
-            {
-                ShowError(
-                    "Product synchronization failed. The product still has no ServerId.");
-
-                return;
-            }
-
-            await ProductApi.RequestCatalogApproval(
-                localProduct.ServerId.Value);
+            await ProductApi.RequestCatalogApproval(serverId);
 
             await LocalProductService
                 .RequestCatalogApprovalAsync(

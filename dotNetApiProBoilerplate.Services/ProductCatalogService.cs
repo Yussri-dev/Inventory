@@ -377,6 +377,33 @@ namespace Inventory.Services
             // MAP PARTIAL UPDATE
             // =========================
 
+            var incomingPricesAreAllZero =
+    request.DefaultPurchasePrice == 0m &&
+    request.DefaultSalePrice == 0m &&
+    request.DefaultSalePrice2 == 0m &&
+    request.DefaultSalePrice3 == 0m;
+
+            var allPricesWereExplicitlyProvided =
+                request.DefaultPurchasePrice.HasValue &&
+                request.DefaultSalePrice.HasValue &&
+                request.DefaultSalePrice2.HasValue &&
+                request.DefaultSalePrice3.HasValue;
+
+            var existingCatalogHasPrice =
+                catalog.DefaultPurchasePrice != 0m ||
+                catalog.DefaultSalePrice != 0m ||
+                catalog.DefaultSalePrice2 != 0m ||
+                catalog.DefaultSalePrice3 != 0m;
+
+            if (allPricesWereExplicitlyProvided &&
+                incomingPricesAreAllZero &&
+                existingCatalogHasPrice)
+            {
+                throw new ValidationException(
+                    "ProductCatalog update rejected: existing non-zero prices " +
+                    "cannot all be replaced with zero.");
+            }
+
             _mapper.Map(request, catalog);
 
 

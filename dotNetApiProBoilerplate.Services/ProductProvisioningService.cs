@@ -76,6 +76,29 @@ namespace Inventory.Services
                 return 0;
             }
 
+            var zeroPriceCatalogCount = catalogProducts.Count(x =>
+                x.DefaultPurchasePrice == 0m &&
+                x.DefaultSalePrice == 0m &&
+                x.DefaultSalePrice2 == 0m &&
+                x.DefaultSalePrice3 == 0m);
+
+            var zeroPriceRatio =
+                (decimal)zeroPriceCatalogCount / catalogProducts.Count;
+
+            if (zeroPriceRatio >= 0.90m)
+            {
+                _logger.LogCritical(
+                    "Product provisioning aborted. {ZeroPriceCount}/{CatalogCount} " +
+                    "catalog products have all prices equal to zero.",
+                    zeroPriceCatalogCount,
+                    catalogProducts.Count);
+
+                throw new InvalidOperationException(
+                    $"Product provisioning aborted because " +
+                    $"{zeroPriceCatalogCount}/{catalogProducts.Count} " +
+                    "catalog products have all prices equal to zero.");
+            }
+
             var existingCatalogIds = await _context.Products
                 .AsNoTracking()
                 .Where(x =>
@@ -209,6 +232,18 @@ namespace Inventory.Services
 
             if (catalog is null)
                 throw new InvalidOperationException("Catalog product not found.");
+
+            if (catalog.DefaultPurchasePrice == 0m &&
+    catalog.DefaultSalePrice == 0m &&
+    catalog.DefaultSalePrice2 == 0m &&
+    catalog.DefaultSalePrice3 == 0m)
+            {
+                _logger.LogWarning(
+                    "Catalog product {CatalogProductId} ({Name}) is being provisioned " +
+                    "with all prices equal to zero.",
+                    catalog.Id,
+                    catalog.Name);
+            }
 
             var tenants = await _context.Tenants
              .Where(x =>

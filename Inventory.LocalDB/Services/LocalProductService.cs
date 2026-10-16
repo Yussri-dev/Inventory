@@ -1166,11 +1166,15 @@ public sealed class LocalProductService : ILocalProductService
                 "This product is already linked to the global catalog.");
         }
 
-        if (product.CatalogApprovalStatus ==
-            CatalogApprovalStatus.Approved)
+        if (product.CatalogApprovalStatus == CatalogApprovalStatus.Approved)
         {
-            throw new InvalidOperationException(
-                "This product has already been approved.");
+            throw new InvalidOperationException("This product has already been approved.");
+        }
+
+        if (product.CatalogApprovalStatus ==
+            CatalogApprovalStatus.Pending)
+        {
+            return ToResult(product);
         }
 
         product.CatalogApprovalStatus =

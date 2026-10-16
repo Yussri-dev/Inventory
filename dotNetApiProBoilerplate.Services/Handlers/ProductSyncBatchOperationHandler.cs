@@ -469,18 +469,37 @@ namespace Inventory.Services.Handlers
                 parsedOperation.ServerEntityId;
 
             if (!productsById.TryGetValue(
-                    serverEntityId,
-                    out var product) ||
-                product.IsDeleted)
+        serverEntityId,
+        out var product) ||
+    product.IsDeleted)
             {
                 return Conflict(
                     operation,
                     $"Product '{serverEntityId}' was not found.");
             }
 
-            var validationError =
-                ValidateUpdateRequest(
-                    request);
+            var incomingPricesAreAllZero =
+                request.PurchasePrice == 0m &&
+                request.SalePrice == 0m &&
+                request.SalePrice2 == 0m &&
+                request.SalePrice3 == 0m;
+
+            var existingProductHasPrice =
+                product.PurchasePrice != 0m ||
+                product.SalePrice != 0m ||
+                product.SalePrice2 != 0m ||
+                product.SalePrice3 != 0m;
+
+            if (incomingPricesAreAllZero &&
+                existingProductHasPrice)
+            {
+                return Conflict(
+                    operation,
+                    "Product update rejected: synchronization attempted " +
+                    "to replace existing non-zero prices with all-zero prices.");
+            }
+
+            var validationError = ValidateUpdateRequest(request);
 
             if (validationError != null)
             {

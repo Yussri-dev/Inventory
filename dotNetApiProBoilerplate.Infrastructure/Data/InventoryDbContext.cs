@@ -699,5 +699,27 @@ namespace Inventory.Infrastructure.Data
         public DbSet<SyncOperationRecord> SyncOperationRecords => Set<SyncOperationRecord>();
 
         public DbSet<GlobalSetting> GlobalSettings { get; set; }
+
+        private void EnsureProductCatalogPriceIntegrity()
+        {
+            var corruptedEntries = ChangeTracker
+                .Entries<ProductCatalog>()
+                .Where(entry =>
+                    entry.State == EntityState.Modified &&
+                    !entry.Entity.IsDeleted &&
+                    entry.Entity.DefaultPurchasePrice == 0m &&
+                    entry.Entity.DefaultSalePrice == 0m &&
+                    entry.Entity.DefaultSalePrice2 == 0m &&
+                    entry.Entity.DefaultSalePrice3 == 0m)
+                .ToList();
+
+            if (corruptedEntries.Count >= 100)
+            {
+                throw new InvalidOperationException(
+                    $"ProductCatalog price integrity violation: " +
+                    $"{corruptedEntries.Count} products are being changed " +
+                    "to all-zero prices in a single operation.");
+            }
+        }
     }
 }

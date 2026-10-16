@@ -7,8 +7,6 @@
 @attribute [Microsoft.AspNetCore.Authorization.Authorize]
 
 @inject ILocalStockAdjustmentService LocalStockService
-@inject ILocalSyncUploader SyncUploader
-@inject ILocalStockSyncService StockSyncService
 @inject AppState State
 @inject ILogger<Stock> Logger
 @inject SyncCoordinator SyncCoordinator
