@@ -192,12 +192,14 @@ namespace Inventory.Services.Sync
                     operation);
             }
 
-            var operationGroups =
-                validOperations
-                    .GroupBy(
-                        operation =>
-                            operation.EntityName.Trim(),
-                        StringComparer.OrdinalIgnoreCase);
+            var operationGroups = validOperations
+             .GroupBy(
+                 operation =>
+                     operation.EntityName.Trim(),
+                 StringComparer.OrdinalIgnoreCase)
+             .OrderBy(group =>
+                 GetEntityProcessingOrder(
+                     group.Key));
 
             foreach (var operationGroup in operationGroups)
             {
@@ -214,12 +216,12 @@ namespace Inventory.Services.Sync
                         entityName,
                         out var batchHandler))
                 {
-                    await ProcessBatchGroupAsync(
-                        request.BatchId,
-                        batchHandler,
-                        operations,
-                        result,
-                        cancellationToken);
+                    await ProcessBatchGroupWithIsolationAsync(
+                         request.BatchId,
+                         batchHandler,
+                         operations,
+                         result,
+                         cancellationToken);
 
                     continue;
                 }
@@ -255,110 +257,12 @@ namespace Inventory.Services.Sync
             return result;
         }
 
-        private async Task ProcessBatchGroupAsync(
-            Guid batchId,
-            ISyncBatchOperationHandler handler,
-            IReadOnlyList<SyncBatchOperationRequest> operations,
-            SyncBatchResult result,
-            CancellationToken cancellationToken)
-        {
-            try
-            {
-                var batchResults =
-                    await _batchOperationExecutor.ExecuteAsync(
-                        batchId,
-                        operations,
-                        handler,
-                        cancellationToken);
-
-                if (batchResults == null)
-                {
-                    foreach (var operation in operations)
-                    {
-                        result.Items.Add(
-                            CreateFailedResult(
-                                operation,
-                                "The batch synchronization handler " +
-                                "returned no results."));
-                    }
-
-                    return;
-                }
-
-                var resultsByQueueItemId =
-                    batchResults
-                        .GroupBy(item =>
-                            item.QueueItemId)
-                        .ToDictionary(
-                            group =>
-                                group.Key,
-                            group =>
-                                group.ToList());
-
-                foreach (var operation in operations)
-                {
-                    if (!resultsByQueueItemId.TryGetValue(
-                            operation.QueueItemId,
-                            out var matchingResults))
-                    {
-                        result.Items.Add(
-                            CreateFailedResult(
-                                operation,
-                                "The batch synchronization handler " +
-                                "returned no result for this operation."));
-
-                        continue;
-                    }
-
-                    if (matchingResults.Count != 1)
-                    {
-                        result.Items.Add(
-                            CreateFailedResult(
-                                operation,
-                                "The batch synchronization handler " +
-                                "returned multiple results for the " +
-                                "same queue item."));
-
-                        continue;
-                    }
-
-                    result.Items.Add(
-                        NormalizeResult(
-                            operation,
-                            matchingResults[0]));
-                }
-            }
-            catch (OperationCanceledException)
-                when (cancellationToken
-                    .IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (Exception exception)
-            {
-                _logger.LogError(
-                    exception,
-                    "Batch synchronization failed for entity " +
-                    "{EntityName} with {OperationCount} operations.",
-                    handler.EntityName,
-                    operations.Count);
-
-                foreach (var operation in operations)
-                {
-                    result.Items.Add(
-                        CreateFailedResult(
-                            operation,
-                            exception.Message));
-                }
-            }
-        }
-
         private async Task ProcessLegacyGroupAsync(
-            Guid batchId,
-            ISyncOperationHandler handler,
-            IReadOnlyList<SyncBatchOperationRequest> operations,
-            SyncBatchResult result,
-            CancellationToken cancellationToken)
+        Guid batchId,
+        ISyncOperationHandler handler,
+        IReadOnlyList<SyncBatchOperationRequest> operations,
+        SyncBatchResult result,
+        CancellationToken cancellationToken)
         {
             foreach (var operation in operations)
             {
@@ -397,9 +301,7 @@ namespace Inventory.Services.Sync
                         operation.EntityName);
 
                     result.Items.Add(
-                        CreateFailedResult(
-                            operation,
-                            exception.Message));
+                        CreateFailedResult(operation, "Synchronization failed due to a server error."));
                 }
             }
         }
@@ -622,5 +524,96 @@ namespace Inventory.Services.Sync
                 ? value
                 : value[..MaximumErrorLength];
         }
+
+        private async Task ProcessBatchGroupWithIsolationAsync(
+        Guid batchId,
+        ISyncBatchOperationHandler handler,
+        IReadOnlyList<SyncBatchOperationRequest> operations,
+        SyncBatchResult result,
+        CancellationToken cancellationToken)
+        {
+            try
+            {
+                var batchResults =
+                    await _batchOperationExecutor.ExecuteAsync(
+                        batchId,
+                        operations,
+                        handler,
+                        cancellationToken);
+
+                foreach (var item in batchResults)
+                {
+                    result.Items.Add(item);
+                }
+            }
+            catch (OperationCanceledException)
+                when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception exception)
+            {
+                if (operations.Count == 1)
+                {
+                    var operation = operations[0];
+
+                    _logger.LogError(
+                        exception,
+                        "Synchronization failed for isolated queue item " +
+                        "{QueueItemId}, operation {ClientOperationId}, entity {EntityName}.",
+                        operation.QueueItemId,
+                        operation.ClientOperationId,
+                        operation.EntityName);
+
+                    result.Items.Add(
+                        CreateFailedResult(operation, "Synchronization failed due to a server error."));
+
+                    return;
+                }
+
+                var middle =
+                    operations.Count / 2;
+
+                var firstHalf =
+                    operations
+                        .Take(middle)
+                        .ToArray();
+
+                var secondHalf =
+                    operations
+                        .Skip(middle)
+                        .ToArray();
+
+                await ProcessBatchGroupWithIsolationAsync(
+                    batchId,
+                    handler,
+                    firstHalf,
+                    result,
+                    cancellationToken);
+
+                await ProcessBatchGroupWithIsolationAsync(
+                    batchId,
+                    handler,
+                    secondHalf,
+                    result,
+                    cancellationToken);
+            }
+        }
+
+        private static int GetEntityProcessingOrder(string entityName)
+        {
+            return entityName.Trim().ToUpperInvariant() switch
+            {
+                "CUSTOMER" => 10,
+                "SUPPLIER" => 20,
+                "PRODUCT" => 30,
+                "SALE" => 40,
+                "DAMAGE" => 50,
+                "STOCKMOVEMENT" => 60,
+                _ => 1000
+            };
+        }
     }
+
+
 }

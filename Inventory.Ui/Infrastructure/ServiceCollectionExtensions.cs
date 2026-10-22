@@ -55,8 +55,8 @@ namespace Inventory.Ui.Infrastructure
 
             if (withRefresh)
             {
-                http.AddHttpMessageHandler<RefreshTokenHandler>();
                 http.AddHttpMessageHandler<AuthExpiredHandler>();
+                http.AddHttpMessageHandler<RefreshTokenHandler>();
             }
 
             http.AddHttpMessageHandler<AuthHeaderHandler>();

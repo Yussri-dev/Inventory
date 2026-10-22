@@ -48,8 +48,8 @@ namespace Inventory.LocalDB.Services.Sync
             Guid id,
             string errorMessage);
 
-        Task MarkConflictAsync(
-            Guid id,
-            string errorMessage);
+        Task MarkConflictAsync(Guid id, string errorMessage);
+
+        Task SavePreparedPayloadAsync(Guid queueItemId, string preparedPayloadJson, CancellationToken cancellationToken = default);
     }
 }

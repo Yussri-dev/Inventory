@@ -9,26 +9,26 @@ using Npgsql;
 using System.Data;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 
 namespace Inventory.Services.Sync
 {
     public sealed class SyncBatchOperationExecutor
         : ISyncBatchOperationExecutor
     {
-        private const string ProcessingStatus =
-            "Processing";
+        private const string ProcessingStatus = "Processing";
 
-        private const int MaximumBatchSize =
-            5_000;
+        private const int MaximumBatchSize = 5_000;
 
-        private const int MaximumConcurrencyRetries =
-            2;
+        private const int MaximumConcurrencyRetries = 2;
 
-        private const int MaximumErrorLength =
-            2_000;
+        private const int MaximumErrorLength = 2_000;
 
         private readonly InventoryDbContext _db;
         private readonly ITenantContext _tenantContext;
+
+        private const string SyncOperationIdempotencyIndex = "IX_SyncOperationRecords_TenantId_ClientOperationId";
+
 
         public SyncBatchOperationExecutor(
             InventoryDbContext db,
@@ -535,12 +535,12 @@ namespace Inventory.Services.Sync
             }
         }
 
-        private static string CalculatePayloadHash(
-            SyncBatchOperationRequest operation)
+        internal static string CalculatePayloadHash(SyncBatchOperationRequest operation)
         {
-            /*
-             * Ce format doit rester identique à SyncOperationExecutor.
-             */
+            var canonicalPayload =
+                CanonicalizeJson(
+                    operation.Payload);
+
             var normalizedValue =
                 string.Concat(
                     operation.EntityName
@@ -556,7 +556,7 @@ namespace Inventory.Services.Sync
                     operation.ServerEntityId?.ToString("D") ??
                     string.Empty,
                     "\n",
-                    operation.Payload.GetRawText());
+                    canonicalPayload);
 
             var bytes =
                 Encoding.UTF8.GetBytes(
@@ -568,6 +568,72 @@ namespace Inventory.Services.Sync
 
             return Convert.ToHexString(
                 hash);
+        }
+
+        private static string CanonicalizeJson(
+    JsonElement element)
+        {
+            using var stream =
+                new MemoryStream();
+
+            using (var writer =
+                   new Utf8JsonWriter(stream))
+            {
+                WriteCanonicalJson(
+                    writer,
+                    element);
+            }
+
+            return Encoding.UTF8.GetString(
+                stream.ToArray());
+        }
+
+        private static void WriteCanonicalJson(
+            Utf8JsonWriter writer,
+            JsonElement element)
+        {
+            switch (element.ValueKind)
+            {
+                case JsonValueKind.Object:
+                    writer.WriteStartObject();
+
+                    foreach (var property in
+                             element
+                                 .EnumerateObject()
+                                 .OrderBy(property =>
+                                     property.Name,
+                                     StringComparer.Ordinal))
+                    {
+                        writer.WritePropertyName(
+                            property.Name);
+
+                        WriteCanonicalJson(
+                            writer,
+                            property.Value);
+                    }
+
+                    writer.WriteEndObject();
+                    break;
+
+                case JsonValueKind.Array:
+                    writer.WriteStartArray();
+
+                    foreach (var item in
+                             element.EnumerateArray())
+                    {
+                        WriteCanonicalJson(
+                            writer,
+                            item);
+                    }
+
+                    writer.WriteEndArray();
+                    break;
+
+                default:
+                    element.WriteTo(
+                        writer);
+                    break;
+            }
         }
 
         private static SyncBatchItemResult CreateExistingResult(
@@ -737,13 +803,16 @@ namespace Inventory.Services.Sync
                 StringComparison.OrdinalIgnoreCase);
         }
 
-        private static bool IsUniqueConstraintViolation(
-            DbUpdateException exception)
+        internal static bool IsUniqueConstraintViolation(DbUpdateException exception)
         {
             return exception.InnerException
-                is PostgresException postgresException &&
-                postgresException.SqlState ==
-                    PostgresErrorCodes.UniqueViolation;
+                       is PostgresException postgresException &&
+                   postgresException.SqlState ==
+                       PostgresErrorCodes.UniqueViolation &&
+                   string.Equals(
+                       postgresException.ConstraintName,
+                       SyncOperationIdempotencyIndex,
+                       StringComparison.Ordinal);
         }
 
         private static SyncBatchItemResult CreateFailedResult(

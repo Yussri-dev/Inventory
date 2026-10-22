@@ -66,6 +66,13 @@ namespace Inventory.Domain.Models
 
         public bool ReceiveSmsNotifications { get; set; } = false;
 
+        [MaxLength(128)]
+        public string? RefreshTokenHash { get; set; }
+
+        public DateTime? RefreshTokenExpiresAtUtc { get; set; }
+
+        public DateTime? RefreshTokenRevokedAtUtc { get; set; }
+
         // ===============================
         // AUDIT
         // ===============================

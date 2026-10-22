@@ -4,6 +4,7 @@
 @using Inventory.LocalDB.Context
 @using Inventory.LocalDB.Models
 @using Inventory.LocalDB.Services.Interfaces
+@using Inventory.LocalDB.Services.Results
 @using Inventory.Ui.Services
 @using Inventory.Ui.Services.Sync
 @using Microsoft.EntityFrameworkCore
@@ -15,6 +16,8 @@
 @inject PosLocalDbContext Db
 @inject ILocalSaleService LocalSaleService
 @inject ILocalCashSessionService LocalCashSessionService
+@inject ILocalCustomerCreditService LocalCustomerCreditService
+
 @inject ILocalTenantContext LocalTenantContext
 @inject AppState State
 @inject NavigationManager Nav
@@ -1157,6 +1160,10 @@
     private LocalCustomer? SelectedCustomer;
     private LocalCustomer? TempSelectedCustomer;
     private CartLine? SelectedLine;
+
+    private LocalCustomerDetailResult? customerDetail;
+    private decimal? CompletedCustomerBalance;
+    private Guid? CompletedCustomerId;
 
     private string BarcodeInput = string.Empty;
     private string SearchText = string.Empty;
@@ -2746,6 +2753,9 @@ SaleCompleted
 
         CompletedChangeAmount =
             0m;
+
+        CompletedCustomerBalance = null;
+        CompletedCustomerId = null;
 
         PaymentEntries.Clear();
 

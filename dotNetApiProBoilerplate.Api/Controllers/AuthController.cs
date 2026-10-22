@@ -147,26 +147,24 @@ namespace Inventory.Api.Controllers
         /// Refresh authentication token
         /// </summary>
         [HttpPost("refresh")]
-        [Authorize]
+        [AllowAnonymous]
         [ProducesResponseType(typeof(AuthResult), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-        [ProducesResponseType(StatusCodes.Status404NotFound)]
-        public async Task<IActionResult> Refresh(
-            CancellationToken cancellationToken)
+        [ProducesResponseType(StatusCodes.Status403Forbidden)]
+        public async Task<IActionResult> Refresh([FromBody] RefreshTokenRequest request, CancellationToken cancellationToken)
         {
-            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-
-            if (string.IsNullOrEmpty(userId))
+            if (request == null ||
+                string.IsNullOrWhiteSpace(request.RefreshToken))
+            {
                 return Unauthorized();
+            }
 
-            var result = await _mediator.Send(
-                new RefreshTokenCommand(userId),
-                cancellationToken
-            );
+            var result =
+                await _mediator.Send(new RefreshTokenCommand(request.RefreshToken),
+                    cancellationToken);
 
             return Ok(result);
         }
-
         /// <summary>
         /// Change user password
         /// </summary>
@@ -227,5 +225,5 @@ namespace Inventory.Api.Controllers
 
     }
 
-   
+
 }

@@ -15,7 +15,7 @@ namespace Inventory.Dto.Auth.Results
         public string RefreshToken { get; set; } = null!;
 
         public DateTime ExpiresAt { get; set; }
-
+        public DateTime RefreshTokenExpiresAt { get; set; }
         // Infos utilisateur
         public Guid UserId { get; set; }
         public Guid? TenantId { get; set; }

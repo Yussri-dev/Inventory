@@ -8,14 +8,14 @@ namespace Inventory.Ui.Services
     public sealed class RefreshTokenHandler : DelegatingHandler
     {
         private readonly ISecureStorageService _storage;
-        private readonly IAuthApi _authApi;
+        private readonly IAuthApiOpen _authApi;
 
-        // évite plusieurs refresh simultanés
-        private static readonly SemaphoreSlim _refreshLock = new(1, 1);
+        private static readonly SemaphoreSlim _refreshLock =
+            new(1, 1);
 
         public RefreshTokenHandler(
             ISecureStorageService storage,
-            IAuthApi authApi)
+            IAuthApiOpen authApi)
         {
             _storage = storage;
             _authApi = authApi;
@@ -25,44 +25,155 @@ namespace Inventory.Ui.Services
             HttpRequestMessage request,
             CancellationToken cancellationToken)
         {
-            var response = await base.SendAsync(request, cancellationToken);
+            var accessTokenBeforeRequest =
+                await _storage.GetTokenAsync();
 
-            // tout va bien
+            using var retryRequest =
+                await CloneRequestAsync(
+                    request,
+                    cancellationToken);
+
+            var response =
+                await base.SendAsync(
+                    request,
+                    cancellationToken);
+
             if (response.StatusCode != HttpStatusCode.Unauthorized)
+            {
                 return response;
+            }
 
             await _refreshLock.WaitAsync(cancellationToken);
 
             try
             {
-                var refreshToken = await _storage.GetRefreshTokenAsync();
-                if (string.IsNullOrWhiteSpace(refreshToken))
-                    return response;
+                var currentAccessToken =
+                    await _storage.GetTokenAsync();
 
-                var refreshResult = await _authApi.Refresh(new RefreshTokenRequest
+                // Un autre appel a déjà effectué le refresh
+                // pendant que cette requête attendait le lock.
+                if (!string.IsNullOrWhiteSpace(currentAccessToken) &&
+                    !string.Equals(
+                        currentAccessToken,
+                        accessTokenBeforeRequest,
+                        StringComparison.Ordinal))
                 {
-                    RefreshToken = refreshToken
-                });
+                    retryRequest.Headers.Authorization =
+                        new AuthenticationHeaderValue(
+                            "Bearer",
+                            currentAccessToken);
 
-                // sauvegarde nouveaux tokens
-                await _storage.SaveTokenAsync(refreshResult.AccessToken);
-                await _storage.SaveRefreshTokenAsync(refreshResult.RefreshToken);
+                    var retryResponse =
+                        await base.SendAsync(
+                            retryRequest,
+                            cancellationToken);
 
-                // rejouer la requête originale avec le nouveau token
-                request.Headers.Authorization =
-                    new AuthenticationHeaderValue("Bearer", refreshResult.AccessToken);
+                    response.Dispose();
 
-                return await base.SendAsync(request, cancellationToken);
+                    return retryResponse;
+                }
+
+                var refreshToken =
+                    await _storage.GetRefreshTokenAsync();
+
+                if (string.IsNullOrWhiteSpace(refreshToken))
+                {
+                    return response;
+                }
+
+                var refreshResult =
+                    await _authApi.Refresh(
+                        new RefreshTokenRequest
+                        {
+                            RefreshToken = refreshToken
+                        },
+                        cancellationToken);
+
+                if (string.IsNullOrWhiteSpace(
+                        refreshResult.AccessToken) ||
+                    string.IsNullOrWhiteSpace(
+                        refreshResult.RefreshToken))
+                {
+                    return response;
+                }
+
+                await _storage.SaveTokenAsync(
+                    refreshResult.AccessToken);
+
+                await _storage.SaveRefreshTokenAsync(
+                    refreshResult.RefreshToken);
+
+                retryRequest.Headers.Authorization =
+                    new AuthenticationHeaderValue(
+                        "Bearer",
+                        refreshResult.AccessToken);
+
+                var refreshedResponse =
+                    await base.SendAsync(
+                        retryRequest,
+                        cancellationToken);
+
+                response.Dispose();
+
+                return refreshedResponse;
             }
             catch
             {
-                // échec refresh → laisser AuthExpiredHandler gérer le logout
+                // Le 401 original remonte vers AuthExpiredHandler,
+                // qui pourra gérer la déconnexion.
                 return response;
             }
             finally
             {
                 _refreshLock.Release();
             }
+        }
+
+        private static async Task<HttpRequestMessage> CloneRequestAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            var clone =
+                new HttpRequestMessage(
+                    request.Method,
+                    request.RequestUri)
+                {
+                    Version = request.Version,
+                    VersionPolicy = request.VersionPolicy
+                };
+
+            foreach (var header in request.Headers)
+            {
+                clone.Headers.TryAddWithoutValidation(
+                    header.Key,
+                    header.Value);
+            }
+
+            if (request.Content is not null)
+            {
+                var contentBytes =
+                    await request.Content.ReadAsByteArrayAsync(
+                        cancellationToken);
+
+                clone.Content =
+                    new ByteArrayContent(contentBytes);
+
+                foreach (var header in request.Content.Headers)
+                {
+                    clone.Content.Headers.TryAddWithoutValidation(
+                        header.Key,
+                        header.Value);
+                }
+            }
+
+            foreach (var option in request.Options)
+            {
+                clone.Options.TryAdd(
+                    option.Key,
+                    option.Value);
+            }
+
+            return clone;
         }
     }
 }

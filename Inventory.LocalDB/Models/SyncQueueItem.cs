@@ -17,7 +17,9 @@ namespace Inventory.LocalDB.Models
         // Create, Update, Delete, Submit
 
         [Required]
-        public required string PayloadJson { get; set; } 
+        public required string PayloadJson { get; set; }
+
+        public string? PreparedPayloadJson { get; set; }
 
         public string Status { get; set; } = SyncQueueStatus.Pending;
         // Pending, Processing, Done, Failed, Conflict

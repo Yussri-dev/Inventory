@@ -207,6 +207,16 @@ namespace Inventory.Infrastructure.Data
                 entity.Property(x => x.DefaultVatRate)
                     .HasPrecision(5, 2);
             });
+
+            // ============================
+            // STOCK
+            // ============================
+            builder.Entity<Stock>(entity =>
+            {
+                entity.Property(x => x.Version)
+                    .IsRowVersion();
+            });
+
             // ============================
             // PRODUCT RELATIONSHIPS
             // ============================

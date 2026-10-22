@@ -386,24 +386,31 @@ namespace Inventory.Ui.Services.Sync
                         .Trim()
                     ?? string.Empty;
 
-                var payloadJson =
-                    queueItem.PayloadJson;
+                var payloadJson = queueItem.PreparedPayloadJson;
 
-                /*
-                 * Sale and future complex aggregates rebuild their payload
-                 * from the current SQLite data.
-                 *
-                 * Existing entities continue using their stored PayloadJson.
-                 */
-                if (_payloadBuilders.TryGetValue(
-                        entityName,
-                        out var payloadBuilder))
+                if (string.IsNullOrWhiteSpace(payloadJson))
                 {
                     payloadJson =
-                        await payloadBuilder
-                            .BuildPayloadJsonAsync(
-                                queueItem,
-                                cancellationToken);
+                        queueItem.PayloadJson;
+
+                    if (_payloadBuilders.TryGetValue(
+                            entityName,
+                            out var payloadBuilder))
+                    {
+                        payloadJson =
+                            await payloadBuilder
+                                .BuildPayloadJsonAsync(
+                                    queueItem,
+                                    cancellationToken);
+                    }
+
+                    await _syncQueueService.SavePreparedPayloadAsync(
+                        queueItem.Id,
+                        payloadJson,
+                        cancellationToken);
+
+                    queueItem.PreparedPayloadJson =
+                        payloadJson;
                 }
 
                 operations.Add(

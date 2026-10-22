@@ -396,11 +396,11 @@
              * Le JWT doit être enregistré avant les appels
              * vers les API sécurisées de synchronisation.
              */
-            await SecureStorage.SaveTokenAsync(
-                accessToken);
+            await SecureStorage.SaveTokenAsync(                accessToken);
 
-            authenticationPrepared =
-                true;
+            await SecureStorage.SaveRefreshTokenAsync(    result.RefreshToken);
+
+            authenticationPrepared =                true;
 
             /*
              * Le SuperAdmin est global :
@@ -711,8 +711,7 @@
     {
         try
         {
-            await SecureStorage
-                .RemoveTokenAsync();
+            await SecureStorage.ClearAsync();
         }
         catch (Exception exception)
         {

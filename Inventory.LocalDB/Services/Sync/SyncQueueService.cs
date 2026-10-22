@@ -996,5 +996,47 @@ namespace Inventory.LocalDB.Services.Sync
                 ? value
                 : value[..MaximumErrorLength];
         }
+
+        public async Task SavePreparedPayloadAsync(Guid queueItemId, string preparedPayloadJson, CancellationToken cancellationToken = default)
+        {
+            if (queueItemId == Guid.Empty)
+            {
+                throw new ArgumentException(
+                    "Queue item id is required.",
+                    nameof(queueItemId));
+            }
+
+            if (string.IsNullOrWhiteSpace(preparedPayloadJson))
+            {
+                throw new ArgumentException(
+                    "Prepared payload JSON is required.",
+                    nameof(preparedPayloadJson));
+            }
+
+            var tenantId =
+                _tenantContext.GetRequiredTenantId();
+
+            var queueItem =
+                await _db.SyncQueueItems
+                    .FirstOrDefaultAsync(
+                        item =>
+                            item.TenantId == tenantId &&
+                            item.Id == queueItemId,
+                        cancellationToken)
+                ?? throw new InvalidOperationException(
+                    $"Sync queue item '{queueItemId}' was not found.");
+
+            if (!string.IsNullOrWhiteSpace(
+                    queueItem.PreparedPayloadJson))
+            {
+                return;
+            }
+
+            queueItem.PreparedPayloadJson =
+                preparedPayloadJson;
+
+            await _db.SaveChangesAsync(
+                cancellationToken);
+        }
     }
 }

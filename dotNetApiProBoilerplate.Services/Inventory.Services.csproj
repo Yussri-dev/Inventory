@@ -26,5 +26,7 @@
     <ProjectReference Include="..\dotNetApiProBoilerplate.Dto\Inventory.Dto.csproj" />
     <ProjectReference Include="..\dotNetApiProBoilerplate.Infrastructure\Inventory.Infrastructure.csproj" />
   </ItemGroup>
-
+	<ItemGroup>
+		<InternalsVisibleTo Include="dotNetApiProBoilerplate.Services.Tests" />
+	</ItemGroup>
 </Project>

@@ -26,5 +26,7 @@ namespace Inventory.Domain.Entities
         public decimal AvailableQuantity => Quantity - ReservedQuantity;
 
         public DateTime LastUpdated { get; set; }
+
+        public uint Version { get; set; }
     }
 }

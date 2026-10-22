@@ -1,29 +1,59 @@
-﻿// Import the application's Entity Framework Core DbContext
-// Used to persist changes made through repositories
-using Inventory.Infrastructure.Data;
+﻿using Inventory.Infrastructure.Data;
+using Microsoft.EntityFrameworkCore.Storage;
 
 namespace Inventory.Infrastructure.Repositories
 {
-    // Unit of Work implementation
-    // Responsible for committing all pending changes as a single operation
     public class UnitOfWork : IUnitOfWork
     {
-        // DbContext instance shared across repositories
-        // Ensures consistency within a single request/transaction scope
         private readonly InventoryDbContext _context;
 
-        // Constructor injection of DbContext
-        // DbContext lifetime is managed by the DI container (scoped)
-        public UnitOfWork(InventoryDbContext context)
+        public UnitOfWork(
+            InventoryDbContext context)
         {
             _context = context;
         }
 
-        // Persists all tracked changes to the database asynchronously
-        // This includes inserts, updates, and deletes performed by repositories
-        public Task<int> SaveChangesAsync()
+        public IDbContextTransaction? CurrentTransaction => _context.Database.CurrentTransaction;
+
+        public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
         {
-            return _context.SaveChangesAsync();
+            return _context.SaveChangesAsync(
+                cancellationToken);
+        }
+
+        public async Task<IDbContextTransaction> BeginTransactionAsync(CancellationToken cancellationToken = default)
+        {
+            if (_context.Database.CurrentTransaction != null)
+            {
+                throw new InvalidOperationException("A database transaction is already active.");
+            }
+
+            return await _context.Database.BeginTransactionAsync(cancellationToken);
+        }
+
+        public async Task CommitTransactionAsync(CancellationToken cancellationToken = default)
+        {
+            var transaction = _context.Database.CurrentTransaction;
+
+            if (transaction == null)
+            {
+                throw new InvalidOperationException(
+                    "There is no active transaction to commit.");
+            }
+
+            await transaction.CommitAsync(cancellationToken);
+        }
+
+        public async Task RollbackTransactionAsync(CancellationToken cancellationToken = default)
+        {
+            var transaction = _context.Database.CurrentTransaction;
+
+            if (transaction == null)
+            {
+                return;
+            }
+
+            await transaction.RollbackAsync(cancellationToken);
         }
     }
 }

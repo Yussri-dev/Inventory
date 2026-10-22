@@ -2520,6 +2520,9 @@ namespace Inventory.LocalDB.Migrations
                     b.Property<string>("PayloadJson")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("PreparedPayloadJson")
+                        .HasColumnType("TEXT");
+
                     b.Property<DateTime?>("ProcessedAtUtc")
                         .HasColumnType("TEXT");
 

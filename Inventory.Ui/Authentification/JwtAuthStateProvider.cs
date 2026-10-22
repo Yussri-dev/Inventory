@@ -1,4 +1,5 @@
-﻿using Inventory.LocalDB.Services.Interfaces;
+﻿using Inventory.Dto.Auth.Requests;
+using Inventory.LocalDB.Services.Interfaces;
 using Inventory.Ui.Interfaces;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Authorization;
@@ -12,6 +13,7 @@ public sealed class JwtAuthStateProvider
     private readonly ISecureStorageService _storage;
     private readonly NavigationManager _navigationManager;
     private readonly ILocalTenantContext _tenantContext;
+    private readonly IAuthApiOpen _authApi;
 
     private readonly SemaphoreSlim _lock =
         new(1, 1);
@@ -21,10 +23,12 @@ public sealed class JwtAuthStateProvider
     public JwtAuthStateProvider(
         ISecureStorageService storage,
         NavigationManager navigationManager,
+        IAuthApiOpen authApi,
         ILocalTenantContext tenantContext)
     {
         _storage = storage;
         _navigationManager = navigationManager;
+        _authApi = authApi;
         _tenantContext = tenantContext;
     }
 
@@ -90,9 +94,32 @@ public sealed class JwtAuthStateProvider
 
             if (expiresAt <= DateTimeOffset.UtcNow)
             {
-                await ClearInvalidSessionAsync();
+                var refreshedToken =
+                    await TryRefreshAccessTokenAsync();
 
-                return Anonymous();
+                if (string.IsNullOrWhiteSpace(refreshedToken))
+                {
+                    await ClearInvalidSessionAsync();
+
+                    return Anonymous();
+                }
+
+                normalizedToken =
+                    NormalizeBearerToken(refreshedToken);
+
+                claims =
+                    JwtParser.Parse(normalizedToken)
+                        .ToList();
+
+                if (!TryGetExpiration(
+                        claims,
+                        out expiresAt) ||
+                    expiresAt <= DateTimeOffset.UtcNow)
+                {
+                    await ClearInvalidSessionAsync();
+
+                    return Anonymous();
+                }
             }
 
             RestoreTenantContext(claims);
@@ -115,7 +142,51 @@ public sealed class JwtAuthStateProvider
             return Anonymous();
         }
     }
+    private async Task<string?> TryRefreshAccessTokenAsync()
+    {
+        var refreshToken =
+            await _storage.GetRefreshTokenAsync();
 
+        if (string.IsNullOrWhiteSpace(refreshToken))
+        {
+            return null;
+        }
+
+        try
+        {
+            var result =
+                await _authApi.Refresh(
+                    new RefreshTokenRequest
+                    {
+                        RefreshToken = refreshToken
+                    });
+
+            if (string.IsNullOrWhiteSpace(result.AccessToken) ||
+                string.IsNullOrWhiteSpace(result.RefreshToken))
+            {
+                return null;
+            }
+
+            var accessToken =
+                NormalizeBearerToken(
+                    result.AccessToken);
+
+            await _storage.SaveTokenAsync(
+                accessToken);
+
+            await _storage.SaveRefreshTokenAsync(
+                result.RefreshToken);
+
+            return accessToken;
+        }
+        catch (Exception exception)
+        {
+            System.Diagnostics.Debug.WriteLine(
+                $"Silent token refresh failed: {exception.Message}");
+
+            return null;
+        }
+    }
     public void NotifyUserLoggedIn(
         string token)
     {
@@ -224,7 +295,7 @@ public sealed class JwtAuthStateProvider
     public async Task LogoutAsync(
         IServiceProvider? serviceProvider = null)
     {
-        await _storage.RemoveTokenAsync();
+        await _storage.ClearAsync();
 
         NotifyUserLoggedOut();
 
@@ -333,7 +404,7 @@ public sealed class JwtAuthStateProvider
     {
         try
         {
-            await _storage.RemoveTokenAsync();
+            await _storage.ClearAsync();
         }
         catch (Exception exception)
         {

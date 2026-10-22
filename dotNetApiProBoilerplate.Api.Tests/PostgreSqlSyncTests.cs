@@ -273,7 +273,7 @@ public sealed class PostgreSqlSyncFixture : IAsyncLifetime
         var catalog=new ProductCatalog {Id=Guid.NewGuid(),Name="Test product",InternalCode=Guid.NewGuid().ToString("N"),CategoryId=category.Id};
         db.Add(catalog);
         db.Products.Add(new Product {Id=data.ProductId,TenantId=data.TenantId,CatalogProductId=catalog.Id,
-            Name="Test product",Sku=catalog.InternalCode,IsTracked=true,SalePrice=10,IsActive=Inventory.Domain.Enums.ProductStatus.Active});
+            Name="Test product",Sku=catalog.InternalCode,IsTracked=true,SalePrice=10,IsActive=Inventory.Dto.Enums.ProductStatus.Active});
         db.Stocks.Add(new Stock {Id=Guid.NewGuid(),TenantId=data.TenantId,ProductId=data.ProductId,Quantity=10,LastUpdated=DateTime.UtcNow});
         db.CashSessions.Add(new CashSession {Id=data.CashId,TenantId=data.TenantId,ClientOperationId=Guid.NewGuid(),
             SessionNumber="TEST",OpenedAt=DateTime.UtcNow,OpenedByUserId=data.UserId,Status=CashSessionStatus.Open});

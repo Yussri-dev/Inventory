@@ -43,6 +43,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Local", "Local", "{E92CF1C1
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Inventory.LocalDB", "Inventory.LocalDB\Inventory.LocalDB.csproj", "{018FADF3-3946-4849-AC41-26BA1D1044DF}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "dotNetApiProBoilerplate.Local.Tests", "dotNetApiProBoilerplate.Local.Tests\dotNetApiProBoilerplate.Local.Tests.csproj", "{37E966A4-8EC8-455B-B6D1-13C169152786}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -90,6 +92,10 @@ Global
 		{018FADF3-3946-4849-AC41-26BA1D1044DF}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{018FADF3-3946-4849-AC41-26BA1D1044DF}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{018FADF3-3946-4849-AC41-26BA1D1044DF}.Release|Any CPU.Build.0 = Release|Any CPU
+		{37E966A4-8EC8-455B-B6D1-13C169152786}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{37E966A4-8EC8-455B-B6D1-13C169152786}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{37E966A4-8EC8-455B-B6D1-13C169152786}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{37E966A4-8EC8-455B-B6D1-13C169152786}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -114,6 +120,7 @@ Global
 		{56D69955-1C1F-43D3-AE1A-7B833B807D04} = {73DC3062-0B90-4804-B4C2-C4824BF6AEAA}
 		{E92CF1C1-6B92-43F8-8E21-F08008A8D185} = {7C43F5D8-8102-4225-B09D-1663C7FAF34D}
 		{018FADF3-3946-4849-AC41-26BA1D1044DF} = {E92CF1C1-6B92-43F8-8E21-F08008A8D185}
+		{37E966A4-8EC8-455B-B6D1-13C169152786} = {DA7AA9FC-6D5E-401E-B622-9988AE4C33C5}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {57C78B04-A535-44E6-BDF7-72A4BB23E897}

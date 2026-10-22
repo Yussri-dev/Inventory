@@ -9,6 +9,8 @@ using Inventory.Services.Exceptions;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using System.Security;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace Inventory.Services
 {
@@ -326,19 +328,49 @@ namespace Inventory.Services
                     cancellationToken);
             }
 
-            return GenerateResult(user);
+            var refreshToken = GenerateRefreshToken();
+
+            user.RefreshTokenHash =
+                HashRefreshToken(
+                    refreshToken);
+
+            user.RefreshTokenExpiresAtUtc =
+                DateTime.UtcNow.AddDays(30);
+
+            user.RefreshTokenRevokedAtUtc =
+                null;
+
+            var refreshUpdateResult =
+                await _userManager.UpdateAsync(user);
+
+            if (!refreshUpdateResult.Succeeded)
+            {
+                throw CreateIdentityValidationException(
+                    refreshUpdateResult);
+            }
+
+            return GenerateResult(user, refreshToken);
         }
 
         public async Task<AuthResult> RefreshTokenAsync(
-            string userId)
+    string refreshToken,
+    CancellationToken cancellationToken = default)
         {
-            var user = await _userManager.FindByIdAsync(userId);
+            if (string.IsNullOrWhiteSpace(refreshToken))
+            {
+                throw new UnauthorizedAccessException(
+                    "Invalid refresh token.");
+            }
+
+            var refreshTokenHash = HashRefreshToken(refreshToken);
+
+            var user = await _context.Users.FirstOrDefaultAsync(
+                        user => user.RefreshTokenHash == refreshTokenHash, cancellationToken);
 
             if (user is null)
             {
-                throw new NotFoundException(
-                    "User",
-                    userId);
+                throw new UnauthorizedAccessException(
+                    "Invalid refresh token.");
             }
 
             if (!user.IsActive)
@@ -353,7 +385,36 @@ namespace Inventory.Services
                     "Account is locked.");
             }
 
-            return GenerateResult(user);
+            if (!user.RefreshTokenExpiresAtUtc.HasValue ||
+                user.RefreshTokenExpiresAtUtc.Value <=
+                    DateTime.UtcNow)
+            {
+                throw new UnauthorizedAccessException(
+                    "Refresh token has expired.");
+            }
+
+            if (user.RefreshTokenRevokedAtUtc.HasValue)
+            {
+                throw new UnauthorizedAccessException(
+                    "Refresh token has been revoked.");
+            }
+
+            var newRefreshToken = GenerateRefreshToken();
+
+            user.RefreshTokenHash = HashRefreshToken(newRefreshToken);
+
+            user.RefreshTokenExpiresAtUtc = DateTime.UtcNow.AddDays(30);
+
+            user.RefreshTokenRevokedAtUtc = null;
+
+            var updateResult = await _userManager.UpdateAsync(user);
+
+            if (!updateResult.Succeeded)
+            {
+                throw CreateIdentityValidationException(updateResult);
+            }
+
+            return GenerateResult(user, newRefreshToken);
         }
 
         public async Task ChangePasswordAsync(
@@ -394,7 +455,7 @@ namespace Inventory.Services
             }
         }
 
-        private AuthResult GenerateResult(ApplicationUser user)
+        private AuthResult GenerateResult(ApplicationUser user, string? refreshToken = null)
         {
             var tenant = user.TenantId.HasValue
                 ? _context.Tenants.FirstOrDefault(
@@ -409,12 +470,16 @@ namespace Inventory.Services
             return new AuthResult
             {
                 AccessToken = _jwt.Generate(
-                    user.Id,
-                    user.Email!,
-                    tenantIdForToken,
-                    user.Role.ToString()),
+         user.Id,
+         user.Email!,
+         tenantIdForToken,
+         user.Role.ToString()),
+
+                RefreshToken = refreshToken ?? string.Empty,
 
                 ExpiresAt = DateTime.UtcNow.AddHours(2),
+
+                RefreshTokenExpiresAt = user.RefreshTokenExpiresAtUtc ?? DateTime.UtcNow,
 
                 UserId = user.Id,
                 Email = user.Email!,
@@ -471,6 +536,26 @@ namespace Inventory.Services
                 groupedErrors.ToDictionary(
                     x => x.Key,
                     x => x.Value.ToArray()));
+        }
+
+        private static string GenerateRefreshToken()
+        {
+            var bytes =
+                RandomNumberGenerator.GetBytes(64);
+
+            return Convert.ToBase64String(bytes);
+        }
+
+        private static string HashRefreshToken(
+            string refreshToken)
+        {
+            var bytes =
+                Encoding.UTF8.GetBytes(refreshToken);
+
+            var hash =
+                SHA256.HashData(bytes);
+
+            return Convert.ToHexString(hash);
         }
     }
 }

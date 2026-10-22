@@ -1,6 +1,4 @@
-﻿
-
-using Inventory.Ui.Interfaces;
+﻿using Inventory.Ui.Interfaces;
 
 namespace Inventory.Ui.Services
 {
