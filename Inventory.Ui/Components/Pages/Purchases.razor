@@ -243,13 +243,13 @@
                 @(IsSaving ? "Saving locally..." : "Add")
             </button>
 
-            <button type="button"
+           @*  <button type="button"
                     class="btn btn-secondary"
                     @onclick="NavigateToSalesAsync"
                     @onclick:stopPropagation="true"
                     disabled="@IsSaving">
                 Sales
-            </button>
+            </button> *@
 
             <button type="button"
                     class="btn btn-secondary"
@@ -1142,28 +1142,28 @@ StringComparer.OrdinalIgnoreCase);
         }
     }
 
-    private async Task NavigateToSalesAsync()
-    {
-        try
-        {
-            await SaveAndSuspendDraftAsync();
+    // private async Task NavigateToSalesAsync()
+    // {
+    //     try
+    //     {
+    //         await SaveAndSuspendDraftAsync();
 
-            HasSavedBeforeNavigation =
-                true;
+    //         HasSavedBeforeNavigation =
+    //             true;
 
-            Nav.NavigateTo(
-                "/sales");
-        }
-        catch (Exception exception)
-        {
-            Logger.LogError(
-                exception,
-                "Failed to save the purchase draft before opening sales.");
+    //         Nav.NavigateTo(
+    //             "/sales");
+    //     }
+    //     catch (Exception exception)
+    //     {
+    //         Logger.LogError(
+    //             exception,
+    //             "Failed to save the purchase draft before opening sales.");
 
-            await ShowErrorAsync(
-                "The purchase draft could not be saved.");
-        }
-    }
+    //         await ShowErrorAsync(
+    //             "The purchase draft could not be saved.");
+    //     }
+    // }
 
     private async Task NavigateToDashboardAsync()
     {

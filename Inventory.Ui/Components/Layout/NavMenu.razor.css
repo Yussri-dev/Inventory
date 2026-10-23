@@ -478,9 +478,9 @@
 }
 
 .inv-logout {
-    width: 32px;
+    /*width: 32px;*/
     height: 32px;
-    min-width: 32px;
+    /*min-width: 32px;*/
     border-radius: 8px;
     background: linear-gradient(135deg, #bf1820, #bf1820);
     display: flex;

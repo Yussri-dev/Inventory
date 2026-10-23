@@ -786,11 +786,12 @@
             </div>
 
             <button type="button"
-                    class="inv-logout"
+                    class="inv-logout @(IsCollapsed ? "inv-logout-collapsed" : "")"
+                    title="Logout"
+                    aria-label="Logout"
                     @onclick="OnLogout">
-                Logout
+                @(IsCollapsed ? "L" : "Logout")
             </button>
-
         </div>
         }
 

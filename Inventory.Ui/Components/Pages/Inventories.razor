@@ -222,222 +222,224 @@
                         </div>
                     }
 
-                    @if (CanEditSelectedSession)
-                    {
-                        <section class="count-entry panel">
-                            <div class="panel-heading entry-heading">
-                                <div>
-                                    <span class="eyebrow">FAST COUNT</span>
-                                    <h2>Scan a barcode</h2>
-                                    <p>Each scan adds the quantity shown on the right. Repeated scans increment the same product.</p>
-                                </div>
-                                @if (!string.IsNullOrWhiteSpace(lastActionMessage))
-                                {
-                                    <span class="last-action">@lastActionMessage</span>
-                                }
-                            </div>
-
-                            <div class="scan-row">
-                                <label class="scan-input-wrap">
-                                    <span>Barcode</span>
-
-                                    <input @ref="barcodeInputRef"
-                                           type="text"
-                                           class="barcode-input"
-                                           inputmode="numeric"
-                                           autocomplete="off"
-                                           placeholder="Scan or enter barcode, then press Enter"
-                                           @bind="barcodeInput"
-                                           @bind:event="oninput"
-                                           @onkeydown="HandleBarcodeKeyDown" />
-                                </label>
-
-                                <label class="quantity-input-wrap">
-                                    <span>Quantity per scan</span>
-                                    <input type="number"
-                                           min="0.001"
-                                           step="0.001"
-                                           @bind="scanQuantity"
-                                           @bind:event="oninput" />
-                                </label>
-
-                                <button type="button"
-                                        class="button primary scan-button"
-                                        disabled="@(isBusy || string.IsNullOrWhiteSpace(barcodeInput))"
-                                        @onclick="ProcessBarcodeAsync">
-                                    Add count
-                                </button>
-                            </div>
-                        </section>
-                    }
-
                     <section class="count-grid @(!CanEditSelectedSession ? "single-column" : null)">
-                        <article class="panel lines-panel">
-                            <div class="panel-heading">
-                                <div>
-                                    <span class="eyebrow">COUNT SHEET</span>
-                                    <h2>Counted products</h2>
-                                </div>
-
-                                <div class="line-filters">
-                                    <button type="button"
-                                            class="filter-button @(lineFilter == LineFilter.All ? "active" : null)"
-                                            @onclick="() => SetLineFilter(LineFilter.All)">
-                                        All @lines.Count
-                                    </button>
-                                    <button type="button"
-                                            class="filter-button @(lineFilter == LineFilter.Variance ? "active" : null)"
-                                            @onclick="() => SetLineFilter(LineFilter.Variance)">
-                                        Variances @VarianceLineCount
-                                    </button>
-                                </div>
-                            </div>
-
-                            @if (isLoadingLines)
+                        <div class="count-main">
+                            @if (CanEditSelectedSession)
                             {
-                                <div class="inline-loading">
-                                    <span class="spinner small"></span>
-                                    Loading count lines...
-                                </div>
+                                <section class="count-entry panel">
+                                    <div class="panel-heading entry-heading">
+                                        <div>
+                                            <span class="eyebrow">FAST COUNT</span>
+                                            <h2>Scan a barcode</h2>
+                                            <p>Each scan adds the quantity shown on the right. Repeated scans increment the same product.</p>
+                                        </div>
+                                        @if (!string.IsNullOrWhiteSpace(lastActionMessage))
+                                        {
+                                            <span class="last-action">@lastActionMessage</span>
+                                        }
+                                    </div>
+
+                                    <div class="scan-row">
+                                        <label class="scan-input-wrap">
+                                            <span>Barcode</span>
+
+                                            <input @ref="barcodeInputRef"
+                                                   type="text"
+                                                   class="barcode-input"
+                                                   inputmode="numeric"
+                                                   autocomplete="off"
+                                                   placeholder="Scan or enter barcode, then press Enter"
+                                                   @bind="barcodeInput"
+                                                   @bind:event="oninput"
+                                                   @onkeydown="HandleBarcodeKeyDown" />
+                                        </label>
+
+                                        <label class="quantity-input-wrap">
+                                            <span>Quantity per scan</span>
+                                            <input type="number"
+                                                   min="0.001"
+                                                   step="0.001"
+                                                   @bind="scanQuantity"
+                                                   @bind:event="oninput" />
+                                        </label>
+
+                                        <button type="button"
+                                                class="button primary scan-button"
+                                                disabled="@(isBusy || string.IsNullOrWhiteSpace(barcodeInput))"
+                                                @onclick="ProcessBarcodeAsync">
+                                            Add count
+                                        </button>
+                                    </div>
+                                </section>
                             }
-                            else if (lines.Count == 0)
-                            {
-                                <div class="empty-state compact">
-                                    <span class="empty-icon">0</span>
-                                    <strong>No product counted yet</strong>
-                                    <p>Scan a barcode or add a product from the catalogue.</p>
+
+                            <article class="panel lines-panel">
+                                <div class="panel-heading">
+                                    <div>
+                                        <span class="eyebrow">COUNT SHEET</span>
+                                        <h2>Counted products</h2>
+                                    </div>
+
+                                    <div class="line-filters">
+                                        <button type="button"
+                                                class="filter-button @(lineFilter == LineFilter.All ? "active" : null)"
+                                                @onclick="() => SetLineFilter(LineFilter.All)">
+                                            All @lines.Count
+                                        </button>
+                                        <button type="button"
+                                                class="filter-button @(lineFilter == LineFilter.Variance ? "active" : null)"
+                                                @onclick="() => SetLineFilter(LineFilter.Variance)">
+                                            Variances @VarianceLineCount
+                                        </button>
+                                    </div>
                                 </div>
-                            }
-                            else if (!VisibleLines.Any())
-                            {
-                                <div class="empty-state compact">
-                                    <strong>No variance</strong>
-                                    <p>Every displayed count matches the expected stock.</p>
-                                </div>
-                            }
-                            else
-                            {
-                                <div class="line-list">
-                                    @foreach (var line in VisibleLines)
-                                    {
-                                        var variance = GetVariance(line);
 
-                                        <article @key="line.Id" class="count-line @GetVarianceBorderClass(variance)">
-                                            <div class="product-cell">
-                                                <strong>@line.ProductName</strong>
-                                                <span>@(string.IsNullOrWhiteSpace(line.ProductBarcode) ? "No barcode" : line.ProductBarcode)</span>
-                                            </div>
+                                @if (isLoadingLines)
+                                {
+                                    <div class="inline-loading">
+                                        <span class="spinner small"></span>
+                                        Loading count lines...
+                                    </div>
+                                }
+                                else if (lines.Count == 0)
+                                {
+                                    <div class="empty-state compact">
+                                        <span class="empty-icon">0</span>
+                                        <strong>No product counted yet</strong>
+                                        <p>Scan a barcode or add a product from the catalogue.</p>
+                                    </div>
+                                }
+                                else if (!VisibleLines.Any())
+                                {
+                                    <div class="empty-state compact">
+                                        <strong>No variance</strong>
+                                        <p>Every displayed count matches the expected stock.</p>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="line-list">
+                                        @foreach (var line in VisibleLines)
+                                        {
+                                            var variance = GetVariance(line);
 
-                                            <div class="number-cell">
-                                                <span>Expected</span>
-                                                <strong>@FormatQuantity(line.ExpectedQuantity)</strong>
-                                            </div>
-
-                                            @if (editingLineId == line.Id)
-                                            {
-                                                <div class="edit-cell">
-                                                    <label>
-                                                        Physical count
-                                                        <input type="number"
-                                                               min="0"
-                                                               step="0.001"
-                                                               @bind="editingQuantity"
-                                                               @bind:event="oninput"
-                                                               @onkeydown="eventArgs => HandleEditKeyDown(eventArgs, line)" />
-                                                    </label>
-                                                    <label>
-                                                        Notes
-                                                        <input type="text"
-                                                               maxlength="1000"
-                                                               placeholder="Optional note"
-                                                               @bind="editingNotes" />
-                                                    </label>
+                                            <article @key="line.Id" class="count-line @GetVarianceBorderClass(variance)">
+                                                <div class="product-cell">
+                                                    <strong>@line.ProductName</strong>
+                                                    <span>@(string.IsNullOrWhiteSpace(line.ProductBarcode) ? "No barcode" : line.ProductBarcode)</span>
                                                 </div>
 
-                                                <div class="line-actions editing-actions">
-                                                    <button type="button"
-                                                            class="icon-button save"
-                                                            disabled="@isBusy"
-                                                            title="Save"
-                                                            @onclick="() => SaveLineEditAsync(line)">
-                                                        Save
-                                                    </button>
-                                                    <button type="button"
-                                                            class="icon-button"
-                                                            disabled="@isBusy"
-                                                            @onclick="CancelLineEdit">
-                                                        Cancel
-                                                    </button>
-                                                </div>
-                                            }
-                                            else
-                                            {
-                                                <div class="number-cell counted-cell">
-                                                    <span>Counted</span>
-                                                    <strong>@FormatQuantity(line.CountedQuantity)</strong>
+                                                <div class="number-cell">
+                                                    <span>Expected</span>
+                                                    <strong>@FormatQuantity(line.ExpectedQuantity)</strong>
                                                 </div>
 
-                                                <div class="number-cell variance-cell">
-                                                    <span>Variance</span>
-                                                    <strong class="@GetQuantityClass(variance)">@FormatSigned(variance)</strong>
-                                                </div>
+                                                @if (editingLineId == line.Id)
+                                                {
+                                                    <div class="edit-cell">
+                                                        <label>
+                                                            Physical count
+                                                            <input type="number"
+                                                                   min="0"
+                                                                   step="0.001"
+                                                                   @bind="editingQuantity"
+                                                                   @bind:event="oninput"
+                                                                   @onkeydown="eventArgs => HandleEditKeyDown(eventArgs, line)" />
+                                                        </label>
+                                                        <label>
+                                                            Notes
+                                                            <input type="text"
+                                                                   maxlength="1000"
+                                                                   placeholder="Optional note"
+                                                                   @bind="editingNotes" />
+                                                        </label>
+                                                    </div>
 
-                                                <div class="line-actions">
-                                                    @if (CanEditSelectedSession)
-                                                    {
+                                                    <div class="line-actions editing-actions">
                                                         <button type="button"
-                                                                class="quantity-button"
-                                                                disabled="@(isBusy || line.CountedQuantity <= 0m)"
-                                                                title="Subtract one"
-                                                                @onclick="() => ChangeLineQuantityAsync(line, -1m)">
-                                                            −
-                                                        </button>
-                                                        <button type="button"
-                                                                class="quantity-button"
+                                                                class="icon-button save"
                                                                 disabled="@isBusy"
-                                                                title="Add one"
-                                                                @onclick="() => ChangeLineQuantityAsync(line, 1m)">
-                                                            +
+                                                                title="Save"
+                                                                @onclick="() => SaveLineEditAsync(line)">
+                                                            Save
                                                         </button>
                                                         <button type="button"
                                                                 class="icon-button"
                                                                 disabled="@isBusy"
-                                                                @onclick="() => StartLineEdit(line)">
-                                                            Edit
+                                                                @onclick="CancelLineEdit">
+                                                            Cancel
                                                         </button>
-                                                        <button type="button"
-                                                                class="icon-button delete"
-                                                                disabled="@isBusy"
-                                                                @onclick="() => DeleteLineAsync(line)">
-                                                            Delete
-                                                        </button>
-                                                    }
-                                                    else
-                                                    {
-                                                        <span class="locked-label">Locked</span>
-                                                    }
-                                                </div>
-                                            }
-                                        </article>
-                                    }
-                                </div>
-                            }
+                                                    </div>
+                                                }
+                                                else
+                                                {
+                                                    <div class="number-cell counted-cell">
+                                                        <span>Counted</span>
+                                                        <strong>@FormatQuantity(line.CountedQuantity)</strong>
+                                                    </div>
 
-                            <footer class="count-summary">
-                                <div>
-                                    <span>Expected total</span>
-                                    <strong>@FormatQuantity(ExpectedTotal)</strong>
-                                </div>
-                                <div>
-                                    <span>Counted total</span>
-                                    <strong>@FormatQuantity(CountedTotal)</strong>
-                                </div>
-                                <div>
-                                    <span>Net variance</span>
-                                    <strong class="@GetQuantityClass(NetVariance)">@FormatSigned(NetVariance)</strong>
-                                </div>
-                            </footer>
-                        </article>
+                                                    <div class="number-cell variance-cell">
+                                                        <span>Variance</span>
+                                                        <strong class="@GetQuantityClass(variance)">@FormatSigned(variance)</strong>
+                                                    </div>
+
+                                                    <div class="line-actions">
+                                                        @if (CanEditSelectedSession)
+                                                        {
+                                                            <button type="button"
+                                                                    class="quantity-button"
+                                                                    disabled="@(isBusy || line.CountedQuantity <= 0m)"
+                                                                    title="Subtract one"
+                                                                    @onclick="() => ChangeLineQuantityAsync(line, -1m)">
+                                                                −
+                                                            </button>
+                                                            <button type="button"
+                                                                    class="quantity-button"
+                                                                    disabled="@isBusy"
+                                                                    title="Add one"
+                                                                    @onclick="() => ChangeLineQuantityAsync(line, 1m)">
+                                                                +
+                                                            </button>
+                                                            <button type="button"
+                                                                    class="icon-button"
+                                                                    disabled="@isBusy"
+                                                                    @onclick="() => StartLineEdit(line)">
+                                                                Edit
+                                                            </button>
+                                                            <button type="button"
+                                                                    class="icon-button delete"
+                                                                    disabled="@isBusy"
+                                                                    @onclick="() => DeleteLineAsync(line)">
+                                                                Delete
+                                                            </button>
+                                                        }
+                                                        else
+                                                        {
+                                                            <span class="locked-label">Locked</span>
+                                                        }
+                                                    </div>
+                                                }
+                                            </article>
+                                        }
+                                    </div>
+                                }
+
+                                <footer class="count-summary">
+                                    <div>
+                                        <span>Expected total</span>
+                                        <strong>@FormatQuantity(ExpectedTotal)</strong>
+                                    </div>
+                                    <div>
+                                        <span>Counted total</span>
+                                        <strong>@FormatQuantity(CountedTotal)</strong>
+                                    </div>
+                                    <div>
+                                        <span>Net variance</span>
+                                        <strong class="@GetQuantityClass(NetVariance)">@FormatSigned(NetVariance)</strong>
+                                    </div>
+                                </footer>
+                            </article>
+                        </div>
 
                         @if (CanEditSelectedSession)
                         {

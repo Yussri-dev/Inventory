@@ -520,8 +520,15 @@ button {
         font-size: .82rem;
     }
 
+.count-main {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    min-width: 0;
+}
+
 .count-entry {
-    margin-bottom: 14px;
+    margin-bottom: 0;
 }
 
 .entry-heading {
@@ -544,7 +551,7 @@ button {
 
 .scan-row {
     display: grid;
-    grid-template-columns: minmax(260px, 1fr) 150px auto;
+    grid-template-columns: minmax(0, 1fr) 150px auto;
     gap: 12px;
     padding: 10px 20px 20px;
 }
@@ -557,6 +564,7 @@ button {
     display: flex;
     flex-direction: column;
     gap: 6px;
+    min-width: 0;
     color: #344054;
     font-size: .76rem;
     font-weight: 700;
@@ -649,7 +657,7 @@ button {
 
 .count-line {
     display: grid;
-    grid-template-columns: minmax(180px, 1.8fr) repeat(3, minmax(82px, .55fr)) auto;
+    grid-template-columns: minmax(0, 1.8fr) repeat(3, minmax(60px, .55fr)) auto;
     gap: 12px;
     align-items: center;
     min-height: 76px;
@@ -996,12 +1004,33 @@ button {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
-    .count-grid {
-        grid-template-columns: 1fr;
+    .inventory-layout {
+        grid-template-columns: 220px minmax(0, 1fr);
     }
 
-    .catalogue-panel {
-        position: static;
+    .count-grid {
+        grid-template-columns: minmax(0, 1fr) 280px;
+    }
+
+    .scan-row {
+        grid-template-columns: minmax(0, 1fr) 130px;
+    }
+
+    .scan-input-wrap {
+        grid-column: 1 / -1;
+    }
+
+    .count-line {
+        grid-template-columns: minmax(0, 1.4fr) repeat(3, minmax(60px, .5fr));
+    }
+
+    .line-actions {
+        grid-column: 1 / -1;
+    }
+
+    .edit-cell {
+        grid-column: 1 / -1;
+        grid-template-columns: 130px minmax(0, 1fr);
     }
 
     .catalogue-list {
@@ -1019,8 +1048,17 @@ button {
 }
 
 @media (max-width: 980px) {
-    .inventory-layout {
-        grid-template-columns: 1fr;
+    .inventory-layout,
+    .count-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .catalogue-panel {
+        position: static;
+    }
+
+    .scan-input-wrap {
+        grid-column: auto;
     }
 
     .sessions-panel {

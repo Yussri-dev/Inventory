@@ -284,6 +284,7 @@
                         @onclick:stopPropagation="true"
                         disabled="@IsSaving">
                     <span aria-hidden="true">🕒</span>
+                    <span>List</span>
                 </button>
 
                 <!-- Enregistrer en attente -->
@@ -299,6 +300,7 @@
                     <span aria-hidden="true">
                         @(CurrentPendingSaleId.HasValue ? "💾" : "📥")
                     </span>
+                    <span>Attente</span>
                 </button>
 
                 <!-- Réinitialiser la vente -->
@@ -310,6 +312,7 @@
                         @onclick:stopPropagation="true"
                         disabled="@(IsSaving || Lines.Count == 0)">
                     <span aria-hidden="true">↺</span>
+                    <span>Clear</span>
                 </button>
 
                 <!-- Action principale -->
